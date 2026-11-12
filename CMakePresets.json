@@ -1,0 +1,26 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "x64-win-msvc2026",
+            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "cacheVariables": {
+                "CMAKE_CXX_COMPILER": "cl.exe"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "x64-win-msvc2026-debug",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "Debug"
+        },
+        {
+            "name": "x64-win-msvc2026-release",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "Release"
+        }
+    ]
+}
