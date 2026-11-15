@@ -10,16 +10,9 @@
 
 #include "core/Document.h"
 #include "core/Evaluate.h"
+#include "examples/Expect.h"
 
 using namespace clothcad;
-
-static int failures = 0;
-
-static void expect(const char* what, double actual, double expected) {
-    const bool pass = std::abs(actual - expected) < 1e-9;
-    std::printf("%s  %-16s %g (expected %g)\n", pass ? "ok  " : "FAIL", what, actual, expected);
-    if (!pass) ++failures;
-}
 
 int main() {
     Document doc;

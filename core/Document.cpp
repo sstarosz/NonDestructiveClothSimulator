@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "core/internal/FieldAccess.h"
+#include "core/internal/References.h"
+
 namespace clothcad {
 
 namespace {
@@ -55,7 +58,7 @@ OpData& Document::data(OpId operation) {
 OpId Document::append(PanelId panel, OpData data) {
     PanelEntry& p = entry(panel);
     const OpId id{nextId_++};
-    p.operations.push_back({id, std::move(data)});
+    p.operations.push_back({id, std::move(data), true});
     return id;
 }
 
@@ -95,8 +98,8 @@ PanelCopy Document::copy(PanelId source, Panel description) {
         mapping.emplace_back(o.id, fresh);
         o.id = fresh;
     }
-    // When operations hold EdgeRef/CornerRef fields (Curve, Cut ...), those
-    // must be rewritten through `mapping` here so they point into the copy.
+    // A curve in the copy must bend the copy's rectangle, not the original's.
+    for (OperationEntry& o : operations) remapReferences(o.data, mapping);
 
     const PanelId id{nextId_++};
     panels_.push_back({id, std::move(description), std::move(operations)});
@@ -105,18 +108,103 @@ PanelCopy Document::copy(PanelId source, Panel description) {
 
 void Document::rename(PanelId panel, std::string name) { entry(panel).panel.name = std::move(name); }
 
+void Document::place(PanelId panel, double x, double y) {
+    Panel& p = entry(panel).panel;
+    p.x = x;
+    p.y = y;
+}
+
+void Document::turn(PanelId panel, double degrees) { entry(panel).panel.angle = degrees; }
+
+void Document::arrange(PanelId panel, Arrangement arrangement) { entry(panel).panel.arrangement = arrangement; }
+
+void Document::setConstruction(PanelId panel, bool construction) { entry(panel).panel.construction = construction; }
+
 void Document::remove(PanelId panel) {
     entry(panel);  // throws if unknown
     std::erase_if(panels_, [&](const PanelEntry& e) { return e.id == panel; });
+    std::erase_if(seams_, [&](const SeamEntry& e) { return e.seam.a.panel == panel || e.seam.b.panel == panel; });
+}
+
+// ---- Seams ------------------------------------------------------------------
+
+SeamId Document::add(Seam seam) {
+    entry(seam.a.panel);  // throws if unknown
+    entry(seam.b.panel);
+    const SeamId id{nextId_++};
+    seams_.push_back({id, std::move(seam)});
+    return id;
+}
+
+void Document::set(SeamId seam, Seam value) {
+    entry(value.a.panel);
+    entry(value.b.panel);
+    for (SeamEntry& e : seams_)
+        if (e.id == seam) {
+            e.seam = std::move(value);
+            return;
+        }
+    unknown("seam");
+}
+
+void Document::remove(SeamId seam) {
+    if (std::erase_if(seams_, [&](const SeamEntry& e) { return e.id == seam; }) == 0) unknown("seam");
+}
+
+std::vector<SeamId> Document::seams() const {
+    std::vector<SeamId> ids;
+    for (const SeamEntry& e : seams_) ids.push_back(e.id);
+    return ids;
+}
+
+bool Document::contains(SeamId seam) const {
+    return std::any_of(seams_.begin(), seams_.end(), [&](const SeamEntry& e) { return e.id == seam; });
+}
+
+const Seam& Document::get(SeamId seam) const {
+    for (const SeamEntry& e : seams_)
+        if (e.id == seam) return e.seam;
+    unknown("seam");
 }
 
 // ---- Operations -------------------------------------------------------------
+
+void Document::set(OpId operation, FieldId field, Expr value) {
+    Expr* target = fieldAt(data(operation), field.index);
+    if (!target) throw std::out_of_range("clothcad::Document: the operation has no such field");
+    *target = std::move(value);
+}
+
+void Document::set(OpId operation, ReferenceId reference, Reference value) {
+    switch (setReferenceAt(data(operation), reference.index, value)) {
+    case ReferenceChange::Done: return;
+    case ReferenceChange::NoSuchReference: throw std::out_of_range("clothcad::Document: the operation has no such reference");
+    case ReferenceChange::WrongKind: throw std::invalid_argument("clothcad::Document: that kind of thing cannot be used for this reference");
+    }
+}
 
 void Document::remove(OpId operation) {
     for (PanelEntry& p : panels_) {
         const auto erased = std::erase_if(p.operations, [&](const OperationEntry& o) { return o.id == operation; });
         if (erased > 0) return;
     }
+    unknown("operation");
+}
+
+void Document::setEnabled(OpId operation, bool enabled) {
+    for (PanelEntry& p : panels_)
+        for (OperationEntry& o : p.operations)
+            if (o.id == operation) {
+                o.enabled = enabled;
+                return;
+            }
+    unknown("operation");
+}
+
+bool Document::enabled(OpId operation) const {
+    if (const PanelEntry* p = owner(operation))
+        for (const OperationEntry& o : p->operations)
+            if (o.id == operation) return o.enabled;
     unknown("operation");
 }
 
@@ -159,6 +247,11 @@ std::vector<OpId> Document::operations(PanelId panel) const {
         return ids;
     }
     unknown("panel");
+}
+
+PanelId Document::panelOf(OpId operation) const {
+    if (const PanelEntry* p = owner(operation)) return p->id;
+    unknown("operation");
 }
 
 bool Document::contains(Param parameter) const {

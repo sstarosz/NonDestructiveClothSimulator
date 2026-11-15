@@ -10,6 +10,7 @@
 // How it is stored is private to the core.
 
 #include <memory>
+#include <optional>
 
 #include "core/Ids.h"
 #include "core/Units.h"
@@ -30,6 +31,10 @@ private:
     explicit Expr(std::shared_ptr<const ExprNode> node);
     std::shared_ptr<const ExprNode> node_;
 };
+
+// The number, if the formula is nothing but a number typed in; empty if it
+// refers to a parameter or computes anything.
+std::optional<double> asNumber(const Expr& expr);
 
 Expr operator+(const Expr& a, const Expr& b);
 Expr operator-(const Expr& a, const Expr& b);

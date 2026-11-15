@@ -26,11 +26,21 @@ Expr::Expr(Param parameter)
     : node_(std::make_shared<const ExprNode>(ExprNode{Kind::Parameter, 0.0, parameter, nullptr, nullptr})) {}
 Expr::Expr(std::shared_ptr<const ExprNode> node) : node_(std::move(node)) {}
 
+std::optional<double> asNumber(const Expr& expr) {
+    const ExprNode& node = ExprAccess::node(expr);
+    if (node.kind == Kind::Number) return node.number;
+    return std::nullopt;
+}
+
 Expr operator+(const Expr& a, const Expr& b) { return binary(Kind::Add, a, b); }
 Expr operator-(const Expr& a, const Expr& b) { return binary(Kind::Subtract, a, b); }
 Expr operator*(const Expr& a, const Expr& b) { return binary(Kind::Multiply, a, b); }
 Expr operator/(const Expr& a, const Expr& b) { return binary(Kind::Divide, a, b); }
-Expr operator-(const Expr& a) { return unary(Kind::Negate, a); }
+Expr operator-(const Expr& a) {
+    // The negative of a plain number is a plain number, not a formula.
+    if (const std::optional<double> number = asNumber(a)) return Expr(-*number);
+    return unary(Kind::Negate, a);
+}
 
 Expr min(const Expr& a, const Expr& b) { return binary(Kind::Min, a, b); }
 Expr max(const Expr& a, const Expr& b) { return binary(Kind::Max, a, b); }
