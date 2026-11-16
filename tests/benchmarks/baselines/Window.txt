@@ -1,0 +1,11 @@
+# Times in yardsticks (see tests/Perf.h). Written by --update; do not edit by hand.
+3D picture, 1500 x 1000, one thread	1.04341
+3D picture, 1500 x 1000, all threads	0.792366
+3D picture with the mesh's lines	1.00615
+frame, 2D only, nothing changing	0.0130285
+frame, 3D shown, nothing changing	0.0138502
+frame while orbiting (3D picture drawn again)	0.619828
+frame while dragging a panel on the table	0.0137177
+frame while dragging a corner, 3D shown, 1 cm particles	0.489043
+frame with a cloth step in it (2,800 particles)	2.58844
+frame while the cloth runs on its own thread	0.557735

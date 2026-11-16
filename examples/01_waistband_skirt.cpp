@@ -8,9 +8,9 @@
 #include <cmath>
 #include <cstdio>
 
-#include "core/Document.h"
-#include "core/Evaluate.h"
-#include "examples/Expect.h"
+#include "clothcad/core/Document.h"
+#include "clothcad/core/Evaluate.h"
+#include "Expect.h"
 
 using namespace clothcad;
 

@@ -1,0 +1,102 @@
+// Unit tests of Simulation.cpp: the cloth stepped on request, and on its own thread.
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <thread>
+
+#include <catch2/catch_test_macros.hpp>
+
+#include "Expect.h"
+#include "clothcad/core/Evaluate.h"
+#include "clothcad/session/Simulation.h"
+
+using namespace clothcad;
+using namespace clothcad::session;
+
+namespace {
+
+std::shared_ptr<const sim::ClothMesh> aSheet(Document& doc, double width = 30) {
+    const PanelId panel = doc.add(Panel{.name = "sheet"});
+    doc.add(panel, Rect{.width = Expr(width), .height = 30_cm});
+    doc.arrange(panel, Arrangement{.placed = true, .x = 0, .y = 100, .z = 0});
+    return std::make_shared<const sim::ClothMesh>(sim::meshOf(doc, evaluate(doc), {.particleDistance = 3_cm}));
+}
+
+double lowest(const sim::Placement& positions) {
+    double low = 1e9;
+    for (const auto& panel : positions)
+        for (const sim::Vec3& p : panel) low = std::min(low, p.y);
+    return low;
+}
+
+} // namespace
+
+TEST_CASE("stepped on request, the cloth moves one step at a time")
+{
+    Document doc;
+    const auto mesh = aSheet(doc);
+    Simulation simulation(Threading::OneStepPerAdvance);
+    simulation.start(mesh, sim::arranged(doc, *mesh), sim::Body{});
+    Simulation::News news;
+    EXPECT(simulation.fetch(news), "starting is news");
+    EXPECT((news.mesh == mesh && news.time == 0.0), "of the mesh it was given, at time zero");
+    simulation.advance();
+    EXPECT(!simulation.fetch(news), "not running, it does not step");
+    simulation.run(true);
+    for (int i = 0; i < 30; ++i) simulation.advance();
+    EXPECT(simulation.fetch(news), "running, it does");
+    EXPECT_NEAR(news.time, 0.5, "thirty steps are half a second");
+    EXPECT(lowest(news.positions) < 85.0 - 1.0, "and the sheet has fallen");
+}
+
+TEST_CASE("a changed mesh is followed and the cloth carries on")
+{
+    Document doc;
+    const auto mesh = aSheet(doc);
+    Simulation simulation(Threading::OneStepPerAdvance);
+    simulation.start(mesh, sim::arranged(doc, *mesh), sim::Body{});
+    simulation.run(true);
+    for (int i = 0; i < 20; ++i) simulation.advance();
+    Simulation::News before;
+    simulation.fetch(before);
+
+    Document wider;
+    const auto widerMesh = aSheet(wider, 36);
+    simulation.follow(widerMesh, sim::arranged(wider, *widerMesh), {});
+    Simulation::News after;
+    simulation.fetch(after);
+    EXPECT(after.mesh == widerMesh, "the news is of the new mesh");
+    EXPECT(after.time == before.time, "time carries on");
+    EXPECT(std::abs(lowest(after.positions) - lowest(before.positions)) < 3.0, "the cloth is still where it had fallen to");
+}
+
+TEST_CASE("stopped, there is no cloth")
+{
+    Document doc;
+    const auto mesh = aSheet(doc);
+    Simulation simulation(Threading::OneStepPerAdvance);
+    simulation.start(mesh, sim::arranged(doc, *mesh), sim::Body{});
+    simulation.stop();
+    Simulation::News news;
+    simulation.fetch(news);
+    EXPECT((!simulation.exists() && news.mesh == nullptr && news.positions.empty()), "nothing is left");
+}
+
+TEST_CASE("on its own thread, the cloth moves without being asked")
+{
+    Document doc;
+    const auto mesh = aSheet(doc);
+    Simulation simulation(Threading::OwnThread);
+    simulation.start(mesh, sim::arranged(doc, *mesh), sim::Body{});
+    simulation.run(true);
+    Simulation::News news;
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < until && news.time < 0.25) {
+        simulation.fetch(news);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT(news.time >= 0.25, "a quarter of a second of cloth time comes on its own");
+    EXPECT((news.time < 2.0), "at about the speed of the clock, not as fast as it can");
+    simulation.run(false);
+}

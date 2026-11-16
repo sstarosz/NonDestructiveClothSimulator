@@ -3,11 +3,20 @@
     "configurePresets": [
         {
             "name": "x64-win-msvc2026",
+            "displayName": "Windows, MSVC, vcpkg",
             "generator": "Ninja Multi-Config",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
+            "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
             "cacheVariables": {
-                "CMAKE_CXX_COMPILER": "cl.exe"
+                "CMAKE_CXX_COMPILER": "cl.exe",
+                "VCPKG_TARGET_TRIPLET": "x64-windows",
+                "CMAKE_PREFIX_PATH": "C:/Qt/6.12.0/msvc2022_64"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
             }
         }
     ],
@@ -21,6 +30,64 @@
             "name": "x64-win-msvc2026-release",
             "configurePreset": "x64-win-msvc2026",
             "configuration": "Release"
+        },
+        {
+            "name": "x64-win-msvc2026-relwithdebinfo",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "RelWithDebInfo"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "x64-win-msvc2026-release",
+            "displayName": "All tests (Release)",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "Release",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "x64-win-msvc2026-unit",
+            "displayName": "Unit tests (Debug)",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "Debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "filter": {
+                "include": {
+                    "label": "unit"
+                }
+            }
+        },
+        {
+            "name": "x64-win-msvc2026-integration",
+            "displayName": "Integration tests (Release)",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "Release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "filter": {
+                "include": {
+                    "label": "integration"
+                }
+            }
+        },
+        {
+            "name": "x64-win-msvc2026-benchmarks",
+            "displayName": "Benchmarks (Release)",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "Release",
+            "output": {
+                "verbosity": "verbose"
+            },
+            "filter": {
+                "include": {
+                    "label": "benchmark"
+                }
+            }
         }
     ]
 }
