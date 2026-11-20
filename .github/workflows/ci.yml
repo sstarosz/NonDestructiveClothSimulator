@@ -34,10 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use the runner's vcpkg
-        shell: pwsh
-        run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
-
+      # vcpkg is the one that comes with Visual Studio: the developer environment
+      # below sets VCPKG_ROOT to it. The versions come from builtin-baseline in vcpkg.json.
       - name: Restore vcpkg's built libraries
         uses: actions/cache@v4
         with:
@@ -72,6 +70,14 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      - name: Show the tools in use
+        shell: pwsh
+        run: |
+          "VCPKG_ROOT=$env:VCPKG_ROOT"
+          (Get-Command cl.exe).Source
+          (Get-Command cmake).Source; cmake --version | Select-Object -First 1
+          (Get-Command ninja).Source; ninja --version
 
       - name: Configure
         shell: pwsh
