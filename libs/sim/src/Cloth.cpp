@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
-#include <numeric>
 #include <utility>
 
 namespace clothcad::sim {
@@ -76,67 +75,12 @@ Cloth::Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric) : fab
     checkTheSeams();
     sewn_.assign(at_.size(), 0);
     for (const Thread& thread : threads_) sewn_[thread.a] = sewn_[thread.b] = 1;
-    tieKnots();
     if (!edges_.empty()) {
         std::vector<double> lengths;
         lengths.reserve(edges_.size());
         for (const Link& edge : edges_) lengths.push_back(edge.rest);
         std::nth_element(lengths.begin(), lengths.begin() + lengths.size() / 2, lengths.end());
         apart_ = 0.6 * lengths[lengths.size() / 2];
-    }
-}
-
-void Cloth::tieKnots() {
-    // Particles joined by stitches, directly or through others, are sewn into one point.
-    std::vector<uint32_t> root(at_.size());
-    std::iota(root.begin(), root.end(), 0u);
-    const auto rootOf = [&](uint32_t i) {
-        while (root[i] != i) i = root[i] = root[root[i]];
-        return i;
-    };
-    for (const Thread& thread : threads_) root[rootOf(thread.a)] = rootOf(thread.b);
-    std::vector<uint32_t> together(at_.size(), 0);
-    for (uint32_t i = 0; i < at_.size(); ++i)
-        if (sewn_[i]) ++together[rootOf(i)];
-    // Knots are numbered in the order of their first particle, so the same mesh gives the same knots.
-    std::vector<uint32_t> knotOfRoot(at_.size(), none);
-    uint32_t knots = 0;
-    for (uint32_t i = 0; i < at_.size(); ++i)
-        if (sewn_[i] && together[rootOf(i)] >= 3 && knotOfRoot[rootOf(i)] == none) knotOfRoot[rootOf(i)] = knots++;
-    firstInKnot_.assign(knots + 1, 0);
-    for (uint32_t i = 0; i < at_.size(); ++i)
-        if (sewn_[i] && knotOfRoot[rootOf(i)] != none) ++firstInKnot_[knotOfRoot[rootOf(i)] + 1];
-    std::partial_sum(firstInKnot_.begin(), firstInKnot_.end(), firstInKnot_.begin());
-    knotted_.assign(firstInKnot_.back(), 0);
-    std::vector<uint32_t> filled(firstInKnot_.begin(), firstInKnot_.end() - 1);
-    for (uint32_t i = 0; i < at_.size(); ++i)
-        if (sewn_[i] && knotOfRoot[rootOf(i)] != none) knotted_[filled[knotOfRoot[rootOf(i)]]++] = i;
-    knotOf_.resize(threads_.size());
-    for (std::size_t t = 0; t < threads_.size(); ++t) knotOf_[t] = knotOfRoot[rootOf(threads_[t].a)];
-    knotDrawnIn_.assign(knots, 0);
-}
-
-void Cloth::pullTheKnotsTight() {
-    for (std::size_t k = 0; k < knotDrawnIn_.size(); ++k) {
-        if (!knotDrawnIn_[k]) continue;
-        // Where the knot's weight balances; a pinned or held particle stays where it is and takes the rest along.
-        Vec3 weighed{}, pinned{};
-        double weight = 0.0;
-        int pins = 0;
-        for (uint32_t n = firstInKnot_[k]; n < firstInKnot_[k + 1]; ++n) {
-            const uint32_t i = knotted_[n];
-            if (lightness_[i] == 0.0) {
-                pinned = pinned + at_[i];
-                ++pins;
-            } else {
-                weighed = weighed + at_[i] * (1.0 / lightness_[i]);
-                weight += 1.0 / lightness_[i];
-            }
-        }
-        if (pins == 0 && weight <= 0.0) continue;
-        const Vec3 centre = pins > 0 ? pinned * (1.0 / pins) : weighed * (1.0 / weight);
-        for (uint32_t n = firstInKnot_[k]; n < firstInKnot_[k + 1]; ++n)
-            if (lightness_[knotted_[n]] != 0.0) at_[knotted_[n]] = centre;
     }
 }
 
@@ -436,18 +380,10 @@ void Cloth::step(const Body& body, double seconds) {
         for (int pass = 0; pass < 2; ++pass) {
             solve(edges_);
             if (pass == 0) solve(folds_);
-            if (pass == 0) {
-                for (Thread& thread : threads_) thread.left = std::max(0.0, thread.left - seamSpeed * h);
-                std::fill(knotDrawnIn_.begin(), knotDrawnIn_.end(), char{1});
-                for (std::size_t t = 0; t < threads_.size(); ++t)
-                    if (knotOf_[t] != none && threads_[t].left > 0.0) knotDrawnIn_[knotOf_[t]] = 0;
-            }
-            for (std::size_t t = 0; t < threads_.size(); ++t) {
+            for (Thread& thread : threads_) {
                 // A stitch is a thread being drawn in: it may be no longer than
                 // the thread has left, and it carries weight like any thread.
-                // A knot drawn in is put right as a whole, below.
-                if (knotOf_[t] != none && knotDrawnIn_[knotOf_[t]]) continue;
-                const Thread& thread = threads_[t];
+                if (pass == 0) thread.left = std::max(0.0, thread.left - seamSpeed * h);
                 const double wa = lightness_[thread.a], wb = lightness_[thread.b];
                 if (wa + wb <= 0.0) continue;
                 const Vec3 apart = at_[thread.b] - at_[thread.a];
@@ -457,7 +393,6 @@ void Cloth::step(const Body& body, double seconds) {
                 at_[thread.a] = at_[thread.a] + along * wa;
                 at_[thread.b] = at_[thread.b] - along * wb;
             }
-            pullTheKnotsTight();
             // Cloth keeps clear of cloth. Most listed pairs are not touching: those cost one comparison.
             {
                 Vec3* const at = at_.data();

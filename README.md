@@ -171,6 +171,11 @@ holds and hands it what the user did.
 - While seams are pulled shut the cloth slides on the body without friction.
   Seams that cannot close (the pieces do not fit, or cloth is caught on an
   arm) are given up 3 seconds after the thread is drawn in, and stay open.
+- Where three or more panel corners are sewn into one point (a band's side
+  seam meeting a skirt), the stitches there pull against each other and that
+  corner stays up to about 0.8 cm open. Pulling such a corner shut at once
+  was tried and taken back: it held a band that a seam had pulled through
+  the body in that wrong place, instead of letting it slide free.
 - While a corner is dragged, the 3D view shows the mesh a frame or a few
   behind the outline (more with fine particles).
 - A new panel stands where the table has it only within ±100 cm across and
