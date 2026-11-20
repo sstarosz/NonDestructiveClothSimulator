@@ -48,6 +48,20 @@
             }
         },
         {
+            "name": "x64-win-msvc2026-ci",
+            "displayName": "Unit and integration tests, no benchmarks (Release, as CI runs them)",
+            "configurePreset": "x64-win-msvc2026",
+            "configuration": "Release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "filter": {
+                "exclude": {
+                    "label": "benchmark"
+                }
+            }
+        },
+        {
             "name": "x64-win-msvc2026-unit",
             "displayName": "Unit tests (Debug)",
             "configurePreset": "x64-win-msvc2026",

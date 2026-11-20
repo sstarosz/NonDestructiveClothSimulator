@@ -58,7 +58,23 @@ sets):
 
 Without the presets: `cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake`.
 `-DCLOTHCAD_WINDOW=OFF` builds everything but the program that opens a
-window, for machines without a display.
+window, for machines without a display. A warning stops the build;
+`-DCLOTHCAD_WARNINGS_AS_ERRORS=OFF` lets it through, only for trying
+something out with another compiler.
+
+### Continuous integration
+
+Every pull request and every push to `main` is built and tested by GitHub
+Actions (`.github/workflows/ci.yml`): Windows, MSVC, Release, Qt 6.12 and
+the Vulkan SDK, then the unit and integration tests.
+To run the same tests locally:
+
+    ctest --preset x64-win-msvc2026-ci
+
+The runner has no graphics card, so the renderer's tests are skipped there,
+and the benchmarks are not run there (shared machines are too noisy for
+their limits): run them on your own machine when `sim`, `session` or the
+drawing changed.
 
 ## Performance
 

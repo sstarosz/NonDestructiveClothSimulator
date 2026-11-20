@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -75,17 +78,15 @@ TEST_CASE("the mannequin is a body")
 TEST_CASE("a surface from a file is a body")
 {
     // A cube written as an OBJ file, with quads, like a modelling program writes them.
-    const char* path = "/tmp/clothcad_cube.obj";
-    {
-        std::FILE* file = std::fopen(path, "w");
-        std::fputs("# a cube 20 cm across, standing on the floor\nv -10 0 -10\nv 10 0 -10\nv 10 20 -10\nv -10 20 -10\nv -10 0 10\nv 10 0 10\nv 10 20 10\nv -10 20 10\n"
-                   "vn 0 0 1\nf 5//1 6//1 7//1 8//1\nf 2 1 4 3\nf 6/1 2/1 3/1 7/1\nf 1 5 8 4\nf -1 -2 -6 -5\nf 1 2 6 5\n",
-                   file);
-        std::fclose(file);
-    }
+    // In the system's folder for temporary files: there is no /tmp on Windows.
+    const std::filesystem::path folder = std::filesystem::temp_directory_path();
+    const std::string path = (folder / "clothcad_cube.obj").string();
+    std::ofstream(path) << "# a cube 20 cm across, standing on the floor\nv -10 0 -10\nv 10 0 -10\nv 10 20 -10\nv -10 20 -10\nv -10 0 10\nv 10 0 10\nv 10 20 10\nv -10 20 10\n"
+                           "vn 0 0 1\nf 5//1 6//1 7//1 8//1\nf 2 1 4 3\nf 6/1 2/1 3/1 7/1\nf 1 5 8 4\nf -1 -2 -6 -5\nf 1 2 6 5\n";
     const LoadedSurface cube = loadObj(path);
+    std::filesystem::remove(path);
     EXPECT((cube.problem.empty() && cube.surface.points.size() == 8 && cube.surface.triangles.size() == 12), "eight corners and six quads become twelve triangles");
-    EXPECT((!loadObj("/tmp/no_such_file.obj").problem.empty()), "a missing file is reported");
+    EXPECT((!loadObj((folder / "clothcad_no_such_file.obj").string()).problem.empty()), "a missing file is reported");
 
     const Body body = bodyFrom(cube.surface);
     EXPECT((std::abs(distanceTo(body, {0, 10, 12.5}) - 2.5) < 0.05), "2.5 cm in front of a face is 2.5 cm away");

@@ -11,6 +11,9 @@ function(clothcad_warnings target)
             target_compile_options(${target} PRIVATE -Wno-maybe-uninitialized -Wno-restrict)
         endif()
     endif()
+    if(CLOTHCAD_WARNINGS_AS_ERRORS)
+        set_target_properties(${target} PROPERTIES COMPILE_WARNING_AS_ERROR ON)
+    endif()
 endfunction()
 
 # A library of the project: sources in src/, public headers in

@@ -1,0 +1,87 @@
+# Builds everything and runs the unit and integration tests on every pull
+# request and every push to main, the way the owner builds: Windows, MSVC,
+# vcpkg, Qt 6.12 and the Vulkan SDK, through the project's presets.
+#
+# Benchmarks are left out: shared runners are too noisy for their limits.
+# Run them on your own machine (ctest --preset x64-win-msvc2026-benchmarks).
+#
+# The runner has no graphics card, so the renderer's tests skip themselves
+# (they say why in the log); the window's tests run without a screen.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same pull request or branch cancels the run before it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-msvc:
+    name: Windows, MSVC, Release
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      # vcpkg keeps what it built here; the cache step below carries it between runs.
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\vcpkg-cache,readwrite
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the runner's vcpkg
+        shell: pwsh
+        run: echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+
+      - name: Restore vcpkg's built libraries
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Install Qt 6.12
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.12.0
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Install the Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: latest
+          install_runtime: false
+          cache: true
+          stripdown: true
+
+      # Puts cl.exe and Ninja on the path, as Visual Studio's developer prompt does.
+      - name: Open the MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset x64-win-msvc2026 "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR"
+
+      - name: Build
+        run: cmake --build --preset x64-win-msvc2026-release
+
+      - name: Test
+        run: ctest --preset x64-win-msvc2026-ci --output-junit ${{ github.workspace }}\test-results.xml
+
+      - name: Keep the test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ${{ github.workspace }}\test-results.xml
+          if-no-files-found: ignore

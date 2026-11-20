@@ -186,7 +186,8 @@ the budgets are in `README.md` ("Performance").
   something as working that you have not run or seen; name the part you
   could not check.
 - Treat warnings as defects (`clothcad_warnings()`: `/W4`, or `-Wall -Wextra
-  -Wpedantic -Wshadow`).
+  -Wpedantic -Wshadow`). They stop the build (`CLOTHCAD_WARNINGS_AS_ERRORS`
+  is on by default); fix the warning, never turn the option off to get past it.
 
 ## How to work with the owner
 
