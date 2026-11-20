@@ -171,3 +171,134 @@ TEST_CASE("an avatar is shown at once and can be collided with a moment later")
     EXPECT(session.bodyReady(), "and ready to collide with soon after");
     std::remove(path);
 }
+
+TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")
+{
+    // A band closed round the waist, and a skirt hanging from it.
+    Document doc;
+    const Param length = doc.add(Parameter{.name = "length", .value = 50});
+    const PanelId band = doc.add(Panel{.name = "band"});
+    const OpRef<Rect> bandRect = doc.add(band, Rect{.width = 72_cm, .height = 6_cm});
+    const PanelId skirt = doc.add(Panel{.name = "skirt"});
+    const OpRef<Rect> rect = doc.add(skirt, Rect{.width = 105_cm, .height = length});
+    doc.add(Seam{.a = {band, bandRect.left()}, .b = {band, bandRect.right()}});
+    doc.add(Seam{.a = {band, bandRect.bottom()}, .b = {skirt, rect.top()}, .reversed = true});
+    doc.arrange(band, Arrangement{.placed = true, .x = 0, .y = 108, .z = 72.0 / (2 * pi), .wrap = 350});
+    doc.arrange(skirt, Arrangement{.placed = true, .x = 0, .y = 80, .z = 105.0 / (2 * pi) + 3, .wrap = 340});
+    Session session(doc, Threading::OneStepPerAdvance);
+    session.useMannequin();
+    session.simulate(true);
+    frames(session, 120);
+    const auto waistAndHem = [&] {
+        const sim::PanelMesh& panel = *session.cloth().mesh->find(skirt);
+        const auto& at = session.cloth().positions[static_cast<std::size_t>(&panel - session.cloth().mesh->panels.data())];
+        double waist = 0.0, hem = 0.0;
+        for (uint32_t i : panel.along(rect.top())->points) waist += at[i].y / static_cast<double>(panel.along(rect.top())->points.size());
+        for (uint32_t i : panel.along(rect.bottom())->points) hem += at[i].y / static_cast<double>(panel.along(rect.bottom())->points.size());
+        return std::pair{waist, hem};
+    };
+    const auto [waist, hem] = waistAndHem();
+    REQUIRE(session.editor().change([&](Document& d) { d.set(length, Expr(60)); }));
+    session.update();
+    const auto [waistNow, hemNow] = waistAndHem();
+    std::printf("      waist %.1f -> %.1f, hem %.1f -> %.1f\n", waist, waistNow, hem, hemNow);
+    EXPECT((std::abs(waistNow - waist) < 1.5), "the waist stays where it hung (it took one step since)");
+    EXPECT((hemNow < hem - 8.0), "the new 10 cm are at the hem");
+}
+
+TEST_CASE("a draped panel moved in space takes its drape along; nothing starts again")
+{
+    Skirt start;
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.useMannequin();
+    session.simulate(true);
+    frames(session, 60);
+    session.simulate(false);
+    session.update();
+    const sim::Placement draped = session.cloth().positions;
+    const double time = session.cloth().time;
+
+    Arrangement higher = session.document().get(start.panel).arrangement;
+    higher.y += 20.0;
+    REQUIRE(session.editor().change([&](Document& doc) { doc.arrange(start.panel, higher); }, {.touches = Touches::PlacementOnly}));
+    session.update();
+    double off = 0.0;
+    for (std::size_t i = 0; i < draped.front().size(); ++i) off = std::max(off, sim::length(session.cloth().positions.front()[i] - (draped.front()[i] + sim::Vec3{0, 20, 0})));
+    EXPECT((off < 1e-9), "every particle is 20 cm higher: the drape went with it");
+    EXPECT((session.cloth().time == time), "and the cloth did not start again");
+}
+
+TEST_CASE("cloth pulled by hand runs while it is held, even when paused")
+{
+    Skirt start;
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.useMannequin();
+    session.simulate(true);
+    frames(session, 30);
+    session.simulate(false);
+    session.update();
+    const double time = session.cloth().time;
+    frames(session, 5);
+    REQUIRE(session.cloth().time == time);
+
+    const sim::Vec3 corner = session.cloth().positions.front()[0];
+    session.grab(start.panel, 0, corner + sim::Vec3{0, 0, 15});
+    EXPECT((session.pulling()), "it is held");
+    frames(session, 30);
+    EXPECT((session.cloth().time > time), "held, the cloth runs though it is paused");
+    EXPECT((sim::length(session.cloth().positions.front()[0] - (corner + sim::Vec3{0, 0, 15})) < 1e-6), "and the held particle is where the hand is");
+    session.pullTo(corner + sim::Vec3{0, 10, 15});
+    frames(session, 30);
+    EXPECT((sim::length(session.cloth().positions.front()[0] - (corner + sim::Vec3{0, 10, 15})) < 1e-6), "the hand moves on, and the particle follows");
+    session.letGo();
+    frames(session, 2);
+    const double after = session.cloth().time;
+    frames(session, 5);
+    EXPECT((!session.pulling() && session.cloth().time == after), "let go, the cloth is paused again");
+}
+
+// How far apart two placements are at most; infinite if they do not fit together.
+static double apart(const sim::Placement& a, const sim::Placement& b) {
+    if (a.size() != b.size()) return 1e300;
+    double most = 0.0;
+    for (std::size_t p = 0; p < a.size(); ++p) {
+        if (a[p].size() != b[p].size()) return 1e300;
+        for (std::size_t i = 0; i < a[p].size(); ++i) most = std::max(most, sim::length(a[p][i] - b[p][i]));
+    }
+    return most;
+}
+
+TEST_CASE("undo and redo bring the drape back")
+{
+    Skirt start;
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.useMannequin();
+    session.simulate(true);
+    frames(session, 60);
+    session.simulate(false);
+    session.update();
+    const sim::Placement before = session.cloth().positions;
+    const double timeBefore = session.cloth().time;
+
+    // A change, then the cloth runs on and drapes differently.
+    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(55)); }));
+    session.simulate(true);
+    frames(session, 60);
+    session.simulate(false);
+    session.update();
+    const sim::Placement after = session.cloth().positions;
+
+    REQUIRE(session.editor().undo());
+    session.update();
+    EXPECT((apart(session.cloth().positions, before) == 0.0 && session.cloth().time == timeBefore), "undo puts the drape back exactly as it was before the change");
+    REQUIRE(session.editor().redo());
+    session.update();
+    EXPECT((apart(session.cloth().positions, after) == 0.0), "redo brings back the drape as it was left");
+
+    // Simulating on after an undo works as ever.
+    REQUIRE(session.editor().undo());
+    session.simulate(true);
+    frames(session, 10);
+    EXPECT((session.cloth().time > timeBefore && session.shownMesh().panels.front().points.size() == session.shownPositions().front().size()),
+           "and the cloth runs on from there");
+}

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "clothcad/core/Drawing.h"
 
@@ -26,20 +27,114 @@ Box boxOf(const PanelMesh& mesh) {
 
 double radians(double degrees) { return degrees * (pi / 180.0); }
 
+// Where the table has a panel whose own centre is `centre`, a step in front of the body.
+Arrangement standingWhereTheTableHasIt(const Panel& panel, Vec2 centre) {
+    const Vec2 onTable = turned(centre, panel.angle);
+    // Into [low, high): how many times round it went, and where it lands.
+    const auto wrapped = [](double at, double low, double high) {
+        const double times = std::floor((at - low) / (high - low));
+        return std::pair{at - times * (high - low), std::abs(times)};
+    };
+    const auto [x, roundsAcross] = wrapped(panel.x + onTable.x, -standingAcross, standingAcross);
+    const auto [y, roundsUp] = wrapped(panel.y + onTable.y, standingLowest, standingHighest);
+    Arrangement standing;
+    standing.x = x;
+    standing.y = y;
+    standing.z = unarrangedDistance + standingStepForward * (roundsAcross + roundsUp);
+    standing.roll = panel.angle;
+    return standing;
+}
+
 } // namespace
 
 Arrangement arrangementOf(const Document& doc, const PanelMesh& mesh) {
     if (!doc.contains(mesh.panel)) return {};
     const Panel& panel = doc.get(mesh.panel);
     if (panel.arrangement.placed) return panel.arrangement;
-    // Where the table has the panel's centre, a step in front of the body.
-    const Vec2 centre = turned(boxOf(mesh).centre(), panel.angle);
-    Arrangement standing;
-    standing.x = panel.x + centre.x;
-    standing.y = panel.y + centre.y;
-    standing.z = unarrangedDistance;
-    standing.roll = panel.angle;
-    return standing;
+    return standingWhereTheTableHasIt(panel, mesh.anchor);
+}
+
+Arrangement firstPlace(const Panel& panel, const Pattern& outline) {
+    if (outline.vertices.empty() || !bounds(outline)) return {};
+    // A panel placed again keeps the anchor it has: the mesh already uses it.
+    const Vec2 anchor = anchorOf(panel.arrangement, outline);
+    Arrangement place = standingWhereTheTableHasIt(panel, anchor);
+    place.placed = true;
+    place.anchor = anchor;
+    return place;
+}
+
+Vec2 anchorOf(const Arrangement& arrangement, const Pattern& outline) {
+    if (arrangement.anchor) return *arrangement.anchor;
+    const std::optional<Bounds> box = bounds(outline);
+    return box ? Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0} : Vec2{};
+}
+
+Vec2 anchorAfterChange(const Document& doc, PanelId panel, const Pattern& before, const Pattern& after, Vec2 anchorBefore) {
+    // How far each sewn edge's middle moved in the panel's own coordinates.
+    struct SewnEdge {
+        Vec2 by;
+        bool sameLength;
+    };
+    std::vector<SewnEdge> sewn;
+    const auto middle = [](const Pattern& pattern, const EdgeRef& edge) {
+        const Edge& e = pattern.edge(edge);
+        const Vec2 a = pattern.vertices[e.start].position, b = pattern.vertices[e.end].position;
+        return Vec2{(a.x + b.x) / 2.0, (a.y + b.y) / 2.0};
+    };
+    for (SeamId id : doc.seams()) {
+        const Seam& seam = doc.get(id);
+        for (const SeamSide& side : {seam.a, seam.b}) {
+            if (!(side.panel == panel) || !before.contains(side.edge) || !after.contains(side.edge)) continue;
+            const Vec2 from = middle(before, side.edge), to = middle(after, side.edge);
+            sewn.push_back({{to.x - from.x, to.y - from.y}, std::abs(after.length(side.edge) - before.length(side.edge)) < 0.01_cm});
+        }
+    }
+    const bool someKeptTheirLength = std::any_of(sewn.begin(), sewn.end(), [](const SewnEdge& m) { return m.sameLength; });
+    Vec2 by{};
+    int counted = 0;
+    for (const SewnEdge& m : sewn)
+        if (m.sameLength || !someKeptTheirLength) {
+            by = {by.x + m.by.x, by.y + m.by.y};
+            ++counted;
+        }
+    if (counted == 0) {
+        // Sewn to nothing: the middle of its box stays where it was.
+        const Vec2 from = anchorOf({}, before), to = anchorOf({}, after);
+        return {anchorBefore.x + to.x - from.x, anchorBefore.y + to.y - from.y};
+    }
+    return {anchorBefore.x + by.x / counted, anchorBefore.y + by.y / counted};
+}
+
+namespace {
+
+// Roll, tilt and turn, in that order, as arranged() applies them.
+Vec3 rotated(Vec3 p, const Arrangement& in) {
+    const double cr = std::cos(radians(in.roll)), sr = std::sin(radians(in.roll));
+    const double ct = std::cos(radians(in.tilt)), st = std::sin(radians(in.tilt));
+    const double cy = std::cos(radians(in.turn)), sy = std::sin(radians(in.turn));
+    p = {p.x * cr - p.y * sr, p.x * sr + p.y * cr, p.z};
+    p = {p.x, p.y * ct - p.z * st, p.y * st + p.z * ct};
+    return {p.x * cy + p.z * sy, p.y, -p.x * sy + p.z * cy};
+}
+
+// The same undone: turn, tilt and roll back, in the opposite order.
+Vec3 unrotated(Vec3 p, const Arrangement& in) {
+    const double cr = std::cos(radians(in.roll)), sr = std::sin(radians(in.roll));
+    const double ct = std::cos(radians(in.tilt)), st = std::sin(radians(in.tilt));
+    const double cy = std::cos(radians(in.turn)), sy = std::sin(radians(in.turn));
+    p = {p.x * cy - p.z * sy, p.y, p.x * sy + p.z * cy};
+    p = {p.x, p.y * ct + p.z * st, -p.y * st + p.z * ct};
+    return {p.x * cr + p.y * sr, -p.x * sr + p.y * cr, p.z};
+}
+
+} // namespace
+
+Vec3 Motion::turned(Vec3 direction) const { return rotated(unrotated(direction, before), after); }
+
+Vec3 Motion::operator()(Vec3 point) const {
+    const Vec3 from{before.x, before.y, before.z}, to{after.x, after.y, after.z};
+    return turned(point - from) + to;
 }
 
 Placement arranged(const Document& doc, const ClothMesh& cloth) {
@@ -48,7 +143,7 @@ Placement arranged(const Document& doc, const ClothMesh& cloth) {
     for (const PanelMesh& mesh : cloth.panels) {
         const Arrangement in = arrangementOf(doc, mesh);
         const Box box = boxOf(mesh);
-        const Vec2 centre = box.centre();
+        const Vec2 centre = mesh.anchor;
         const double width = box.high.x - box.low.x;
         const double wrap = radians(in.wrap);
         const double bendRadius = std::abs(wrap) > 1e-6 && width > 1e-9 ? width / wrap : 0.0;
@@ -59,7 +154,7 @@ Placement arranged(const Document& doc, const ClothMesh& cloth) {
         std::vector<Vec3> positions;
         positions.reserve(mesh.points.size());
         for (const Vec2& point : mesh.points) {
-            // Flat, about the panel's centre; then bent around an upright axis behind it.
+            // Flat, about the panel's anchor; then bent around an upright axis behind it.
             Vec3 p{point.x - centre.x, point.y - centre.y, 0.0};
             if (bendRadius != 0.0) {
                 const double angle = p.x / bendRadius;

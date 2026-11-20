@@ -10,6 +10,11 @@
 namespace clothcad {
 
 namespace {
+constexpr std::string_view degreeSign = "\u00B0";  // °, as UTF-8
+}
+
+
+namespace {
 
 // ---- Parsing ------------------------------------------------------------------
 
@@ -102,6 +107,11 @@ private:
         else if (unit == "mm") {
             at_ += unit.size();
             value /= 10.0;
+        } else if (text_.substr(at_).starts_with(degreeSign)) {
+            at_ += degreeSign.size();
+        } else if (text_.substr(at_).starts_with("%")) {
+            at_ += 1;
+            value /= 100.0;  // a fraction: 66.7 % is 0.667
         } else at_ = beforeUnit;
         return Expr(value);
     }
@@ -228,5 +238,38 @@ bool canBeTypedInFormulas(std::string_view name) {
 std::variant<Expr, TextError> parseExpr(std::string_view text, const Document& doc) { return Parser(text, doc).run(); }
 
 std::string formatExpr(const Expr& expr, const Document& doc) { return format(ExprAccess::node(expr), doc); }
+
+std::variant<Expr, TextError> parseValue(std::string_view text, Unit unit, const Document& doc) {
+    std::size_t start = 0;
+    while (start < text.size() && text[start] == ' ') ++start;
+    if (start < text.size() && text[start] == '=') ++start;
+    std::variant<Expr, TextError> read = parseExpr(text.substr(start), doc);
+    if (Expr* value = std::get_if<Expr>(&read); value && unit == Unit::Fraction && text.find('%') == std::string_view::npos)
+        if (const std::optional<double> number = asNumber(*value)) *value = Expr(*number / 100.0);
+    if (TextError* problem = std::get_if<TextError>(&read)) problem->position += start;
+    return read;
+}
+
+std::string formatValue(double value, Unit unit) {
+    const auto plain = [](double v, int decimals) {
+        char text[48];
+        std::snprintf(text, sizeof text, "%.*f", decimals, v);
+        std::string out = text;
+        // 26.00 -> 26, 66.70 -> 66.7
+        if (out.find('.') != std::string::npos) {
+            while (out.back() == '0') out.pop_back();
+            if (out.back() == '.') out.pop_back();
+        }
+        if (out == "-0") out = "0";
+        return out;
+    };
+    switch (unit) {
+    case Unit::Length: return plain(value, 2) + " cm";
+    case Unit::Angle: return plain(value, 1) + std::string(degreeSign);
+    case Unit::Fraction: return plain(value * 100.0, 1) + " %";
+    case Unit::None: return plain(value, 3);
+    }
+    return plain(value, 3);
+}
 
 } // namespace clothcad

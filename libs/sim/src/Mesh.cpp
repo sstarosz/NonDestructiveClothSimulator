@@ -1,4 +1,5 @@
 #include "clothcad/sim/Mesh.h"
+#include "clothcad/sim/Layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -261,6 +262,7 @@ ClothMesh meshOf(const Document& doc, const Result& shapes, MeshSettings setting
         if (!doc.contains(result.panel) || doc.get(result.panel).construction) continue;
         if (result.pattern.edges.empty()) continue;
         cloth.panels.push_back(meshPanel(result.panel, result.pattern, counts, d));
+        cloth.panels.back().anchor = anchorOf(doc.get(result.panel).arrangement, result.pattern);
     }
 
     const auto indexOf = [&](PanelId panel) -> std::optional<uint32_t> {

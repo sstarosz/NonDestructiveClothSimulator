@@ -1,14 +1,15 @@
 # Non-Destructive Cloth CAD 0.1
 
 A pattern CAD for clothing in which nothing is ever baked in. Every panel is
-a short list of operations (rectangle, curve, cut, mirror ...) whose values
+a short list of operations (rectangle, curve, added point, cut, mirror ...) whose values
 can be numbers or formulas over named parameters. Change the waist and every
 panel, copy, instance and seam that depends on it follows, and the cloth on
 the body follows too.
 
 ## What 0.1 does
 
-- **Patterns in 2D**: rectangles, circles, rings, free curves, internal
+- **Patterns in 2D**: rectangles, circles, rings, points added on any edge
+  (the Point tool) to shape a shoulder, a waist or an armhole, free curves, internal
   lines, cuts and splits, mirrors that keep both halves in step, instances
   and mirrored instances, moving single corners or groups of them.
 - **Parameters and formulas**: `waist / 4 + ease`, with limits per field;
@@ -25,12 +26,22 @@ the body follows too.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Files**: save and open (`.clothcad`, plain text), undo.
+- **The window** is laid out as Maya is: a shelf of tools on top, the 3D
+  view and the table side by side (or one, or stacked), and dockable panels
+  that fold and stack as tabs: the Outliner and Parameters on the left, the
+  Attribute Editor (a panel's operations as layers) and Cloth on the right.
+  Its 3D view is drawn by the graphics card, with Vulkan.
 
 ## Building
 
 Needs CMake 3.25 or newer, a C++23 compiler (Visual Studio 2022 17.10 or
 newer, GCC 12, Clang 17) and vcpkg; the libraries in `vcpkg.json` (Catch2,
-CDT, Dear ImGui, GLFW) are built by vcpkg the first time.
+CDT) are built by vcpkg the first time. The window also needs Qt 6 (6.12 on
+Windows: the presets point `CMAKE_PREFIX_PATH` at it) and the Vulkan SDK
+(its headers, with Vulkan-Hpp, and `glslangValidator` for the shaders);
+CMake finds the SDK through the `VULKAN_SDK` variable its installer sets.
+Without them, everything but the window is built. The program is
+`clothcad`; on Windows Qt's libraries are copied next to it when it is built.
 
 **Use a Release (or RelWithDebInfo) build to work in.** A Debug build runs
 the cloth five to ten times slower, so it moves in slow motion; the interface
@@ -52,8 +63,10 @@ window, for machines without a display.
 ## Performance
 
 What a frame and a cloth step may cost is checked by two benchmark programs,
-`clothcad_core_and_sim_benchmarks` (core, meshing, cloth) and `clothcad_window_benchmarks` (whole interface frames at
-3840 x 2160, without a window). Each measurement is held to a limit in
+`clothcad_core_and_sim_benchmarks` (core, meshing, cloth) and
+`clothcad_qt_window_benchmarks` (whole frames of the window, 1600 x 900,
+without a screen: there the 3D view is drawn off screen and read back, which
+costs more than showing it). Each measurement is held to a limit in
 milliseconds and to its own baseline (`tests/benchmarks/baselines/`): a test fails
 if it gets more than 1.4 times slower than the baseline. Times are measured
 against a fixed piece of arithmetic first, so a baseline taken on one machine
@@ -64,17 +77,19 @@ After a change that makes something faster, or a deliberate trade, write new
 baselines from an optimised build and commit them with the change:
 
     clothcad_core_and_sim_benchmarks tests/benchmarks/baselines/CoreAndSim.txt --update
-    clothcad_window_benchmarks       tests/benchmarks/baselines/Window.txt --update
+    clothcad_qt_window_benchmarks    tests/benchmarks/baselines/QtWindow.txt --update
 
-The budgets, on the machine the baselines were taken on:
+The budgets, and the times on the machine the window's baselines were
+taken on (Linux, GCC 12, Vulkan in software, no screen):
 
 | What | Limit | Now |
 | --- | --- | --- |
-| A frame with nothing changing, 3D view shown | 1 ms | 0.1 ms |
-| A frame while dragging a panel on the table | 2 ms | 0.1 ms |
-| A frame while dragging a corner, 3D shown, 1 cm particles | 12 ms | 4 ms (64 ms when the frame made the mesh) |
-| A frame while orbiting (the 3D picture redrawn) | 12 ms | 4 ms |
-| A frame while the cloth runs | 12 ms | 4 ms |
+| A frame with nothing changing, both views shown | 1 ms | 0.1 ms |
+| A frame while dragging a panel on the table | 8 ms | 4 ms |
+| A frame while dragging a corner, 3D shown, 1 cm particles | 16 ms | 10 ms |
+| The 3D view orbited (drawn off screen and read back) | 60 ms | 4 ms |
+| A frame while the cloth runs on its own thread, 3D shown | 16 ms | 4 ms |
+| A frame with a cloth step in it, 3D shown | 40 ms | 30 ms |
 | One cloth step, 2,800 particles, on a body | 16 ms | 11-15 ms |
 | Meshing a skirt at 2 cm | 25 ms | 8 ms |
 
@@ -90,7 +105,10 @@ How it is kept fast:
 - **The mesh is made in the background** (`Session`). While a corner is
   dragged the 3D view shows the last mesh made and takes the next one when it
   is done, always made from the newest outlines; a frame never waits for it.
-- **The 3D picture is drawn on several threads** (`Picture`), in bands.
+- **The 3D view is drawn by the graphics card** (`libs/render`, Vulkan), and
+  its scene is made again only when what it shows has changed.
+- **The table paints its grid and the mesh's thousands of lines in batches**,
+  without smoothing; only outlines and labels are smoothed.
 
 `-DCLOTHCAD_WINDOW=OFF` builds everything but the window program;
 `libs/core` alone has no dependencies.
@@ -100,9 +118,9 @@ How it is kept fast:
 1. Rectangle tool: draw two panels of about 46 x 55 cm.
 2. Sew tool: click the right edge of one and the left edge of the other;
    then the two remaining side edges.
-3. Select the first panel. Under "In space" set Across 0, Height 95,
-   Forward 24, Wrap 110. For the second: Forward -24, Turn 180, Wrap 110.
-4. Press Simulate above the 3D view.
+3. Select the first panel. In the Attribute Editor, under "In space", set
+   x 0, y 95, z 24, Wrap 110. For the second: z -24, Turn 180, Wrap 110.
+4. Press Simulate on the shelf (or Space).
 5. Change a width while it hangs.
 
 ## How the code is laid out
@@ -112,8 +130,9 @@ How it is kept fast:
 | `libs/core/` | The document (parameters, panels, operations, seams), formulas, evaluation to 2D outlines, files | nothing |
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
 | `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread | `core`, `sim` |
-| `apps/imgui/` | The window of 0.1: 2D table, 3D view, details. To be replaced by a Qt window | `session`, Dear ImGui, GLFW |
-| `examples/` | Five small garments as programs | `core` |
+| `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move `Gizmo`. Built when the Vulkan SDK is found | `session`, Vulkan headers |
+| `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers) and Cloth, 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
+| `examples/` | Six small garments as programs, the sixth a T-shirt body | `core` |
 | `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` | everything |
 
 The core never draws and the window never computes: `evaluate(doc)` turns a
@@ -128,15 +147,31 @@ holds and hands it what the user did.
   about 1 cm apart, and cloth pulled open or moving very fast can slip
   through.
 - One fabric for everything, with fixed properties; no pins in the window.
-- The 3D picture is worked out on the processor, without smoothing of edges;
-  orbiting a large view costs about 4 ms a frame.
 - The avatar must be one closed surface in cm, y up, facing +z.
-- No file dialog: files are named by typing a path.
 - Seams join whole edges, one to one.
+- A panel grows away from its sewn edges that kept their length. If every
+  sewn edge changed (only side seams, and the panel got longer) it grows about
+  the middle of those edges; a turn of the outline itself is not followed.
 - While seams are pulled shut the cloth slides on the body without friction.
   Seams that cannot close (the pieces do not fit, or cloth is caught on an
   arm) are given up 3 seconds after the thread is drawn in, and stay open.
 - While a corner is dragged, the 3D view shows the mesh a frame or a few
   behind the outline (more with fine particles).
+- A new panel stands where the table has it only within ±100 cm across and
+  0-200 cm up around the body; further out it wraps round, a step further
+  forward each time, and may then stand in front of another panel.
+- Pulling the cloth holds one particle; the cloth runs while it is held and
+  stops again when it is let go, if it was paused.
+- Moving a draped panel's place carries its drape rigidly; a change of wrap
+  is not applied to cloth that is already draped (press Reset for that).
+- Undo and redo bring back the drape of the last 64 states.
+- A point added on a sewn edge splits it: the seam then sews only the part
+  before the point, and the part after it must be sewn on its own.
+- The mannequin's arms hang close to its sides, so a loose top without
+  sleeves (sample 6) is caught on them at the underarm. On the mannequin
+  without arms, or with the sides arranged under the arms, it drapes well.
+- The 3D view draws without smoothing of edges (no multisampling) and one
+  picture at a time (the processor waits for each before the next). Drawing
+  into a window is checked only by hand: the tests draw off screen.
 
 See `ROADMAP.md` for what comes next.

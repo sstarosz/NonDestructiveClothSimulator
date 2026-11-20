@@ -22,7 +22,8 @@ These came up again and again and outrank convenience:
    `OpRef<Rect> rect = doc.add(panel, Rect{.width = waist / 2, .height = 4_cm});`
 5. **Easy to test.** Everything that matters works without a window.
 6. **Viewport-driven interface.** Work happens on the table and in the 3D
-   view with a small toolbar; the details pane only shows and fine-tunes.
+   view with a small shelf; the docks (Attribute Editor, Parameters) only
+   show and fine-tune.
 7. **Small steps.** One contained piece at a time, with its limits written
    down, not a large rewrite.
 
@@ -32,10 +33,12 @@ These came up again and again and outrank convenience:
 | --- | --- | --- |
 | `libs/core/` | Document, formulas, operations, evaluation to 2D outlines, files | the standard library only |
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
-| `libs/session/` | One document being edited and all worked out from it: `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step) | `core`, `sim` |
-| `apps/imgui/` | The window of 0.1 (`App`, `Canvas`, `View3D`, `Picture`), until the Qt window replaces it | `session`, Dear ImGui, GLFW |
-| `examples/` | Five garments as small programs; they also run as tests | `core` |
-| `tests/integration/` | Tests across libraries and of whole programs | anything |
+| `libs/session/` | One document being edited and all worked out from it: `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table changes), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples` | `core`, `sim` |
+| `libs/render/` | The 3D view's drawing with Vulkan through Vulkan-Hpp (`vk::raii`, loaded at run time, no VMA): `Scene` is plain data, `Renderer` draws it into a picture (tests) or a window's `Swapchain`; `sceneOf` turns a session into a scene; `Picking` finds what is under the mouse, `Gizmo` is the move gizmo. Its tests skip where there is no Vulkan | `session`, Vulkan headers |
+| `apps/qt/` | The window (`clothcad`, Qt 6 Widgets): `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `ClothPanel`, `TableView`, `SpaceView` only show and report | `session`, `render`, Qt 6 Widgets |
+| `examples/` | Six garments as small programs; they also run as tests | `core` |
+| `tests/integration/` | The whole window, driven through its widgets without a screen (`QtWindowTests`) | anything |
+| `tests/benchmarks/` | Frame and step times against baselines (`Perf.h`) | anything |
 | `tests/benchmarks/` | How long things take, against baselines | anything |
 
 Each library has `include/clothcad/<library>/` (its public headers, the only
@@ -58,6 +61,10 @@ Never make `core` depend on anything, never put drawing in `core`, `sim` or
 - **`core` recomputes from scratch.** No caches, dirty flags or threads in
   `core`. `session` keeps results and works them out again only when their
   inputs change (version numbers, see Performance).
+- **Units are shown everywhere.** Every field states its `Unit` (length,
+  angle, fraction, plain) in `core/Fields.cpp`, a parameter carries one too;
+  the window shows `formatValue` ("26 cm", "25°", "66.7 %") and reads what is
+  typed with `parseValue` (a bare number is in the field's unit).
 - **Fields have a contract.** Every formula field is listed in
   `core/Fields.cpp` with its `Limits`; evaluation reads values through that
   table. A new field without limits is a bug.
@@ -70,9 +77,21 @@ Never make `core` depend on anything, never put drawing in `core`, `sim` or
   snapshots in a `std::shared_ptr<const T>` (the mesh, the outlines). A
   pointer or reference handed to a function is for that call only; no class
   keeps a raw pointer to something another class owns.
-- **What a formula drives is locked** in the viewport (`apps/imgui/Locks`).
+- **What a formula drives is locked** in the viewport (`libs/session/Locks`).
 - **Placement is not shape.** A panel's place on the table, its angle and
   its `Arrangement` in space never change its outline.
+- **The table and space are separate.** A panel gets its place in space once,
+  when it first has an outline (`session::Editor`, `sim::firstPlace`); after
+  that, moving or turning it on the table does not move it in space.
+- **Panels grow away from their seams.** An arrangement places a panel by
+  its anchor (`Arrangement::anchor`); when the outline changes, the editor
+  moves the anchor with the sewn edges that kept their length, and the
+  draped cloth is carried over by the same anchor. A moved anchor is a change
+  of shape, never a reason to place the cloth again. A shape dragged by hand
+  on the table (`Grows::WhereDragged`) keeps its own coordinates instead.
+- **Nothing starts a panel's cloth again but Reset.** A panel moved in space
+  takes its drape along (`sim::Motion`); undo and redo bring the drape back
+  (`Session` keeps it per `Editor::step`); pulling the cloth changes no document.
 - **The simulation is deterministic**, in cm, seconds and grams.
 - Units: lengths in cm, angles in degrees, with the literals `_cm`, `_mm`,
   `_deg`. Outlines run counter-clockwise. In space y is up, the floor is
@@ -105,18 +124,29 @@ Never make `core` depend on anything, never put drawing in `core`, `sim` or
 6. `libs/core/tests/EvaluateTests.cpp` (what it does, how it fails),
    `ReferencesTests.cpp` (it survives a copy) and `FileTests.cpp` (it
    survives save and open).
-7. If it has a tool: a `Gesture` in `apps/imgui/Tools.h`, reported by `Canvas`,
-   handled in `App::on(...)`, with a hint and a toolbar entry.
+7. If it has a tool: a gesture struct in `libs/session/Drafting.h`, handled
+   in `Drafting::on(...)` (with a test in `DraftingTests.cpp`), reported by
+   `TableView`, with an icon, a hint and a shelf entry (`Shelf.cpp`). If it
+   can be added from a list, an entry in `session/Offers`.
 
 ## Working in the window
 
-- `Canvas` and `View3D` only report what the user did (gestures, events).
-  `App` decides what that changes in the document.
+- `TableView` and `SpaceView` only report what the user did (a
+  `session::Gesture`, or a signal); the docks report what was typed or
+  clicked. `MainWindow` decides what that changes, through
+  `session::Drafting` and `Editor::change`.
+- What the views need worked out (picking, the gizmo, lengths, locks) lives
+  in `libs/render` or `libs/session`, where it is tested without Qt.
 - On a symmetric panel (mirror applied last), actions on the mirrored side
   are turned into actions on the drawn side (`drawnSide`, `acrossTheMirror`).
-- Colours with a meaning live in `apps/imgui/Style.h`: teal = driven by a formula,
-  violet = instance, pink = symmetry, blue = seam, amber = selected.
-- Sizes scale with `pixel()`; the owner uses a 4K display.
+- Colours with a meaning live in `apps/qt/Theme.h` (and, for the 3D view,
+  `libs/render`): teal = driven by a formula, violet = instance, pink =
+  symmetry, blue = seam, amber = selected; x red, y green, z blue.
+- The owner uses a 4K display: Qt scales the widgets with the system; the 3D
+  view works in picture pixels (`SpaceView::pixelScale`), so its gizmo is as
+  easy to take hold of at any scale.
+- Little text: no explanations on screen, units on every number, hints in
+  the help line.
 
 ## Performance
 

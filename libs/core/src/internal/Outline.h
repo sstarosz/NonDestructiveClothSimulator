@@ -46,6 +46,10 @@ std::optional<Vec2> firstHit(const Pattern& pattern, Vec2 origin, double angleDe
 Problem cut(Pattern& pattern, Vec2 from, Vec2 to, bool keepLeft,
             const EdgeRef& cutEdge, const CornerRef& startCorner, const CornerRef& endCorner);
 
+// Adds a corner `along` the way along an edge (0 its start, 1 its end),
+// splitting it: the first part keeps the edge's name, the second is `after`.
+Problem addPoint(Pattern& pattern, const EdgeRef& edge, double along, const CornerRef& corner, const EdgeRef& after);
+
 // Reflects the outline across one of its straight edges and joins the halves.
 Problem mirror(Pattern& pattern, const EdgeRef& axis, OpId mirrorOp);
 

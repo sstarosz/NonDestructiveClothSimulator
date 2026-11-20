@@ -2,7 +2,7 @@
 // One open document and everything worked out from it: the outlines, the
 // cloth mesh, where the panels are in space, the body, and the cloth in
 // motion. It knows nothing of windows: a window shows what it holds and
-// hands it what the user did. Qt, the ImGui window and the tests all use it.
+// hands it what the user did. The window and the tests both use it.
 //
 //   Session session(std::move(doc));
 //   session.editor().change(...);       // every change of the document
@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <expected>
 #include <future>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -76,6 +77,17 @@ public:
     const Simulation::News& cloth() const { return cloth_; }
     // How the cloth runs; changing it resets the cloth.
     void setThreading(Threading threading);
+    Threading threading() const { return threading_; }
+
+    // ---- Pulling the cloth by hand ----
+    // Takes hold of a particle of the cloth shown and leads it to `to`, as a
+    // hand would. While it is held the cloth runs, even when it is not being
+    // simulated. `point` indexes the panel's particles in cloth().mesh.
+    // A panel carried through space meanwhile keeps the hold; a new mesh ends it.
+    void grab(PanelId panel, std::uint32_t point, sim::Vec3 to);
+    void pullTo(sim::Vec3 to);
+    void letGo();
+    bool pulling() const { return held_.has_value(); }
 
     // What to draw in space: the cloth when there is some, else the panels
     // where they are arranged. The positions belong to that mesh.
@@ -92,15 +104,16 @@ public:
 
 private:
     // Where a panel is placed, for telling whether it has been placed elsewhere since the cloth took it.
+    // Where a panel stands in space, its anchor left out: a moved anchor is a
+    // change of shape, not of place.
     struct Placed {
         PanelId panel;
         Arrangement arrangement;
-        double tableX, tableY, tableAngle;  // these place a panel that has no arrangement of its own
         friend bool operator==(const Placed&, const Placed&) = default;
     };
     std::vector<Placed> placedNow() const;
     sim::Body bodyInSimulation() const { return bodyPresent_ ? body_ : sim::Body{}; }
-    bool remesh();
+    bool remesh(bool now);
     bool takeMeshIfMade(bool wait);
     bool fits(const sim::ClothMesh& mesh) const;
 
@@ -138,7 +151,22 @@ private:
     std::unique_ptr<Simulation> simulation_;
     Simulation::News cloth_;
     bool simulating_ = false;
-    std::vector<Placed> clothPlaced_;  // where each panel was placed when it joined the cloth
+    std::vector<Placed> clothPlaced_;  // where each panel stood the last time the cloth was told
+    struct Held {
+        std::uint32_t panel, point;  // panel indexes cloth_.mesh's panels
+    };
+    std::optional<Held> held_;
+
+    // The drape as it was when each state of the history was left, so that
+    // undo and redo bring it back (keyed by Editor::step).
+    struct Drape {
+        std::shared_ptr<const sim::ClothMesh> mesh;
+        sim::Placement positions;
+        double time = 0.0;
+        bool sewing = false;
+    };
+    std::map<std::uint64_t, Drape> drapes_;
+    std::uint64_t shownStep_ = 0;
 
     std::uint64_t sceneVersion_ = 1;
 };

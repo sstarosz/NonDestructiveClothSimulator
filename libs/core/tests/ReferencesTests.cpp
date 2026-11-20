@@ -33,3 +33,20 @@ TEST_CASE("copy points references at the copy")
     EXPECT((result.ok()), "no errors");
     EXPECT((result[copy].edge(copyRect.top()).arc.has_value()), "the copy is curved");
 }
+
+TEST_CASE("a copied point is on the copy's edge, and so is its after-part")
+{
+    Document doc;
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 10_cm, .height = 20_cm});
+    const OpRef<AddPoint> point = doc.add(original, AddPoint{.at = {rect.top(), 0.5}});
+    const OpRef<Curve> curve = doc.add(original, Curve{.edge = point.after(rect.top()), .bulge = 1_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> copyRect = copy[rect];
+    const OpRef<AddPoint> copyPoint = copy[point];
+    EXPECT((doc.get(copyPoint).at.edge == copyRect.top()), "the copied point splits the copy's top");
+    EXPECT((doc.get(copy[curve]).edge == copyPoint.after(copyRect.top())), "and what refers to its after-part follows it to the copy");
+    const Result result = evaluate(doc);
+    EXPECT((result.ok() && result[copy].edge(copyPoint.after(copyRect.top())).arc.has_value()), "the copy's after-part is curved, as the original's is");
+}

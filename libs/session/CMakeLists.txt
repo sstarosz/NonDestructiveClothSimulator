@@ -4,7 +4,12 @@
 find_package(Threads REQUIRED)
 clothcad_library(session
     SOURCES
+        src/Drafting.cpp
         src/Editor.cpp
+        src/Lengths.cpp
+        src/Locks.cpp
+        src/Offers.cpp
+        src/Samples.cpp
         src/Session.cpp
         src/Simulation.cpp
     DEPENDS clothcad::core clothcad::sim Threads::Threads

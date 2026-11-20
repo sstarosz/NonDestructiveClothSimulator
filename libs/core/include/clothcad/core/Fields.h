@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "clothcad/core/Operations.h"
+#include "clothcad/core/Units.h"
 
 namespace clothcad {
 
@@ -35,6 +36,7 @@ struct Limits {
     static Limits moreThan(double low);                  // low < value
     static Limits moreThanUpTo(double low, double high); // low < value <= high
     static Limits between(double low, double high);      // low <= value <= high
+    static Limits strictlyBetween(double low, double high);  // low < value < high
 
     bool allows(double value) const;
     std::string rule() const;  // "must be greater than 0"; empty when every number is allowed
@@ -45,6 +47,7 @@ struct Field {
     std::string_view label;  // "Width"
     Expr value;
     Limits limits;
+    Unit unit;  // what it measures: shown and typed as 26 cm, 25°, 66.7 %
 };
 
 std::string_view label(const OpData& operation);  // "Rectangle"

@@ -36,17 +36,47 @@ void Simulation::start(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placemen
     hand([this, mesh = std::move(mesh), arranged = std::move(arranged), body = std::move(body)]() mutable {
         body_ = std::move(body);
         cloth_.emplace(*mesh, arranged);
+        held_.reset();
         mesh_ = std::move(mesh);
         failed_ = false;
         publish();
     });
 }
 
-void Simulation::follow(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, std::vector<PanelId> placeAgain) {
-    hand([this, mesh = std::move(mesh), arranged = std::move(arranged), placeAgain = std::move(placeAgain)]() mutable {
+void Simulation::follow(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, std::vector<sim::Moved> moved) {
+    hand([this, mesh = std::move(mesh), arranged = std::move(arranged), moved = std::move(moved)]() mutable {
         if (!cloth_ || !mesh_) return;
-        cloth_.emplace(sim::Cloth::continued(*mesh, arranged, *cloth_, *mesh_, placeAgain));
+        cloth_.emplace(sim::Cloth::continued(*mesh, arranged, *cloth_, *mesh_, moved));
+        // The same mesh, its panels only carried: the same particle can be held still.
+        if (held_ && mesh == mesh_) cloth_->hold(held_->panel, held_->point, held_->to);
+        else held_.reset();
         mesh_ = std::move(mesh);
+        publish();
+    });
+}
+
+void Simulation::hold(std::uint32_t panel, std::uint32_t point, sim::Vec3 to) {
+    hand([this, panel, point, to] {
+        if (!cloth_) return;
+        held_ = Held{panel, point, to};
+        cloth_->hold(panel, point, to);
+    });
+}
+
+void Simulation::letGo() {
+    hand([this] {
+        held_.reset();
+        if (cloth_) cloth_->letGo();
+    });
+}
+
+void Simulation::restore(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement positions, double time, bool sewing) {
+    hand([this, mesh = std::move(mesh), positions = std::move(positions), time, sewing]() mutable {
+        if (!cloth_) return;
+        cloth_.emplace(sim::Cloth::resumed(*mesh, positions, time, !sewing));
+        mesh_ = std::move(mesh);
+        held_.reset();
+        failed_ = false;
         publish();
     });
 }
@@ -68,6 +98,7 @@ void Simulation::stop() {
     exists_ = false;
     hand([this] {
         cloth_.reset();
+        held_.reset();
         mesh_.reset();
         publish();
     });

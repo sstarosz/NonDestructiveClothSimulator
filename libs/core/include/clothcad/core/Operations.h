@@ -5,7 +5,7 @@
 // Starting operations create a panel's outline and must come first:
 //   Rect, Circle, RingSector, Instance
 // Modifying operations change the outline made so far:
-//   Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint
+//   Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint
 // Offcut is a starting operation too: the piece a cut in another panel removes.
 
 #include <concepts>
@@ -266,7 +266,31 @@ struct AdjustPoint {
     };
 };
 
-using OpData = std::variant<Rect, Circle, RingSector, Instance, Offcut, Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint>;
+// Adds a corner on an edge, splitting it in two: what a shoulder, a side
+// seam's waist or an armhole needs before AdjustPoint can shape it. The part
+// before the point keeps the edge's name (a seam on it now sews that part);
+// the part after it is point.after(edge). A curved edge stays the same
+// curve, in two pieces. The point keeps its place along the edge (0 its
+// start, 1 its end) when the panel changes.
+//
+//   OpRef<AddPoint> shoulder = doc.add(front, AddPoint{.at = {body.top(), 0.3}});
+//   doc.add(front, AdjustPoint{.corner = shoulder.corner(), .dx = 0_cm, .dy = -4_cm});
+struct AddPoint {
+    EdgePoint at;
+
+    enum class Corner : uint16_t { Point };
+
+    struct Names {
+        OpId id;
+        CornerRef corner() const { return {id, static_cast<uint16_t>(Corner::Point)}; }
+        EdgeRef after(EdgeRef original) const {
+            original.via.push_back(id);
+            return original;
+        }
+    };
+};
+
+using OpData = std::variant<Rect, Circle, RingSector, Instance, Offcut, Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint>;
 
 // True only for the exact types listed in OpData.
 template <class T, class Variant>

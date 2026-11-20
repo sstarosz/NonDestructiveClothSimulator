@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <tuple>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -195,6 +196,58 @@ TEST_CASE("a band sewn shut, with a skirt sewn to it, closes every seam on a bod
     }
 }
 
+TEST_CASE("a T-shirt body shaped with added points sews shut on a body")
+{
+    // As examples/06_tshirt_body.cpp: halves with a neck point and an
+    // underarm point, shoulders sloped, mirrored; sewn at sides and shoulders,
+    // each a drawn edge to a mirrored one, which runs the other way.
+    Document doc;
+    const auto half = [&](const char* name, double neckDrop) {
+        const PanelId panel = doc.add(Panel{.name = name});
+        const OpRef<Rect> body = doc.add(panel, Rect{.width = 26_cm, .height = 66_cm});
+        const OpRef<AddPoint> neck = doc.add(panel, AddPoint{.at = {body.top(), Expr(18.0 / 26.0)}});
+        const OpRef<AddPoint> underarm = doc.add(panel, AddPoint{.at = {body.right(), Expr(44.0 / 66.0)}});
+        doc.add(panel, AdjustPoint{.corner = body.topRight(), .dx = -3_cm, .dy = -4_cm});
+        doc.add(panel, Curve{.edge = underarm.after(body.right()), .bulge = -2_cm});
+        doc.add(panel, AdjustPoint{.corner = body.topLeft(), .dx = 0_cm, .dy = Expr(-neckDrop)});
+        doc.add(panel, Bezier{.edge = neck.after(body.top()), .startHandle = {0_cm, Expr(-neckDrop * 0.6)}, .endHandle = {4_cm, 0_cm}});
+        const OpRef<Mirror> fold = doc.add(panel, Mirror{.across = body.left()});
+        return std::tuple{panel, body, fold};
+    };
+    const auto [front, frontBody, frontFold] = half("front", 8.0);
+    const auto [back, backBody, backFold] = half("back", 2.0);
+    const auto sew = [&](EdgeRef a, EdgeRef b) { doc.add(Seam{.a = {front, a}, .b = {back, b}}); };
+    sew(frontBody.right(), backFold.image(backBody.right()));
+    sew(frontFold.image(frontBody.right()), backBody.right());
+    sew(frontBody.top(), backFold.image(backBody.top()));
+    sew(frontFold.image(frontBody.top()), backBody.top());
+    doc.arrange(front, Arrangement{.placed = true, .x = 0, .y = 108, .z = 16, .wrap = 150});
+    doc.arrange(back, Arrangement{.placed = true, .x = 0, .y = 108, .z = -16, .turn = 180, .wrap = 150});
+
+    const Result shapes = evaluate(doc);
+    REQUIRE(shapes.ok());
+    const ClothMesh mesh = meshOf(doc, shapes, {.particleDistance = 2_cm});
+    Cloth cloth(mesh, arranged(doc, mesh));
+    // A dress form: the mannequin without its arms. Its arms hang so close
+    // to the body at the underarm that a loose top without sleeves is caught
+    // on them (a known limit of the mannequin's pose, not of the pattern).
+    Body body = mannequin();
+    std::erase_if(body.parts, [](const Capsule& c) { return std::abs(c.a.x) > 15.0 || std::abs(c.b.x) > 15.0; });
+    run(cloth, body, 6.0);
+    double widest = 0.0, deepest = 1e9, lowest = 1e9;
+    for (const Stitch& stitch : mesh.stitches)
+        widest = std::max(widest, length(cloth.positions()[stitch.panelA][stitch.pointA] - cloth.positions()[stitch.panelB][stitch.pointB]));
+    for (const auto& panel : cloth.positions())
+        for (const Vec3& p : panel) deepest = std::min(deepest, distanceTo(body, p)), lowest = std::min(lowest, p.y);
+    std::printf("      T-shirt: widest stitch %.2f cm, nearest to the body %.2f cm, hem down to %.1f cm, stretch %.1f%%, fastest %.1f cm/s\n", widest, deepest,
+                lowest, 100 * worstStretch(mesh, cloth.positions()), cloth.fastest());
+    EXPECT((cloth.sound() && !cloth.sewing()), "it is sewn, and every position is a number");
+    EXPECT((widest < 0.6), "every stitch is closed");
+    EXPECT((deepest > 0.15), "no particle is inside the body");
+    EXPECT((lowest > 70.0), "it hangs from the shoulders, not lower");
+    EXPECT((worstStretch(mesh, cloth.positions()) < 0.15 && cloth.fastest() < 5.0), "and has settled, nowhere stretched much");
+}
+
 TEST_CASE("cloth stays draped when the pattern changes")
 {
     // A cloth hanging over a ball; then the pattern is made wider.
@@ -220,8 +273,9 @@ TEST_CASE("cloth stays draped when the pattern changes")
     for (std::size_t i = 0; i < mesh.panels[0].points.size(); ++i) moved = std::max(moved, length(same.positions()[0][i] - cloth.positions()[0][i]));
     EXPECT((moved < 1e-9 && same.time() == cloth.time()), "carried over to the same pattern, every particle stays where it is");
 
-    // Wider by 10 cm: the cloth there was stays draped, the new strip continues from its edge.
-    doc.set(rect, &Rect::width, 60_cm);
+    // Wider by 12 cm: the cloth there was stays draped, and a panel sewn to
+    // nothing grows about its middle: a new strip continues from each side.
+    doc.set(rect, &Rect::width, 62_cm);
     const ClothMesh wider = meshOf(doc, evaluate(doc), {.particleDistance = 2_cm});
     Cloth carried = Cloth::continued(wider, arranged(doc, wider), cloth, mesh);
     const auto after = heights(carried);
@@ -235,11 +289,11 @@ TEST_CASE("cloth stays draped when the pattern changes")
     double off = 0.0;
     for (std::size_t n = 0; n < wider.panels[0].points.size(); ++n)
         for (std::size_t i = 0; i < mesh.panels[0].points.size(); ++i)
-            if (std::hypot(mesh.panels[0].points[i].x - wider.panels[0].points[n].x, mesh.panels[0].points[i].y - wider.panels[0].points[n].y) < 1e-9) {
+            if (std::hypot(mesh.panels[0].points[i].x - (wider.panels[0].points[n].x - 6.0), mesh.panels[0].points[i].y - wider.panels[0].points[n].y) < 1e-9) {
                 ++shared;
                 off = std::max(off, length(carried.positions()[0][n] - cloth.positions()[0][i]));
             }
-    EXPECT((shared > 300 && off < 1e-9), "particles that exist in both patterns are exactly where they were");
+    EXPECT((shared > 300 && off < 1e-9), "particles at the same spot from the middle are exactly where they were");
     run(carried, ball, 2.0);
     double deepest = 1e9;
     for (const Vec3& p : carried.positions()[0]) deepest = std::min(deepest, distanceTo(ball, p));
@@ -254,9 +308,52 @@ TEST_CASE("cloth stays draped when the pattern changes")
     Cloth withExtra = Cloth::continued(two, arranged(doc, two), carried, wider);
     EXPECT((std::abs(heights(withExtra, 1).second - 125.0) < 1e-9), "a new panel starts where it is arranged");
     EXPECT((std::abs(heights(withExtra, 0).second - heights(carried).second) < 1e-6), "while the first stays draped");
-    // Asked to, a panel is placed again.
-    Cloth again = Cloth::continued(two, arranged(doc, two), withExtra, two, {panel});
-    EXPECT((std::abs(heights(again, 0).first - 80.0) < 1e-9 && std::abs(heights(again, 0).second - 80.0) < 1e-9), "a panel listed to be placed again is back at its arrangement");
+    // Carried through space while it hangs: a quarter turn and 30 cm up. It
+    // goes as a whole, drape and all; nothing starts again.
+    const Arrangement was = doc.get(panel).arrangement;
+    Arrangement now = was;
+    now.y += 30.0;
+    now.turn += 90.0;
+    const Motion motion{.before = was, .after = now};
+    Cloth carriedOff = Cloth::continued(two, arranged(doc, two), withExtra, two, {Moved{panel, motion}});
+    double furthest = 0.0;
+    for (std::size_t i = 0; i < two.panels[0].points.size(); ++i)
+        furthest = std::max(furthest, length(carriedOff.positions()[0][i] - motion(withExtra.positions()[0][i])));
+    EXPECT((furthest < 1e-9), "a panel carried through space takes its drape with it");
+    EXPECT((std::abs(heights(carriedOff, 0).second - (heights(withExtra, 0).second + 30.0)) < 1e-9), "30 cm higher, as it was carried");
+    const Vec3 sideways = motion.turned({1, 0, 0});
+    EXPECT((std::abs(sideways.x) < 1e-12 && std::abs(sideways.z + 1.0) < 1e-12), "and turned a quarter about the vertical");
+}
+
+TEST_CASE("a held particle is led by the hand and the cloth follows it")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "cloth"});
+    doc.add(panel, Rect{.width = 30_cm, .height = 30_cm});
+    doc.arrange(panel, Arrangement{.placed = true, .x = 0, .y = 5, .z = 0, .tilt = 90});  // lying flat, just above the floor
+    const ClothMesh mesh = meshOf(doc, evaluate(doc), {.particleDistance = 2_cm});
+    Cloth cloth(mesh, arranged(doc, mesh));
+    const Body nobody;
+    run(cloth, nobody, 1.0);
+    const Vec3 start = cloth.positions()[0][0];
+    const Vec3 up = start + Vec3{0, 40, 0};
+    cloth.hold(0, 0, up);
+    EXPECT((cloth.holding()), "it is held");
+    run(cloth, nobody, 0.05);
+    const double partWay = cloth.positions()[0][0].y - start.y;
+    EXPECT((partWay > 5.0 && partWay < 40.0), "it goes towards the hand at the hand's pace, not at once");
+    run(cloth, nobody, 1.5);
+    double highest = 0.0;
+    for (std::size_t i = 1; i < cloth.positions()[0].size(); ++i) highest = std::max(highest, cloth.positions()[0][i].y);
+    std::printf("      held corner at %.1f cm up; the rest of the cloth reaches %.1f cm, stretch %.1f%%\n", cloth.positions()[0][0].y, highest,
+                100 * worstStretch(mesh, cloth.positions()));
+    EXPECT((length(cloth.positions()[0][0] - up) < 1e-9), "then it is where the hand is");
+    EXPECT((highest > 30.0 && worstStretch(mesh, cloth.positions()) < 0.1), "and the cloth hangs from it, whole");
+    cloth.letGo();
+    run(cloth, nobody, 2.0);
+    EXPECT((!cloth.holding() && cloth.positions()[0][0].y < 2.0), "let go, it falls back to the floor");
+    cloth.hold(0, 99999, up);
+    EXPECT((!cloth.holding()), "a particle that is not there is not held");
 }
 
 TEST_CASE("cloth does not pass through cloth")

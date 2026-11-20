@@ -8,6 +8,10 @@
 
 namespace clothcad::session {
 
+namespace {
+constexpr std::size_t keptDrapes = 64;  // about 70 kB each at 2,800 particles
+}
+
 Session::Session(Document document, Threading threading)
     : editor_(std::move(document)), threading_(threading), simulation_(std::make_unique<Simulation>(threading)) {}
 
@@ -15,6 +19,7 @@ void Session::open(Document document) {
     resetCloth();
     if (meshing_.mesh.valid()) meshing_.mesh.wait();  // of the old document; dropped
     meshing_ = {};
+    drapes_.clear();
     editor_.replace(std::move(document));
 }
 
@@ -47,11 +52,31 @@ std::expected<void, std::string> Session::loadAvatar(const std::string& path) {
 // ---- The cloth ---------------------------------------------------------------------
 
 void Session::resetCloth() {
+    held_.reset();
     simulation_->stop();
     simulation_->fetch(cloth_);
     simulating_ = false;
     clothPlaced_.clear();
     ++sceneVersion_;
+}
+
+void Session::grab(PanelId panel, std::uint32_t point, sim::Vec3 to) {
+    if (!clothShown()) return;
+    const std::vector<sim::PanelMesh>& panels = cloth_.mesh->panels;
+    const auto found = std::find_if(panels.begin(), panels.end(), [&](const sim::PanelMesh& p) { return p.panel == panel; });
+    if (found == panels.end() || point >= found->points.size()) return;
+    held_ = Held{static_cast<std::uint32_t>(found - panels.begin()), point};
+    simulation_->hold(held_->panel, point, to);
+}
+
+void Session::pullTo(sim::Vec3 to) {
+    if (held_) simulation_->hold(held_->panel, held_->point, to);
+}
+
+void Session::letGo() {
+    if (!held_) return;
+    held_.reset();
+    simulation_->letGo();
 }
 
 void Session::setThreading(Threading threading) {
@@ -69,8 +94,8 @@ void Session::setThreading(Threading threading) {
 // 8 to 50 ms to make, which a frame cannot wait for while a corner is dragged:
 // the last one made is shown until the next is done, and the next is always
 // made from the newest outlines. Returns whether the mesh changed.
-bool Session::remesh() {
-    const bool wait = threading_ == Threading::OneStepPerAdvance;
+bool Session::remesh(bool now) {
+    const bool wait = now || threading_ == Threading::OneStepPerAdvance;
     bool changed = takeMeshIfMade(wait);
     // A panel taken away must leave the mesh at once: everything that shows
     // the mesh looks its panels up in the document.
@@ -119,10 +144,11 @@ std::vector<Session::Placed> Session::placedNow() const {
     const Document& doc = document();
     for (const sim::PanelMesh& panelMesh : mesh_->panels) {
         if (!doc.contains(panelMesh.panel)) continue;
-        const Panel& panel = doc.get(panelMesh.panel);
-        // The table only places a panel that has not been arranged in space.
-        const bool onTable = !panel.arrangement.placed;
-        placed.push_back({panelMesh.panel, panel.arrangement, onTable ? panel.x : 0.0, onTable ? panel.y : 0.0, onTable ? panel.angle : 0.0});
+        // The table places a panel that has no place in space of its own yet.
+        Arrangement where = sim::arrangementOf(doc, panelMesh);
+        where.anchor.reset();
+        where.placed = true;  // standing where the table has it, or given that same place: no move
+        placed.push_back({panelMesh.panel, where});
     }
     return placed;
 }
@@ -136,7 +162,19 @@ std::optional<std::string> Session::update(bool meshWanted) {
         return problem;
     }
 
-    const bool remeshed = remesh();
+    // Undo and redo bring the drape back: the cloth is kept for each state of
+    // the history as it was left, and put back when that state comes back.
+    std::optional<Drape> drapeBack;
+    if (editor_.step() != shownStep_) {
+        if (clothShown()) {
+            drapes_[shownStep_] = Drape{cloth_.mesh, cloth_.positions, cloth_.time, cloth_.sewing};
+            while (drapes_.size() > keptDrapes) drapes_.erase(drapes_.begin());  // the oldest first
+        }
+        if (const auto kept = drapes_.find(editor_.step()); kept != drapes_.end() && simulation_->exists()) drapeBack = kept->second;
+        shownStep_ = editor_.step();
+    }
+    // A drape brought back is put on a mesh of the same outlines: made now, not in the background.
+    const bool remeshed = remesh(drapeBack.has_value());
     // Where its particles are arranged is worked out again only when the mesh or a placement changed.
     std::vector<Placed> now = placedNow();
     if (remeshed || now != arrangedFrom_) {
@@ -145,16 +183,24 @@ std::optional<std::string> Session::update(bool meshWanted) {
         ++sceneVersion_;
     }
 
+    if (drapeBack) {
+        held_.reset();
+        simulation_->restore(drapeBack->mesh, std::move(drapeBack->positions), drapeBack->time, drapeBack->sewing);
+        clothPlaced_ = now;  // placed as it was then
+    }
+
     // The cloth follows the pattern: when the mesh has changed it is carried
-    // over and stays draped; a panel placed somewhere else starts again from there.
+    // over and stays draped; a panel placed somewhere else is carried there,
+    // drape and all. Nothing here starts a panel again.
     if (simulation_->exists()) {
-        std::vector<PanelId> placeAgain;
+        std::vector<sim::Moved> moved;
         for (const Placed& placed : now) {
             const auto was = std::find_if(clothPlaced_.begin(), clothPlaced_.end(), [&](const Placed& p) { return p.panel == placed.panel; });
-            if (was != clothPlaced_.end() && !(*was == placed)) placeAgain.push_back(placed.panel);
+            if (was != clothPlaced_.end() && !(*was == placed)) moved.push_back({placed.panel, sim::Motion{.before = was->arrangement, .after = placed.arrangement}});
         }
-        if (remeshed || !placeAgain.empty()) {
-            simulation_->follow(mesh_, arranged_, std::move(placeAgain));
+        if (remeshed || !moved.empty()) {
+            if (remeshed) held_.reset();  // the simulation lets go too: its particles are numbered anew
+            simulation_->follow(mesh_, arranged_, std::move(moved));
             clothPlaced_ = std::move(now);
         }
     }
@@ -169,7 +215,7 @@ std::optional<std::string> Session::update(bool meshWanted) {
         clothPlaced_ = placedNow();
         bodyInUse_ = bodyNow;
     }
-    simulation_->run(simulating_);
+    simulation_->run(simulating_ || held_.has_value());
     simulation_->advance();
     if (simulation_->fetch(cloth_)) {
         ++sceneVersion_;

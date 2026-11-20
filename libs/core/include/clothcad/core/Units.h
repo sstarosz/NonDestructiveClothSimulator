@@ -7,6 +7,10 @@ namespace clothcad {
 
 inline constexpr double pi = 3.14159265358979323846;
 
+// What a number measures, so that it is shown and typed with its unit:
+// 96 cm, 25°, 66.7 % (a fraction: 0.667), or a plain number.
+enum class Unit { Length, Angle, Fraction, None };
+
 inline namespace literals {
 
 constexpr double operator""_cm(long double v) { return static_cast<double>(v); }

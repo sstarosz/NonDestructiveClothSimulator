@@ -128,3 +128,11 @@ TEST_CASE("references can be read, named and set without knowing the type")
     EXPECT((nameOf(Reference(doc.get(cut).along), doc) == "something that was removed"), "a removed target says so");
     EXPECT((doc.panelOf(OpId(instance)) == other), "which panel an operation is in");
 }
+
+TEST_CASE("every field says what it measures")
+{
+    EXPECT((fields(Rect{.width = 10_cm, .height = 20_cm})[0].unit == Unit::Length), "a rectangle's width is a length");
+    EXPECT((fields(Circle{.radius = 10_cm, .sweep = 90_deg})[1].unit == Unit::Angle), "a circle's sweep is an angle");
+    EXPECT((fields(AddPoint{.at = {{}, 0.5}})[0].unit == Unit::Fraction), "where a point is along its edge is a fraction");
+    EXPECT((fields(LineBetween{.from = {{}, 0.5}, .to = {{}, 0.5}})[1].unit == Unit::Fraction), "so is where a line starts and ends");
+}

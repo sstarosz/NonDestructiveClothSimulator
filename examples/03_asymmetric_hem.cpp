@@ -21,7 +21,7 @@ int main() {
 
     Param waist       = doc.add(Parameter{.name = "waist", .value = 70_cm});
     Param skirtLength = doc.add(Parameter{.name = "skirt_length", .value = 60_cm});
-    Param hemAngle    = doc.add(Parameter{.name = "hem_angle", .value = 45_deg});
+    Param hemAngle    = doc.add(Parameter{.name = "hem_angle", .value = 45_deg, .unit = Unit::Angle});
 
     // 1-3. Three operations; none of them destroys anything.
     PanelId     skirt   = doc.add(Panel{.name = "skirt"});

@@ -22,6 +22,7 @@
 // Lengths are cm, time is seconds, weight is grams.
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "clothcad/sim/Body.h"
@@ -46,21 +47,34 @@ public:
     // Panels whose list is missing or the wrong length are left out.
     Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric = {});
 
+    // A cloth draped before, back as it was (undo brings a drape back): its
+    // particles where `positions` puts them, at rest, `time` seconds on. With
+    // `sewn` its seams count as closed already; else they are drawn in again.
+    static Cloth resumed(const ClothMesh& mesh, const Placement& positions, double time, bool sewn, Fabric fabric = {});
+
     // The cloth carried over to a pattern that has changed, so that it stays
     // draped instead of starting again. `mesh` and `arrangedNow` describe the
     // pattern as it is now; `before` is the cloth so far and `beforeMesh` the
     // mesh it was made from. Each particle takes the place the same spot of
     // its panel had before (panels are matched by id, spots by the panel's own
-    // flat coordinates); cloth that is new, because a panel grew or was just
+    // flat coordinates measured from its anchor); cloth that is new, because a panel grew or was just
     // added, continues from the nearest cloth there was, or starts where it
-    // is arranged. Panels listed in `placeAgain` start from their arrangement
-    // whatever they were doing. Seams draw closed again from wherever their
-    // two sides now are. Pins are not carried over.
+    // is arranged. Panels listed in `moved` were carried through space: their
+    // cloth goes with them, drape and all. Seams draw closed again from
+    // wherever their two sides now are. Pins and a hold are not carried over.
     static Cloth continued(const ClothMesh& mesh, const Placement& arrangedNow, const Cloth& before, const ClothMesh& beforeMesh,
-                           const std::vector<PanelId>& placeAgain = {});
+                           const std::vector<Moved>& moved = {});
 
     // Holds a particle where it is now. `panel` indexes the mesh's panels.
     void pin(uint32_t panel, uint32_t point);
+
+    // Takes hold of a particle and leads it to `to`, as a hand pulling the
+    // cloth: it goes there at no more than leadSpeed, and the cloth follows.
+    // One particle at a time; holding another lets go of the first.
+    // `panel` indexes the mesh's panels; a particle that is not there is ignored.
+    void hold(uint32_t panel, uint32_t point, Vec3 to);
+    void letGo();
+    bool holding() const { return held_.has_value(); }
 
     // Moves time on by `seconds` (a sixtieth by default; values are kept
     // between a 240th and a 30th).
@@ -115,6 +129,12 @@ private:
     std::vector<Pair> close_;            // the pairs that could touch during this step
     Placement positions_;
     double time_ = 0.0;
+    struct Held {
+        uint32_t particle;
+        double lightness;  // what it had before it was taken hold of
+        Vec3 to;
+    };
+    std::optional<Held> held_;
     bool seamsClosed_ = false;
     double drawnInAt_ = -1.0;  // when the last thread was drawn in; below zero while some still are
     void checkTheSeams();

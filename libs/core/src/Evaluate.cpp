@@ -484,6 +484,15 @@ private:
         }
     }
 
+    void apply(const AddPoint& point, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
+        if (!modifies(first, "a point", op, pattern)) return;
+        const OpRef<AddPoint> names(op);
+        Pattern changed = pattern;
+        const outline::Problem problem = outline::addPoint(changed, point.at.edge, value[0], names.corner(), names.after(point.at.edge));
+        if (problem) error(op, *problem);
+        else pattern = std::move(changed);
+    }
+
     const Document& doc_;
     std::vector<ParameterState> parameters_;
     std::vector<PanelState> panels_;

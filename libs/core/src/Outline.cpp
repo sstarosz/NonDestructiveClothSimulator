@@ -295,6 +295,17 @@ std::optional<Vec2> firstHit(const Pattern& pattern, Vec2 origin, double angleDe
     return origin + direction * *nearest;
 }
 
+Problem addPoint(Pattern& pattern, const EdgeRef& edge, double along, const CornerRef& corner, const EdgeRef& after) {
+    const auto found = std::find_if(pattern.edges.begin(), pattern.edges.end(), [&](const Edge& e) { return e.name == edge; });
+    if (found == pattern.edges.end()) return "the edge to add a point to does not exist; an earlier operation may have removed it";
+    const std::size_t index = static_cast<std::size_t>(found - pattern.edges.begin());
+    const std::size_t corners = pattern.vertices.size();
+    splitAt(pattern, Location{index, along}, corner);
+    if (pattern.vertices.size() == corners) return "the point would be on a corner that is already there; put it further along the edge";
+    pattern.edges[index + 1].name = after;
+    return std::nullopt;
+}
+
 Problem cut(Pattern& pattern, Vec2 from, Vec2 to, bool keepLeft,
             const EdgeRef& cutEdge, const CornerRef& startCorner, const CornerRef& endCorner) {
     const std::optional<Location> fromPlace = locate(pattern, from);

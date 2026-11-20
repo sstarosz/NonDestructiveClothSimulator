@@ -4,11 +4,6 @@
     "description": "A parametric, non-destructive pattern CAD for clothing.",
     "dependencies": [
         "catch2",
-        "cdt",
-        "glfw3",
-        {
-            "name": "imgui",
-            "features": [ "glfw-binding", "opengl3-binding" ]
-        }
+        "cdt"
     ]
 }

@@ -10,6 +10,17 @@
 //
 // A drag is many changes and one undo step: the first starts the step
 // (Step::New), the others continue it (Step::Continue).
+//
+// A panel gets its place in space once: the first time it has an outline,
+// in the same step as that change, it stands where the 2D table has it then
+// (sim::firstPlace). From then on the table and space are separate: moving or
+// turning a panel on the table does not move it in space.
+//
+// When a panel's outline changes, its sewn edges stay where they are, in
+// space and on the table: its anchor (Arrangement::anchor) and its place on
+// the table move with them, so a longer skirt grows at the hem in both views.
+// A change made by dragging the outline itself (Grows::WhereDragged) moves
+// neither.
 
 #include <cstdint>
 #include <expected>
@@ -38,10 +49,21 @@ enum class IfItBreaks {
 // outline, so the outlines are not evaluated again.
 enum class Touches { Shapes, PlacementOnly };
 
+// Which way a panel grows when a change reshapes it.
+enum class Grows {
+    // Its sewn edges stay where they are, on the table and in space: a field or
+    // a formula made a skirt longer, and it grows at the hem.
+    AwayFromSeams,
+    // Exactly as dragged: the panel's own coordinates stay put, on the table
+    // and in space, so the corner under the mouse follows the mouse.
+    WhereDragged,
+};
+
 struct ChangeRules {
     Step step = Step::New;
     IfItBreaks ifItBreaks = IfItBreaks::Refuse;
     Touches touches = Touches::Shapes;
+    Grows grows = Grows::AwayFromSeams;
 };
 
 class Editor {
@@ -57,6 +79,10 @@ public:
     std::uint64_t shapesVersion() const { return shapesVersion_; }
     // Goes up with every change, undo and redo.
     std::uint64_t version() const { return version_; }
+    // Which state of the history the document is in: a new number for every
+    // new undo step, while undo and redo come back to the numbers they had.
+    // What is kept per state (the session keeps the drape) is kept by it.
+    std::uint64_t step() const { return step_; }
 
     // Changes the document through `verb`. Returns why it was refused, if it
     // was; then the document is as it was. A verb that throws (a handle that
@@ -72,15 +98,22 @@ public:
     void replace(Document document);
 
 private:
+    void placeNewPanels();
+    void keepSeamsInPlace(const Result& before, const Result& after);
     void evaluateAgain();
     // The first problem in `after` that the current outlines do not have, in words.
     std::string newProblemIn(const Result& after, const Document& changed) const;
 
     Document document_;
     std::shared_ptr<const Result> shapes_;
-    std::vector<Document> undo_, redo_;
+    struct Kept {
+        Document document;
+        std::uint64_t step;
+    };
+    std::vector<Kept> undo_, redo_;
     std::uint64_t shapesVersion_ = 1;
     std::uint64_t version_ = 1;
+    std::uint64_t step_ = 1, lastStep_ = 1;
 };
 
 } // namespace clothcad::session

@@ -15,53 +15,58 @@ namespace {
 // One overload per operation type: its label, and each formula field in the
 // order the window shows them, with the values it accepts. This table is the
 // one place those rules are written. Leaving a type out is a compile error.
-// `visit(label, field, limits)` is called once per field.
+// `visit(label, field, limits, unit)` is called once per field.
 //
 // Evaluate.cpp reads the fields' values in this same order.
 template <class Visit> std::string_view describe(Rect& op, Visit visit) {
-    visit("Width", op.width, Limits::moreThan(0.0));
-    visit("Height", op.height, Limits::moreThan(0.0));
+    visit("Width", op.width, Limits::moreThan(0.0), Unit::Length);
+    visit("Height", op.height, Limits::moreThan(0.0), Unit::Length);
     return "Rectangle";
 }
 template <class Visit> std::string_view describe(Circle& op, Visit visit) {
-    visit("Radius", op.radius, Limits::moreThan(0.0));
-    visit("Sweep", op.sweep, Limits::moreThanUpTo(0.0, 360.0));
+    visit("Radius", op.radius, Limits::moreThan(0.0), Unit::Length);
+    visit("Sweep", op.sweep, Limits::moreThanUpTo(0.0, 360.0), Unit::Angle);
     return "Circle";
 }
 template <class Visit> std::string_view describe(RingSector& op, Visit visit) {
-    visit("Inner length", op.innerLength, Limits::moreThan(0.0));
-    visit("Sweep", op.sweep, Limits::moreThanUpTo(0.0, 360.0));
-    visit("Depth", op.depth, Limits::moreThan(0.0));
+    visit("Inner length", op.innerLength, Limits::moreThan(0.0), Unit::Length);
+    visit("Sweep", op.sweep, Limits::moreThanUpTo(0.0, 360.0), Unit::Angle);
+    visit("Depth", op.depth, Limits::moreThan(0.0), Unit::Length);
     return "Ring sector";
 }
 template <class Visit> std::string_view describe(Instance&, Visit) { return "Instance"; }
 template <class Visit> std::string_view describe(Curve& op, Visit visit) {
-    visit("Bulge", op.bulge, Limits::any());
+    visit("Bulge", op.bulge, Limits::any(), Unit::Length);
     return "Curve";
 }
 template <class Visit> std::string_view describe(Bezier& op, Visit visit) {
-    visit("Start handle x", op.startHandle.x, Limits::any());
-    visit("Start handle y", op.startHandle.y, Limits::any());
-    visit("End handle x", op.endHandle.x, Limits::any());
-    visit("End handle y", op.endHandle.y, Limits::any());
+    visit("Start handle x", op.startHandle.x, Limits::any(), Unit::Length);
+    visit("Start handle y", op.startHandle.y, Limits::any(), Unit::Length);
+    visit("End handle x", op.endHandle.x, Limits::any(), Unit::Length);
+    visit("End handle y", op.endHandle.y, Limits::any(), Unit::Length);
     return "Free curve";
 }
 template <class Visit> std::string_view describe(Line& op, Visit visit) {
-    visit("Angle", op.angle, Limits::any());
+    visit("Angle", op.angle, Limits::any(), Unit::Angle);
     return "Angled line";
 }
 template <class Visit> std::string_view describe(LineBetween& op, Visit visit) {
-    visit("From position", op.from.along, Limits::between(0.0, 1.0));
-    visit("To position", op.to.along, Limits::between(0.0, 1.0));
+    visit("From position", op.from.along, Limits::between(0.0, 1.0), Unit::Fraction);
+    visit("To position", op.to.along, Limits::between(0.0, 1.0), Unit::Fraction);
     return "Line";
 }
 template <class Visit> std::string_view describe(Offcut&, Visit) { return "Offcut"; }
 template <class Visit> std::string_view describe(Cut&, Visit) { return "Cut"; }
 template <class Visit> std::string_view describe(Mirror&, Visit) { return "Mirror"; }
 template <class Visit> std::string_view describe(AdjustPoint& op, Visit visit) {
-    visit("Move x", op.dx, Limits::any());
-    visit("Move y", op.dy, Limits::any());
+    visit("Move x", op.dx, Limits::any(), Unit::Length);
+    visit("Move y", op.dy, Limits::any(), Unit::Length);
     return "Adjust point";
+}
+template <class Visit> std::string_view describe(AddPoint& op, Visit visit) {
+    // Not at the very ends: a point there would be a corner already present.
+    visit("Position", op.at.along, Limits::strictlyBetween(0.0, 1.0), Unit::Fraction);
+    return "Add point";
 }
 
 // One overload per operation type again: each reference it holds, in the
@@ -81,6 +86,7 @@ template <class Visit> void describeReferences(Offcut&, Visit) {}
 template <class Visit> void describeReferences(Cut& op, Visit visit) { visit("Along line", op.along); }
 template <class Visit> void describeReferences(Mirror& op, Visit visit) { visit("Across edge", op.across); }
 template <class Visit> void describeReferences(AdjustPoint& op, Visit visit) { visit("Corner", op.corner); }
+template <class Visit> void describeReferences(AddPoint& op, Visit visit) { visit("Edge", op.at.edge); }
 
 // What each operation type calls the edges and corners it creates, in the
 // order of its Edge and Corner enums.
@@ -104,6 +110,7 @@ std::string_view cornerRoleName(const OpData& operation, uint16_t role) {
     static constexpr std::string_view circle[] = {"start corner", "end corner", "centre"};
     if (std::holds_alternative<Circle>(operation) && role < 3) return circle[role];
     if (std::holds_alternative<Cut>(operation) && role < 2) return cut[role];
+    if (std::holds_alternative<AddPoint>(operation)) return "added point";
     return "corner";
 }
 
@@ -124,8 +131,11 @@ std::string missing(OpId operation) { return operation == OpId{} ? "nothing chos
 // cut that left it as the far piece of its edge.
 std::string viaWords(const std::vector<OpId>& via, const Document& doc) {
     std::string words;
-    for (OpId op : via)
-        words += doc.contains(op) && std::holds_alternative<Cut>(doc.get(op)) ? "far part of " : "mirrored ";
+    for (OpId op : via) {
+        if (doc.contains(op) && std::holds_alternative<Cut>(doc.get(op))) words += "far part of ";
+        else if (doc.contains(op) && std::holds_alternative<AddPoint>(doc.get(op))) words += "part after the point of ";
+        else words += "mirrored ";
+    }
     return words;
 }
 
@@ -137,6 +147,7 @@ Limits Limits::any() {
 Limits Limits::moreThan(double low) { return {low, false, std::numeric_limits<double>::infinity(), false}; }
 Limits Limits::moreThanUpTo(double low, double high) { return {low, false, high, true}; }
 Limits Limits::between(double low, double high) { return {low, true, high, true}; }
+Limits Limits::strictlyBetween(double low, double high) { return {low, false, high, false}; }
 
 bool Limits::allows(double value) const {
     if (!(value == value)) return false;  // not a number
@@ -207,15 +218,15 @@ std::string nameOf(const Reference& reference, const Document& doc) {
 
 std::string_view label(const OpData& operation) {
     OpData copy = operation;
-    return std::visit([](auto& op) { return describe(op, [](std::string_view, Expr&, Limits) {}); }, copy);
+    return std::visit([](auto& op) { return describe(op, [](std::string_view, Expr&, Limits, Unit) {}); }, copy);
 }
 
 std::vector<Field> fields(const OpData& operation) {
     OpData copy = operation;
     std::vector<Field> result;
     std::visit([&](auto& op) {
-        describe(op, [&](std::string_view name, Expr& value, Limits limits) {
-            result.push_back({FieldId{result.size()}, name, value, limits});
+        describe(op, [&](std::string_view name, Expr& value, Limits limits, Unit unit) {
+            result.push_back({FieldId{result.size()}, name, value, limits, unit});
         });
     }, copy);
     return result;
@@ -238,7 +249,7 @@ Expr* fieldAt(OpData& operation, std::size_t index) {
     Expr* found = nullptr;
     std::size_t position = 0;
     std::visit([&](auto& op) {
-        describe(op, [&](std::string_view, Expr& value, Limits) {
+        describe(op, [&](std::string_view, Expr& value, Limits, Unit) {
             if (position++ == index) found = &value;
         });
     }, operation);

@@ -36,6 +36,9 @@ struct PanelMesh {
     std::vector<std::array<uint32_t, 3>> triangles;   // counter-clockwise
     std::vector<EdgeParticles> edges;                 // the outline's edges; not a full ring's closing slit
     std::string problem;                              // why the panel has no triangles, if it has none
+    // The spot its arrangement places (Arrangement::anchor), as it was when
+    // the mesh was made: a mesh a few frames old is still placed as it was.
+    Vec2 anchor;
 
     // The particles along an edge; nullptr if the panel has no such edge.
     const EdgeParticles* along(const EdgeRef& edge) const;

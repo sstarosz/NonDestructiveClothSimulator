@@ -1,0 +1,871 @@
+#include "TableView.h"
+
+#include <QFontMetricsF>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QToolTip>
+#include <QPainter>
+#include <QPainterPath>
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <numbers>
+
+#include "Theme.h"
+#include "clothcad/core/Drawing.h"
+#include "clothcad/core/Text.h"
+#include "clothcad/session/Locks.h"
+
+namespace clothcad::ui {
+
+TableView::TableView(QWidget* parent) : QWidget(parent) {
+    setObjectName("table");
+    setMouseTracking(true);
+    setMinimumSize(200, 200);
+    setFocusPolicy(Qt::ClickFocus);
+}
+
+namespace {
+
+// A panel's pattern turned and moved to where the table has it.
+Pattern placedOnTable(const Pattern& own, double angle, Vec2 place) {
+    Pattern pattern = turned(own, angle);
+    const auto moved = [&](Vec2 v) { return Vec2{v.x + place.x, v.y + place.y}; };
+    for (Vertex& v : pattern.vertices) v.position = moved(v.position);
+    for (Edge& e : pattern.edges) {
+        if (e.arc) e.arc->center = moved(e.arc->center);
+        if (e.cubic) e.cubic->control1 = moved(e.cubic->control1), e.cubic->control2 = moved(e.cubic->control2);
+    }
+    for (InternalLine& line : pattern.lines) line.start = moved(line.start), line.end = moved(line.end);
+    for (SymmetryAxis& axis : pattern.axes) axis.start = moved(axis.start), axis.end = moved(axis.end);
+    return pattern;
+}
+
+} // namespace
+
+void TableView::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners) {
+    selected_ = selected;
+    corners_ = corners;
+    drawn_.clear();
+    for (const PanelResult& result : shapes.panels) {
+        if (!doc.contains(result.panel) || result.pattern.vertices.empty()) continue;
+        const Panel& panel = doc.get(result.panel);
+        Drawn d{result.panel, panel.name, placedOnTable(result.pattern, panel.angle, {panel.x, panel.y}), {}, {}, false, {panel.x, panel.y}, panel.angle, {}, {}, {}, {}};
+        for (const SymmetryAxis& axis : d.pattern.axes)
+            d.axes.push_back({axis.start, axis.end});
+        for (SeamId id : doc.seams()) {
+            const Seam& seam = doc.get(id);
+            for (const SeamSide& side : {seam.a, seam.b})
+                if (side.panel == result.panel && d.pattern.contains(side.edge)) d.sewn.push_back(edgePoints(d.pattern, d.pattern.edge(side.edge)));
+        }
+        for (OpId op : doc.operations(result.panel)) d.instance = d.instance || std::holds_alternative<Instance>(doc.get(op));
+        const std::optional<Bounds> own = bounds(result.pattern);
+        const Vec2 middle = own ? turned(Vec2{(own->min.x + own->max.x) / 2.0, (own->min.y + own->max.y) / 2.0}, panel.angle) : Vec2{};
+        d.pivot = {middle.x + panel.x, middle.y + panel.y};
+        if (selected && *selected == result.panel) {
+            for (const Vertex& v : d.pattern.vertices) d.cornerLocks.push_back(session::cornerLock(doc, result.panel, v.name));
+            for (const Edge& e : d.pattern.edges)
+                d.handleLocks.push_back(e.cubic ? std::pair{session::handleLock(doc, result.panel, e.name, false), session::handleLock(doc, result.panel, e.name, true)}
+                                                : std::pair<std::string, std::string>{});
+            d.lengths = session::lengthsOf(doc, shapes, result.panel);
+        }
+        drawn_.push_back(std::move(d));
+    }
+    // Each seam: the start of one edge goes to the end of the other, unless it is reversed.
+    seamLinks_.clear();
+    for (const SeamResult& sewn : shapes.seams) {
+        if (!sewn.sewn() || !doc.contains(sewn.seam)) continue;
+        const Seam& seam = doc.get(sewn.seam);
+        const Drawn* a = drawnOf(seam.a.panel);
+        const Drawn* b = drawnOf(seam.b.panel);
+        if (!a || !b || !a->pattern.contains(seam.a.edge) || !b->pattern.contains(seam.b.edge)) continue;
+        const std::vector<Vec2> lineA = edgePoints(a->pattern, a->pattern.edge(seam.a.edge));
+        const std::vector<Vec2> lineB = edgePoints(b->pattern, b->pattern.edge(seam.b.edge));
+        if (lineA.size() < 2 || lineB.size() < 2) continue;
+        seamLinks_.push_back({lineA.front(), seam.reversed ? lineB.front() : lineB.back()});
+        seamLinks_.push_back({lineA.back(), seam.reversed ? lineB.back() : lineB.front()});
+    }
+    if (!fitted_ && !drawn_.empty()) fit();
+    update();
+}
+
+void TableView::setTool(Tool tool) {
+    tool_ = tool;
+    cancel();
+}
+
+QString TableView::gridKey() const { return QString::fromStdString("grid " + formatValue(gridStep(), Unit::Length)); }
+
+void TableView::setMesh(std::shared_ptr<const sim::ClothMesh> mesh) {
+    if (mesh == mesh_) return;
+    mesh_ = std::move(mesh);
+    update();
+}
+
+void TableView::cancel() {
+    drag_.reset();
+    drawFrom_.reset();
+    sewFrom_.reset();
+    lineFrom_.reset();
+    offer_.reset();
+    readout_.clear();
+    update();
+}
+
+void TableView::fit() {
+    if (drawn_.empty() || width() <= 0) return;
+    Vec2 low{1e300, 1e300}, high{-1e300, -1e300};
+    for (const Drawn& d : drawn_)
+        if (const std::optional<Bounds> b = bounds(d.pattern)) {
+            low = {std::min(low.x, b->min.x), std::min(low.y, b->min.y)};
+            high = {std::max(high.x, b->max.x), std::max(high.y, b->max.y)};
+        }
+    centre_ = {(low.x + high.x) / 2, (low.y + high.y) / 2};
+    const double w = std::max(high.x - low.x, 1.0), h = std::max(high.y - low.y, 1.0);
+    scale_ = std::clamp(0.85 * std::min(width() / w, height() / h), 0.2, 200.0);
+    fitted_ = true;
+    update();
+}
+
+QPointF TableView::toScreen(Vec2 p) const {
+    return {width() / 2.0 + (p.x - centre_.x) * scale_, height() / 2.0 - (p.y - centre_.y) * scale_};
+}
+
+Vec2 TableView::toTable(QPointF s) const {
+    return {centre_.x + (s.x() - width() / 2.0) / scale_, centre_.y - (s.y() - height() / 2.0) / scale_};
+}
+
+namespace {
+
+constexpr double reach = 10.0;   // how close, in pixels, the pointer must be to take hold of something
+constexpr double knobAbove = 30.0;
+
+double distance(QPointF a, QPointF b) { return std::hypot(a.x() - b.x(), a.y() - b.y()); }
+
+double distanceToSegment(QPointF p, QPointF a, QPointF b) {
+    const QPointF ab = b - a;
+    const double length2 = ab.x() * ab.x() + ab.y() * ab.y();
+    const double t = length2 > 0 ? std::clamp(((p - a).x() * ab.x() + (p - a).y() * ab.y()) / length2, 0.0, 1.0) : 0.0;
+    return distance(p, a + t * ab);
+}
+
+double roundTo(double value, double step) { return std::round(value / step) * step; }
+
+QString signedCm(double v) { return (v >= 0 ? "+" : "") + QString::number(v, 'f', 1); }
+
+} // namespace
+
+const TableView::Drawn* TableView::chosen() const {
+    for (const Drawn& d : drawn_)
+        if (selected_ && d.panel == *selected_) return &d;
+    return nullptr;
+}
+
+std::optional<QPointF> TableView::knob() const {
+    const Drawn* d = chosen();
+    if (!d) return std::nullopt;
+    const std::optional<Bounds> box = bounds(d->pattern);
+    if (!box) return std::nullopt;
+    return toScreen({(box->min.x + box->max.x) / 2.0, box->max.y}) - QPointF(0, knobAbove);
+}
+
+std::optional<TableView::Grab> TableView::grabAt(QPointF screen, std::string& locked) const {
+    locked.clear();
+    const Drawn* d = chosen();
+    if (!d) return std::nullopt;
+    if (const std::optional<QPointF> k = knob(); k && distance(screen, *k) < reach)
+        return Grab{Grab::Kind::Rotate, d->panel, {}, {}, false, d->pivot};
+    for (std::size_t i = 0; i < d->pattern.edges.size(); ++i) {
+        const Edge& edge = d->pattern.edges[i];
+        if (!edge.cubic) continue;
+        for (const bool end : {false, true}) {
+            const Vec2 at = end ? edge.cubic->control2 : edge.cubic->control1;
+            if (distance(screen, toScreen(at)) >= reach) continue;
+            const std::string& why = end ? d->handleLocks[i].second : d->handleLocks[i].first;
+            if (!why.empty()) {
+                locked = why;
+                return std::nullopt;
+            }
+            return Grab{Grab::Kind::Handle, d->panel, {}, edge.name, end, at};
+        }
+    }
+    for (std::size_t i = 0; i < d->pattern.vertices.size(); ++i) {
+        const Vertex& vertex = d->pattern.vertices[i];
+        if (distance(screen, toScreen(vertex.position)) >= reach) continue;
+        if (!d->cornerLocks[i].empty()) {
+            locked = d->cornerLocks[i];
+            return std::nullopt;
+        }
+        return Grab{Grab::Kind::Corner, d->panel, vertex.name, {}, false, vertex.position};
+    }
+    return std::nullopt;
+}
+
+std::optional<EdgeRef> TableView::edgeAt(QPointF screen) const {
+    const Drawn* d = chosen();
+    if (!d) return std::nullopt;
+    std::optional<EdgeRef> nearest;
+    double best = reach;
+    for (const Edge& edge : d->pattern.edges) {
+        const std::vector<Vec2> points = edgePoints(d->pattern, edge);
+        for (std::size_t i = 1; i < points.size(); ++i) {
+            const double off = distanceToSegment(screen, toScreen(points[i - 1]), toScreen(points[i]));
+            if (off < best) best = off, nearest = edge.name;
+        }
+    }
+    return nearest;
+}
+
+// The grid's spacing: the smallest of 1 mm, 1 cm, 10 cm, 1 m whose lines
+// are still comfortably apart on screen.
+void TableView::setGridShown(bool shown) {
+    if (shown == gridShown_) return;
+    gridShown_ = shown;
+    update();
+}
+
+double TableView::gridStep() const {
+    double step = 0.1;
+    while (step * scale_ < 12.0 && step < 1000.0) step *= 10.0;
+    return step;
+}
+
+Vec2 TableView::snapped(Vec2 point, bool snapping) const {
+    if (!snapping) return point;
+    const double step = gridStep();
+    return {roundTo(point.x, step), roundTo(point.y, step)};
+}
+
+void TableView::paintEvent(QPaintEvent*) {
+    QPainter p(this);
+    p.fillRect(rect(), theme::table);
+    // The grid, in real measurements; every tenth line stronger. Straight
+    // lines on whole pixels need no smoothing, and go in two batches.
+    const double step = gridStep();
+    const Vec2 low = toTable({0, static_cast<double>(height())}), high = toTable({static_cast<double>(width()), 0});
+    if (gridShown_) {
+        QVector<QLineF> fine, strong;
+        const auto onGrid = [&](double at) { return std::abs(roundTo(at, step * 10) - at) < step * 0.01; };
+        for (double x = std::floor(low.x / step) * step; x <= high.x; x += step) {
+            const double column = std::round(toScreen({x, 0}).x()) + 0.5;
+            (onGrid(x) ? strong : fine).append(QLineF(column, 0, column, height()));
+        }
+        for (double y = std::floor(low.y / step) * step; y <= high.y; y += step) {
+            const double row = std::round(toScreen({0, y}).y()) + 0.5;
+            (onGrid(y) ? strong : fine).append(QLineF(0, row, width(), row));
+        }
+        p.setPen(QPen(QColor(32, 34, 39), 1));
+        p.drawLines(fine);
+        p.setPen(QPen(QColor(44, 47, 54), 1));
+        p.drawLines(strong);
+    }
+    p.setRenderHint(QPainter::Antialiasing);
+
+    for (const Drawn& d : drawn_) {
+        const bool isChosen = selected_ && *selected_ == d.panel;
+        QPolygonF outline;
+        for (const Vec2& v : outlinePoints(d.pattern)) outline << toScreen(v);
+        const QColor line = isChosen ? theme::selected : d.instance ? theme::instance : QColor(196, 199, 206);
+        QColor fill = line;
+        fill.setAlpha(isChosen ? 40 : 22);
+        p.setPen(QPen(line, isChosen ? 2.5 : 1.8));
+        p.setBrush(fill);
+        p.drawPolygon(outline);
+        // The cloth mesh: triangle sides, or why there are none.
+        if (const sim::PanelMesh* mesh = mesh_ ? mesh_->find(d.panel) : nullptr) {
+            std::vector<QPointF> at;
+            at.reserve(mesh->points.size());
+            for (const Vec2& point : mesh->points) {
+                const Vec2 on = turned(point, d.angle);
+                at.push_back(toScreen({on.x + d.place.x, on.y + d.place.y}));
+            }
+            // Thousands of thin lines: one batch, without smoothing.
+            QVector<QLineF> sides;
+            sides.reserve(static_cast<qsizetype>(mesh->triangles.size() * 2));
+            for (const std::array<std::uint32_t, 3>& t : mesh->triangles)
+                for (int i = 0; i < 3; ++i)
+                    if (t[i] < t[(i + 1) % 3]) sides.append(QLineF(at[t[i]], at[t[(i + 1) % 3]]));  // a side inside two triangles once
+            p.setRenderHint(QPainter::Antialiasing, false);
+            p.setPen(QPen(QColor(200, 205, 215, 70), 1));
+            p.drawLines(sides);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            if (!mesh->problem.empty())
+                if (const std::optional<Bounds> b = bounds(d.pattern)) {
+                    p.setPen(theme::error);
+                    p.drawText(QRectF(toScreen({b->min.x, b->max.y}), toScreen({b->max.x, b->min.y})).normalized(), Qt::AlignCenter | Qt::TextWordWrap,
+                               QString::fromStdString("No mesh: " + mesh->problem));
+                }
+        }
+        p.setPen(QPen(theme::quiet, 1.2, Qt::DashLine));
+        for (const InternalLine& internal : d.pattern.lines) p.drawLine(toScreen(internal.start), toScreen(internal.end));
+        p.setPen(QPen(theme::symmetry, 1.5, Qt::DashLine));
+        for (const auto& [from, to] : d.axes) p.drawLine(toScreen(from), toScreen(to));
+        p.setPen(QPen(theme::seam, 4, Qt::SolidLine, Qt::RoundCap));
+        for (const std::vector<Vec2>& edge : d.sewn) {
+            QPolygonF along;
+            for (const Vec2& v : edge) along << toScreen(v);
+            p.drawPolyline(along);
+        }
+        p.setPen(isChosen ? QColor(255, 210, 122) : theme::text);
+        if (const std::optional<Bounds> b = bounds(d.pattern)) {
+            QFont font = p.font();
+            font.setBold(true);
+            p.setFont(font);
+            p.drawText(toScreen({b->min.x, b->min.y}) + QPointF(4, 18), QString::fromStdString(d.name));
+        }
+    }
+
+    // Which ends of a seam's edges meet: thin dashed links.
+    QColor link = theme::seam;
+    link.setAlpha(150);
+    p.setPen(QPen(link, 1.0, Qt::DashLine));
+    for (const auto& [from, to] : seamLinks_) p.drawLine(toScreen(from), toScreen(to));
+
+    // The selected panel's lengths, beside each edge, outside the outline; one
+    // set by a formula in the formula colour, with its formula.
+    lengthLabels_.clear();
+    if (const Drawn* d = chosen()) {
+        const QFontMetricsF metrics(p.font());
+        std::vector<QRectF> taken;
+        for (const session::EdgeLength& l : d->lengths) {
+            if (!d->pattern.contains(l.edge)) continue;
+            const Edge& edge = d->pattern.edge(l.edge);
+            const QString text = QString::fromStdString(formatValue(l.length, Unit::Length) + (l.formula.empty() ? "" : "  = " + l.formula));
+            // Outlines run counter-clockwise: outside is to the right of each edge.
+            const Vec2 a = d->pattern.vertices[edge.start].position, b = d->pattern.vertices[edge.end].position;
+            const double chord = std::max(std::hypot(b.x - a.x, b.y - a.y), 1e-9);
+            const Vec2 middle = midpoint(d->pattern, edge);
+            const QPointF at = toScreen(middle);
+            QPointF outward = toScreen({middle.x + (b.y - a.y) / chord, middle.y - (b.x - a.x) / chord}) - at;
+            outward /= std::max(std::hypot(outward.x(), outward.y()), 1e-9);
+            const QSizeF size = metrics.size(0, text) + QSizeF(8, 4);
+            const double away = size.height() * 0.8 + std::abs(outward.x()) * size.width() * 0.5;
+            const QRectF box(at + outward * away - QPointF(size.width() / 2, size.height() / 2), size);
+            // Two edges lying on top of each other would print one label over the other.
+            if (std::any_of(taken.begin(), taken.end(), [&](const QRectF& other) { return other.intersects(box); })) continue;
+            taken.push_back(box);
+            lengthLabels_.push_back({box, l.edge});
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(20, 21, 23, 200));
+            p.drawRoundedRect(box, 3, 3);
+            p.setPen(l.formula.empty() ? theme::text : theme::formula);
+            p.drawText(box, Qt::AlignCenter, text);
+        }
+    }
+
+    // The grid's step, for reading sizes off the table.
+    if (gridShown_) {
+        p.setPen(theme::quiet);
+        p.drawText(QPointF(8, height() - 8), gridKey());
+    }
+
+    // The selected panel's handles, corners and turning knob.
+    if (const Drawn* d = chosen(); d && tool_ == Tool::Select && !choosing_) {
+        for (std::size_t i = 0; i < d->pattern.edges.size(); ++i) {
+            const Edge& edge = d->pattern.edges[i];
+            if (!edge.cubic) continue;
+            const Vec2 ends[2] = {d->pattern.vertices[edge.start].position, d->pattern.vertices[edge.end].position};
+            const Vec2 controls[2] = {edge.cubic->control1, edge.cubic->control2};
+            for (int which = 0; which < 2; ++which) {
+                const bool locked = !(which ? d->handleLocks[i].second : d->handleLocks[i].first).empty();
+                const QColor colour = locked ? theme::formula : theme::text;
+                p.setPen(QPen(colour, 1));
+                p.drawLine(toScreen(ends[which]), toScreen(controls[which]));
+                p.setBrush(colour);
+                p.drawEllipse(toScreen(controls[which]), 3.5, 3.5);
+            }
+        }
+        for (std::size_t i = 0; i < d->pattern.vertices.size(); ++i) {
+            const Vertex& vertex = d->pattern.vertices[i];
+            const bool picked = std::find(corners_.begin(), corners_.end(), vertex.name) != corners_.end();
+            const QColor colour = picked ? theme::selected : !d->cornerLocks[i].empty() ? theme::formula : theme::text;
+            p.setPen(QPen(colour, 1.5));
+            p.setBrush(picked ? colour : theme::table);
+            p.drawRect(QRectF(toScreen(vertex.position) - QPointF(4, 4), QSizeF(8, 8)));
+        }
+        if (const std::optional<QPointF> k = knob()) {
+            p.setPen(QPen(theme::selected, 1.2));
+            p.drawLine(*k + QPointF(0, 6), *k + QPointF(0, knobAbove));
+            p.setBrush(theme::table);
+            p.drawEllipse(*k, 6, 6);
+        }
+    }
+
+    if (choosing_) paintChoice(p);
+    else paintTool(p);
+
+    // What the pointer would take hold of, and what a drag is doing.
+    const QColor offered(255, 226, 150);
+    if (offered_ && !drag_) {
+        p.setPen(QPen(offered, 2.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(*offered_, 9, 9);
+    }
+    if (drag_ && drag_->moved) {
+        p.setBrush(Qt::NoBrush);
+        if (drag_->grab.kind == Grab::Kind::Box) {
+            p.setPen(QPen(theme::selected, 1.5));
+            QColor inside = theme::selected;
+            inside.setAlpha(30);
+            p.setBrush(inside);
+            p.drawRect(QRectF(toScreen(drag_->pressedAt), pointer_).normalized());
+        } else if (drag_->grab.kind == Grab::Kind::Rotate) {
+            p.setPen(QPen(offered, 1.5));
+            p.drawLine(toScreen(drag_->grab.thingWasAt), pointer_);
+            p.setBrush(offered);
+            p.drawEllipse(toScreen(drag_->grab.thingWasAt), 4, 4);
+        } else if (drag_->grab.kind != Grab::Kind::Panel) {
+            p.setPen(QPen(theme::quiet, 1.5));
+            p.drawEllipse(toScreen(drag_->grab.thingWasAt), 5, 5);  // where it was
+        }
+        if (!readout_.isEmpty()) {
+            p.setPen(offered);
+            p.drawText(pointer_ + QPointF(14, 22), readout_);
+        }
+    }
+}
+
+void TableView::mousePressEvent(QMouseEvent* event) {
+    panFrom_ = event->position();
+    pointer_ = event->position();
+    if (event->button() != Qt::LeftButton) return;
+    if (choosing_) {
+        // Only the candidates can be clicked while a layer's reference is chosen.
+        if (const std::optional<Reference> picked = choiceAt(event->position())) emit referencePicked(*picked);
+        return;
+    }
+    if (tool_ != Tool::Select) {
+        pressWithTool(event->position(), event->modifiers() & Qt::ControlModifier);
+        return;
+    }
+    const Vec2 at = toTable(event->position());
+    const bool shift = event->modifiers() & Qt::ShiftModifier;
+    std::string locked;
+    std::optional<Grab> grab = grabAt(event->position(), locked);
+    if (!locked.empty()) {
+        emit told(QString::fromStdString(locked));
+        return;
+    }
+    if (!grab && shift && chosen()) grab = Grab{Grab::Kind::Box, chosen()->panel, {}, {}, false, at};
+    if (!grab) {
+        // The panel under the pointer; the selected one wins where they overlap.
+        const Drawn* under = nullptr;
+        for (const Drawn& d : drawn_)
+            if (encloses(d.pattern, at) && (!under || (selected_ && d.panel == *selected_))) under = &d;
+        if (under) grab = Grab{Grab::Kind::Panel, under->panel, {}, {}, false, under->place};
+        emit gestured(session::SelectPanel{under ? std::optional<PanelId>(under->panel) : std::nullopt});
+    }
+    if (grab) drag_ = Drag{*grab, at, event->position(), 0.0, false};
+    if (drag_ && drag_->grab.kind == Grab::Kind::Rotate)
+        for (const Drawn& d : drawn_)
+            if (d.panel == drag_->grab.panel) drag_->angleWas = d.angle;
+    offered_.reset();
+    update();
+}
+
+void TableView::dragTo(QPointF screen, bool snapping, bool released) {
+    Drag& drag = *drag_;
+    if (!drag.moved && !released && distance(screen, drag.pressedOnScreen) < 3.0) return;  // a click, so far
+    if (released && !drag.moved) return;
+    const session::DragPhase phase = released ? session::DragPhase::End : drag.moved ? session::DragPhase::Continue : session::DragPhase::Begin;
+    drag.moved = true;
+    const Vec2 at = toTable(screen);
+    const Grab grab = drag.grab;  // the handler below may redraw the table
+    switch (grab.kind) {
+    case Grab::Kind::Box: break;  // only drawn; the corners are chosen on release
+    case Grab::Kind::Rotate: {
+        const Vec2 pivot = grab.thingWasAt;
+        const double now = std::atan2(at.y - pivot.y, at.x - pivot.x);
+        const double was = std::atan2(drag.pressedAt.y - pivot.y, drag.pressedAt.x - pivot.x);
+        double angle = drag.angleWas + (now - was) * 180.0 / std::numbers::pi;
+        angle = std::remainder(roundTo(angle, snapping ? 15.0 : 0.1), 360.0);
+        readout_ = QString::fromStdString(formatValue(angle, Unit::Angle));
+        emit gestured(session::RotatePanel{grab.panel, angle, phase});
+        break;
+    }
+    default: {
+        // Where the thing ends up: on the grid when snapping; otherwise whole
+        // millimetres, so the recorded numbers stay readable.
+        const Vec2 target = snapped({grab.thingWasAt.x + at.x - drag.pressedAt.x, grab.thingWasAt.y + at.y - drag.pressedAt.y}, snapping);
+        const double dx = roundTo(target.x - grab.thingWasAt.x, snapping ? 1e-6 : 0.1);
+        const double dy = roundTo(target.y - grab.thingWasAt.y, snapping ? 1e-6 : 0.1);
+        readout_ = signedCm(dx) + ", " + signedCm(dy) + " cm";
+        if (grab.kind == Grab::Kind::Panel) emit gestured(session::MovePanel{grab.panel, grab.thingWasAt.x + dx, grab.thingWasAt.y + dy, phase});
+        if (grab.kind == Grab::Kind::Corner) emit gestured(session::MoveCorner{grab.panel, grab.corner, dx, dy, phase});
+        if (grab.kind == Grab::Kind::Handle) emit gestured(session::MoveHandle{grab.panel, grab.edge, grab.endHandle, dx, dy, phase});
+    }
+    }
+    update();
+}
+
+void TableView::mouseMoveEvent(QMouseEvent* event) {
+    pointer_ = event->position();
+    if (event->buttons() & (Qt::RightButton | Qt::MiddleButton)) {
+        const QPointF moved = event->position() - panFrom_;
+        centre_ = {centre_.x - moved.x() / scale_, centre_.y + moved.y() / scale_};
+        panFrom_ = event->position();
+        update();
+    } else if (choosing_) {
+        const std::optional<Reference> was = choiceOffered_;
+        choiceOffered_ = choiceAt(event->position());
+        setCursor(choiceOffered_ ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        if (was != choiceOffered_) update();
+    } else if (tool_ != Tool::Select) {
+        offer_ = drawFrom_ ? std::nullopt : offerAt(event->position());
+        setCursor(offer_ && (offer_->edge || offer_->point || offer_->line) ? Qt::PointingHandCursor : Qt::CrossCursor);
+        update();
+    } else if (drag_ && (event->buttons() & Qt::LeftButton)) {
+        dragTo(event->position(), event->modifiers() & Qt::ControlModifier, false);
+    } else if (tool_ == Tool::Select) {
+        // Ring what the pointer would take hold of; say why when it is locked.
+        std::string locked;
+        const std::optional<Grab> grab = grabAt(event->position(), locked);
+        const std::optional<QPointF> was = offered_;
+        offered_ = grab ? std::optional<QPointF>(grab->kind == Grab::Kind::Rotate ? *knob() : toScreen(grab->thingWasAt)) : std::nullopt;
+        if (grab) setCursor(Qt::PointingHandCursor);
+        else unsetCursor();
+        if (was != offered_) update();
+    }
+    emit pointerAt(toTable(event->position()));
+}
+
+void TableView::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && drawFrom_) {
+        // Half centimetres, or the grid's lines when snapping.
+        const bool snapping = event->modifiers() & Qt::ControlModifier;
+        const double step = snapping ? gridStep() : 0.5;
+        const Vec2 from = *drawFrom_, to = snapped(toTable(event->position()), snapping);
+        drawFrom_.reset();
+        update();
+        if (tool_ == Tool::Rectangle) {
+            const double width = roundTo(std::abs(to.x - from.x), step), height = roundTo(std::abs(to.y - from.y), step);
+            if (width >= 1.0 && height >= 1.0)
+                emit gestured(session::DrawRect{roundTo(std::min(from.x, to.x), step), roundTo(std::min(from.y, to.y), step), width, height});
+        } else if (tool_ == Tool::Circle) {
+            const double radius = roundTo(std::hypot(to.x - from.x, to.y - from.y), step);
+            if (radius >= 1.0) emit gestured(session::DrawCircle{from.x, from.y, radius});
+        }
+        return;
+    }
+    if (event->button() != Qt::LeftButton || !drag_) return;
+    pointer_ = event->position();
+    const bool shift = event->modifiers() & Qt::ShiftModifier;
+    const Drag drag = *drag_;
+    if (drag.grab.kind == Grab::Kind::Box) {
+        if (drag.moved && chosen() && chosen()->panel == drag.grab.panel) {
+            const Vec2 at = toTable(event->position());
+            const double x0 = std::min(drag.pressedAt.x, at.x), x1 = std::max(drag.pressedAt.x, at.x);
+            const double y0 = std::min(drag.pressedAt.y, at.y), y1 = std::max(drag.pressedAt.y, at.y);
+            std::vector<CornerRef> inside;
+            for (const Vertex& v : chosen()->pattern.vertices)
+                if (v.position.x >= x0 && v.position.x <= x1 && v.position.y >= y0 && v.position.y <= y1) inside.push_back(v.name);
+            drag_.reset();
+            emit gestured(session::SelectCorners{drag.grab.panel, std::move(inside), true});
+        }
+    } else if (drag.moved) {
+        dragTo(event->position(), event->modifiers() & Qt::ControlModifier, true);
+    } else if (drag.grab.kind == Grab::Kind::Corner) {
+        drag_.reset();
+        emit gestured(session::SelectCorners{drag.grab.panel, {drag.grab.corner}, shift});  // a click on a corner selects it
+    }
+    drag_.reset();
+    readout_.clear();
+    update();
+}
+
+const TableView::Drawn* TableView::drawnOf(PanelId panel) const {
+    for (const Drawn& d : drawn_)
+        if (d.panel == panel) return &d;
+    return nullptr;
+}
+
+std::optional<TableView::Offer> TableView::offerAt(QPointF screen) const {
+    const Vec2 at = toTable(screen);
+    std::optional<Offer> best;
+    double nearest = reach * 1.5;
+    const auto distanceToEdge = [&](const Drawn& d, const Edge& edge) {
+        const std::vector<Vec2> points = edgePoints(d.pattern, edge);
+        double off = 1e300;
+        for (std::size_t i = 1; i < points.size(); ++i) off = std::min(off, distanceToSegment(screen, toScreen(points[i - 1]), toScreen(points[i])));
+        return off;
+    };
+
+    switch (tool_) {
+    case Tool::Curve:
+    case Tool::Mirror:
+    case Tool::Sew:
+        nearest = reach;
+        for (const Drawn& d : drawn_)
+            for (const Edge& edge : d.pattern.edges) {
+                if (edge.seam) continue;                                         // a ring's closing slit is not an edge of the cloth
+                if (tool_ == Tool::Mirror && (edge.arc || edge.cubic)) continue;  // a mirror needs a straight edge
+                if (sewFrom_ && sewFrom_->panel == d.panel && sewFrom_->edge == edge.name) continue;
+                if (const double off = distanceToEdge(d, edge); off < nearest) {
+                    nearest = off;
+                    best = Offer{.panel = d.panel, .edge = edge.name};
+                    if (tool_ == Tool::Sew) best->note = QString::fromStdString(formatValue(d.pattern.length(edge.name), Unit::Length));
+                }
+            }
+        return best;
+
+    case Tool::Point:
+    case Tool::Line:
+        for (const Drawn& d : drawn_) {
+            if (tool_ == Tool::Line && lineFrom_ && !(lineFrom_->panel == d.panel)) continue;  // the second end goes on the same panel
+            std::optional<OutlinePoint> point = nearestOnOutline(d.pattern, at);
+            if (!point) continue;
+            const Edge& edge = d.pattern.edge(point->edge);
+            bool onACorner = false;
+            for (const double end : {0.0, 1.0}) {
+                const Vec2 corner = d.pattern.vertices[end == 0.0 ? edge.start : edge.end].position;
+                if (distance(screen, toScreen(corner)) >= reach) continue;
+                onACorner = true;
+                if (tool_ == Tool::Line) point->along = end, point->position = corner;  // a line may end on a corner exactly
+            }
+            point->along = roundTo(point->along, 0.001);
+            const double off = distance(screen, toScreen(point->position));
+            if (off >= nearest) continue;
+            nearest = off;
+            best = Offer{.panel = d.panel};
+            if (tool_ == Tool::Point && onACorner) {
+                best->note = "A corner is here already.";
+            } else {
+                best->point = point;
+                best->note = QString::fromStdString(formatValue(point->along, Unit::Fraction) + " along");
+            }
+        }
+        return best;
+
+    case Tool::Cut:
+    case Tool::Split: {
+        // Split takes any line near the pointer; Cut a line of the panel the pointer is in.
+        const Drawn* under = nullptr;
+        for (const Drawn& d : drawn_)
+            if (encloses(d.pattern, at) && (!under || (selected_ && d.panel == *selected_))) under = &d;
+        if (tool_ == Tool::Cut) nearest = 1e300;
+        for (const Drawn& d : drawn_) {
+            if (tool_ == Tool::Cut && &d != under) continue;
+            for (const InternalLine& line : d.pattern.lines) {
+                const double off = distanceToSegment(screen, toScreen(line.start), toScreen(line.end));
+                if (off >= nearest) continue;
+                nearest = off;
+                // The pointer's side of the line is cut away; looking along the line, left is where the turn is positive.
+                const double side = (line.end.x - line.start.x) * (at.y - line.start.y) - (line.end.y - line.start.y) * (at.x - line.start.x);
+                best = Offer{.panel = d.panel, .line = line.name, .keep = side > 0 ? Cut::Side::Right : Cut::Side::Left};
+            }
+        }
+        if (!best && under && tool_ == Tool::Cut) best = Offer{.panel = under->panel, .note = "Draw a line across it first."};
+        return best;
+    }
+    default: return std::nullopt;
+    }
+}
+
+void TableView::pressWithTool(QPointF screen, bool snapping) {
+    const Vec2 at = toTable(screen);
+    switch (tool_) {
+    case Tool::Rectangle: drawFrom_ = snapped(at, snapping); break;
+    case Tool::Circle: drawFrom_ = snapped({roundTo(at.x, 0.5), roundTo(at.y, 0.5)}, snapping); break;
+    case Tool::Ring: {
+        const Vec2 centre = snapped({roundTo(at.x, 0.5), roundTo(at.y, 0.5)}, snapping);
+        emit gestured(session::PlaceRing{centre.x, centre.y});
+        break;
+    }
+    default: {
+        const std::optional<Offer> offer = offerAt(screen);
+        offer_.reset();
+        if (!offer) break;
+        if (offer->edge) {
+            const SeamSide side{offer->panel, *offer->edge};
+            if (tool_ == Tool::Curve) emit gestured(session::BendEdge{side.panel, side.edge});
+            if (tool_ == Tool::Mirror) emit gestured(session::MirrorAcross{side.panel, side.edge});
+            if (tool_ == Tool::Sew && !sewFrom_) {
+                sewFrom_ = side;
+                emit hinted("Now click the edge to sew it to. Esc cancels.");
+            } else if (tool_ == Tool::Sew) {
+                const SeamSide first = *sewFrom_;
+                sewFrom_.reset();
+                emit gestured(session::SewEdges{first, side});
+            }
+        } else if (offer->point) {
+            if (tool_ == Tool::Point) emit gestured(session::AddPointOn{offer->panel, *offer->point});
+            if (tool_ == Tool::Line && !lineFrom_) {
+                lineFrom_ = LineStart{offer->panel, *offer->point};
+                emit hinted("Now click the second point on the same outline. Esc cancels.");
+            } else if (tool_ == Tool::Line) {
+                const LineStart first = *lineFrom_;
+                lineFrom_.reset();
+                emit gestured(session::DrawLine{first.panel, first.point, *offer->point});
+            }
+        } else if (offer->line) {
+            if (tool_ == Tool::Cut) emit gestured(session::CutAway{offer->panel, *offer->line, offer->keep});
+            if (tool_ == Tool::Split) emit gestured(session::SplitAt{offer->panel, *offer->line});
+        } else if (!offer->note.isEmpty()) {
+            emit told(offer->note);
+        }
+    }
+    }
+    update();
+}
+
+void TableView::paintTool(QPainter& p) const {
+    const QColor offered(255, 226, 150);
+    const auto polyline = [&](const Drawn& d, const EdgeRef& edge) {
+        QPolygonF along;
+        if (d.pattern.contains(edge))
+            for (const Vec2& v : edgePoints(d.pattern, d.pattern.edge(edge))) along << toScreen(v);
+        return along;
+    };
+    p.setBrush(Qt::NoBrush);
+    if (drawFrom_) {
+        const Vec2 to = toTable(pointer_);
+        p.setPen(QPen(offered, 2));
+        if (tool_ == Tool::Rectangle) {
+            p.drawRect(QRectF(toScreen(*drawFrom_), toScreen(to)).normalized());
+            p.drawText(pointer_ + QPointF(14, 22), QString::number(std::abs(to.x - drawFrom_->x), 'f', 1) + " × " +
+                                                        QString::number(std::abs(to.y - drawFrom_->y), 'f', 1) + " cm");
+        } else {
+            const double radius = std::hypot(to.x - drawFrom_->x, to.y - drawFrom_->y);
+            p.drawEllipse(toScreen(*drawFrom_), radius * scale_, radius * scale_);
+            p.drawText(pointer_ + QPointF(14, 22), "radius " + QString::fromStdString(formatValue(roundTo(radius, 0.5), Unit::Length)));
+        }
+    }
+    if (sewFrom_)
+        if (const Drawn* d = drawnOf(sewFrom_->panel)) {
+            const QPolygonF first = polyline(*d, sewFrom_->edge);
+            p.setPen(QPen(theme::seam, 6, Qt::SolidLine, Qt::RoundCap));
+            p.drawPolyline(first);
+            p.setPen(QPen(theme::seam, 1.5, Qt::DashLine));
+            if (!first.isEmpty()) p.drawLine(first[first.size() / 2], pointer_);
+        }
+    if (lineFrom_)
+        if (drawnOf(lineFrom_->panel)) {
+            const QPointF from = toScreen(lineFrom_->point.position);
+            p.setPen(QPen(offered, 2, Qt::DashLine));
+            p.drawLine(from, offer_ && offer_->point ? toScreen(offer_->point->position) : pointer_);
+            p.setBrush(offered);
+            p.drawEllipse(from, 5, 5);
+            p.setBrush(Qt::NoBrush);
+        }
+    if (!offer_) return;
+    if (const Drawn* d = drawnOf(offer_->panel)) {
+        p.setPen(QPen(offered, 6, Qt::SolidLine, Qt::RoundCap));
+        if (offer_->edge) p.drawPolyline(polyline(*d, *offer_->edge));
+        if (offer_->line)
+            for (const InternalLine& line : d->pattern.lines)
+                if (line.name == *offer_->line) p.drawLine(toScreen(line.start), toScreen(line.end));
+        if (offer_->point) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(offered);
+            p.drawEllipse(toScreen(offer_->point->position), 5, 5);
+        }
+    }
+    if (!offer_->note.isEmpty()) {
+        p.setPen(offer_->edge || offer_->point || offer_->line ? offered : theme::quiet);
+        p.drawText(pointer_ + QPointF(14, 22), offer_->note);
+    }
+}
+
+void TableView::choose(std::optional<Choice> choice) {
+    choosing_.reset();
+    if (choice)
+        if (const Drawn* d = drawnOf(choice->panel)) choosing_ = Choosing{choice->panel, choice->kind, placedOnTable(choice->candidates, d->angle, d->place)};
+    if (!choosing_) choiceOffered_.reset();
+    update();
+}
+
+std::optional<Reference> TableView::choiceAt(QPointF screen) const {
+    if (!choosing_) return std::nullopt;
+    const Pattern& candidates = choosing_->candidates;
+    std::optional<Reference> nearest;
+    double best = reach;
+    const auto consider = [&](const Reference& candidate, const std::vector<Vec2>& shape) {
+        double off = shape.size() == 1 ? distance(screen, toScreen(shape[0])) : 1e300;
+        for (std::size_t i = 1; i < shape.size(); ++i) off = std::min(off, distanceToSegment(screen, toScreen(shape[i - 1]), toScreen(shape[i])));
+        if (off < best) best = off, nearest = candidate;
+    };
+    switch (choosing_->kind) {
+    case Choice::Kind::Edge:
+        for (const Edge& edge : candidates.edges)
+            if (!edge.seam) consider(Reference(edge.name), edgePoints(candidates, edge));
+        break;
+    case Choice::Kind::Corner:
+        for (const Vertex& vertex : candidates.vertices) consider(Reference(vertex.name), {vertex.position});
+        break;
+    case Choice::Kind::Line:
+        for (const InternalLine& line : candidates.lines) consider(Reference(line.name), {line.start, line.end});
+        break;
+    }
+    return nearest;
+}
+
+void TableView::paintChoice(QPainter& p) const {
+    if (!choosing_) return;
+    const Pattern& candidates = choosing_->candidates;
+    // Every candidate in faint teal; the one under the pointer brighter and thicker.
+    QColor faint = theme::formula;
+    faint.setAlpha(150);
+    const QColor offered(255, 226, 150);
+    const auto draw = [&](const Reference& candidate, const std::vector<Vec2>& shape) {
+        const bool lit = choiceOffered_ && *choiceOffered_ == candidate;
+        if (shape.size() == 1) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(lit ? offered : faint);
+            p.drawEllipse(toScreen(shape[0]), lit ? 8 : 6, lit ? 8 : 6);
+            return;
+        }
+        QPolygonF along;
+        for (const Vec2& v : shape) along << toScreen(v);
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(lit ? offered : faint, lit ? 6 : 3, Qt::SolidLine, Qt::RoundCap));
+        p.drawPolyline(along);
+    };
+    switch (choosing_->kind) {
+    case Choice::Kind::Edge:
+        for (const Edge& edge : candidates.edges)
+            if (!edge.seam) draw(Reference(edge.name), edgePoints(candidates, edge));
+        break;
+    case Choice::Kind::Corner:
+        for (const Vertex& vertex : candidates.vertices) draw(Reference(vertex.name), {vertex.position});
+        break;
+    case Choice::Kind::Line:
+        for (const InternalLine& line : candidates.lines) draw(Reference(line.name), {line.start, line.end});
+        break;
+    }
+}
+
+void TableView::mouseDoubleClickEvent(QMouseEvent* event) {
+    // Two quick clicks with a drawing tool are two clicks, not a double-click.
+    if (tool_ != Tool::Select || choosing_) return mousePressEvent(event);
+    // A double-click on an edge of the selected panel types its length.
+    if (event->button() != Qt::LeftButton) return;
+    std::string locked;
+    if (grabAt(event->position(), locked) || !locked.empty()) return;
+    for (const auto& [box, edge] : lengthLabels_)
+        if (box.contains(event->position())) return emit gestured(session::EditLength{*selected_, edge});
+    if (const std::optional<EdgeRef> edge = edgeAt(event->position())) emit gestured(session::EditLength{*selected_, *edge});
+}
+
+void TableView::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape && choosing_) {
+        choose(std::nullopt);
+        emit choosingDropped();
+    } else if (event->key() == Qt::Key_Escape) cancel();
+    else if (event->key() == Qt::Key_F) fit();  // as in Maya
+    else QWidget::keyPressEvent(event);
+}
+
+void TableView::wheelEvent(QWheelEvent* event) {
+    // Zoom about the point under the mouse, so it stays under it.
+    const Vec2 under = toTable(event->position());
+    scale_ = std::clamp(scale_ * std::pow(1.0015, event->angleDelta().y()), 0.2, 200.0);
+    const Vec2 now = toTable(event->position());
+    centre_ = {centre_.x + under.x - now.x, centre_.y + under.y - now.y};
+    update();
+}
+
+void TableView::resizeEvent(QResizeEvent*) {
+    if (!fitted_) fit();
+}
+
+} // namespace clothcad::ui

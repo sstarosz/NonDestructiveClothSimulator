@@ -6,8 +6,9 @@ project(NonDestructiveClothCad VERSION 0.1.0 LANGUAGES CXX)
 #   libs/core   the document, formulas, evaluation, files      standard library only
 #   libs/sim    meshing, bodies, the cloth solver              core, CDT
 #   libs/session  a document being edited and all worked out from it: undo, mesh, body, the cloth's thread
-#   apps/imgui  the window of 0.1, until the Qt one replaces it
-#   examples/   five garments as small programs
+#   libs/render   the 3D view's drawing with Vulkan (Vulkan-Hpp), when the Vulkan SDK is found
+#   apps/qt     the window (Qt 6 Widgets), when Qt 6 and the Vulkan SDK are found
+#   examples/   six garments as small programs
 #   tests/      integration tests and benchmarks; unit tests live beside each library
 
 set(CMAKE_CXX_STANDARD 23)
@@ -16,10 +17,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(CLOTHCAD_BUILD_TESTS "Unit tests, integration tests and benchmarks" ON)
-option(CLOTHCAD_BUILD_EXAMPLES "The five garment examples" ON)
-option(CLOTHCAD_BUILD_IMGUI_APP "The window of 0.1 (Dear ImGui)" ON)
+option(CLOTHCAD_BUILD_EXAMPLES "The six garment examples" ON)
+option(CLOTHCAD_BUILD_QT_APP "The window, when Qt 6 and the Vulkan SDK are found" ON)
 # Off: build the window's code and its tests, but not the program that opens
-# a window. For machines without a display or GLFW, such as a build server.
+# a window. For machines without a display, such as a build server.
 option(CLOTHCAD_WINDOW "Build the program that opens a window" ON)
 
 include(cmake/ClothCad.cmake)
@@ -33,8 +34,9 @@ endif()
 add_subdirectory(libs/core)
 add_subdirectory(libs/sim)
 add_subdirectory(libs/session)
-if(CLOTHCAD_BUILD_IMGUI_APP)
-    add_subdirectory(apps/imgui)
+add_subdirectory(libs/render)
+if(CLOTHCAD_BUILD_QT_APP)
+    add_subdirectory(apps/qt)
 endif()
 if(CLOTHCAD_BUILD_EXAMPLES)
     add_subdirectory(examples)

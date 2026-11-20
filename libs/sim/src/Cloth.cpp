@@ -15,6 +15,7 @@ constexpr double gravity = 981.0;     // cm per second squared
 constexpr double seamSpeed = 40.0;    // cm per second: how fast a stitch's thread is drawn in
 constexpr double neighbourly = 2.1;        // particles closer than this many collision distances in the flat pattern do not collide
 constexpr double closedWithin = 0.2;   // cm: a stitch this short is closed
+constexpr double leadSpeed = 300.0;    // cm per second: how fast a held particle follows the hand
 constexpr double givingUpAfter = 3.0;  // seconds after the last thread is drawn in, a stitch that will not close is left as it is
 constexpr double heldWhileSewing = 0.03;  // how much of its weight cloth feels while its seams are closing
 constexpr double topSpeed = 600.0;    // cm per second: nothing moves faster than this
@@ -224,8 +225,20 @@ private:
 
 } // namespace
 
+Cloth Cloth::resumed(const ClothMesh& mesh, const Placement& positions, double time, bool sewn, Fabric fabric) {
+    Cloth cloth(mesh, positions, fabric);
+    cloth.time_ = time;
+    if (sewn) {
+        for (Thread& thread : cloth.threads_) thread.left = 0.0;
+        cloth.seamsClosed_ = true;
+    } else if (cloth.drawnInAt_ >= 0.0) {
+        cloth.drawnInAt_ = time;  // the threads were drawn in just now, not at time zero
+    }
+    return cloth;
+}
+
 Cloth Cloth::continued(const ClothMesh& mesh, const Placement& arrangedNow, const Cloth& before, const ClothMesh& beforeMesh,
-                       const std::vector<PanelId>& placeAgain) {
+                       const std::vector<Moved>& moved) {
     // Where every particle starts, and how fast it is moving.
     Placement start = arrangedNow;
     start.resize(mesh.panels.size());
@@ -234,7 +247,7 @@ Cloth Cloth::continued(const ClothMesh& mesh, const Placement& arrangedNow, cons
         const PanelMesh& panel = mesh.panels[p];
         speed[p].assign(panel.points.size(), Vec3{});
         if (start[p].size() != panel.points.size()) continue;
-        if (std::find(placeAgain.begin(), placeAgain.end(), panel.panel) != placeAgain.end()) continue;
+        const auto motion = std::find_if(moved.begin(), moved.end(), [&](const Moved& m) { return m.panel == panel.panel; });
         // The same panel in the cloth so far, if it was part of it.
         std::size_t old = 0;
         while (old < beforeMesh.panels.size() && !(beforeMesh.panels[old].panel == panel.panel)) ++old;
@@ -243,11 +256,18 @@ Cloth Cloth::continued(const ClothMesh& mesh, const Placement& arrangedNow, cons
         const Vec3* wasAt = before.at_.data() + before.firstOf_[old];
         const Vec3* wasSpeed = before.speed_.data() + before.firstOf_[old];
         const Locator locator(was);
+        // Spots are matched relative to the anchor, which moves with the
+        // panel's sewn edges: a longer skirt keeps its waist and grows at the hem.
+        const Vec2 shift{was.anchor.x - panel.anchor.x, was.anchor.y - panel.anchor.y};
         for (std::size_t i = 0; i < panel.points.size(); ++i) {
-            const Locator::Found found = locator.find(panel.points[i]);
+            const Locator::Found found = locator.find({panel.points[i].x + shift.x, panel.points[i].y + shift.y});
             const auto& corners = was.triangles[found.triangle];
             start[p][i] = wasAt[corners[0]] * found.weight[0] + wasAt[corners[1]] * found.weight[1] + wasAt[corners[2]] * found.weight[2];
             speed[p][i] = wasSpeed[corners[0]] * found.weight[0] + wasSpeed[corners[1]] * found.weight[1] + wasSpeed[corners[2]] * found.weight[2];
+            if (motion != moved.end()) {
+                start[p][i] = motion->motion(start[p][i]);
+                speed[p][i] = motion->motion.turned(speed[p][i]);
+            }
         }
     }
     Cloth cloth(mesh, start, before.fabric_);
@@ -255,6 +275,24 @@ Cloth Cloth::continued(const ClothMesh& mesh, const Placement& arrangedNow, cons
         if (cloth.firstOf_[p] != none) std::copy(speed[p].begin(), speed[p].end(), cloth.speed_.begin() + cloth.firstOf_[p]);
     cloth.time_ = before.time_;
     return cloth;
+}
+
+void Cloth::hold(uint32_t panel, uint32_t point, Vec3 to) {
+    if (panel >= firstOf_.size() || firstOf_[panel] == none || point >= positions_[panel].size()) return;
+    const uint32_t particle = firstOf_[panel] + point;
+    if (held_ && held_->particle == particle) {
+        held_->to = to;
+        return;
+    }
+    letGo();
+    held_ = Held{particle, lightness_[particle], to};
+    lightness_[particle] = 0.0;  // the hand moves it; the cloth does not
+}
+
+void Cloth::letGo() {
+    if (!held_) return;
+    lightness_[held_->particle] = held_->lightness;
+    held_.reset();
 }
 
 void Cloth::pin(uint32_t panel, uint32_t point) {
@@ -329,6 +367,13 @@ void Cloth::step(const Body& body, double seconds) {
             if (lightness_[i] == 0.0) continue;
             speed_[i].y -= weight * h;
             at_[i] = at_[i] + speed_[i] * h;
+        }
+        // The hand: the held particle goes towards where it is led.
+        if (held_) {
+            Vec3& at = at_[held_->particle];
+            const Vec3 left = held_->to - at;
+            const double far = length(left), most = leadSpeed * h;
+            at = far > most ? at + left * (most / far) : held_->to;
         }
         // Then put right what that broke, twice over: lengths, folds and
         // stitches first, then the body and the floor, which always win.

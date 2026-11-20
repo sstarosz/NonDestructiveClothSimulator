@@ -1,0 +1,8 @@
+# Times in yardsticks (see tests/Perf.h). Written by --update; do not edit by hand.
+frame, table only, nothing changing	0.00802924
+frame, both views, nothing changing	0.00814927
+3D view orbited (drawn off screen and read back)	0.526782
+frame while dragging a panel on the table	0.517966
+frame while dragging a corner, 3D shown, 1 cm particles	1.46966
+frame with a cloth step in it, 3D shown	3.88623
+frame while the cloth runs on its own thread, 3D shown	0.50305

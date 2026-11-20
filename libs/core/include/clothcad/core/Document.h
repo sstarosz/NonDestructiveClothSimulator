@@ -17,6 +17,7 @@
 // hold. They never compute geometry.
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -26,6 +27,7 @@
 #include "clothcad/core/Fields.h"
 #include "clothcad/core/Ids.h"
 #include "clothcad/core/Operations.h"
+#include "clothcad/core/Pattern.h"
 #include "clothcad/core/Units.h"
 
 namespace clothcad {
@@ -35,12 +37,14 @@ namespace clothcad {
 struct Parameter {
     std::string name;  // display label
     Expr value;
+    Unit unit = Unit::Length;  // what it measures; most are lengths
 };
 
 // Where a panel is in space before it is simulated: around the body, ready
 // to be sewn. Placement only; it does not affect the panel's shape.
 struct Arrangement {
-    bool placed = false;  // false: the panel stands in front of the body, where the 2D table has it
+    bool placed = false;  // false: no place of its own yet; it stands in front of the body, where the 2D table has it.
+                          // session::Editor gives every panel its place once, so in the window this is short-lived
     double x = 0.0;       // the centre of the panel in space, in cm; the floor is y = 0,
     double y = 0.0;       // y points up, and the body faces +z
     double z = 0.0;
@@ -48,6 +52,11 @@ struct Arrangement {
     double tilt = 0.0;    // degrees about the panel's own horizontal axis
     double roll = 0.0;    // degrees in the panel's own plane
     double wrap = 0.0;    // degrees the panel is bent around a vertical axis behind it; 0 is flat
+    // The spot of the panel, in its own flat coordinates, that x, y, z place
+    // and that it turns and bends about. None: the middle of its outline's box.
+    // When the outline changes, session::Editor moves it with the panel's sewn
+    // edges, so that a panel grows away from its seams (a skirt at the hem).
+    std::optional<Vec2> anchor{};
     friend bool operator==(const Arrangement&, const Arrangement&) = default;
 };
 

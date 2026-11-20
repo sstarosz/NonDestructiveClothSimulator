@@ -66,3 +66,41 @@ TEST_CASE("bad formula text is reported with a position")
     problemAt("sqrt(4)", 0);
     problemAt("min(1)", 5);
 }
+
+TEST_CASE("values are shown with their units and read back")
+{
+    EXPECT((formatValue(26.0, Unit::Length) == "26 cm"), "a length in centimetres, without needless decimals");
+    EXPECT((formatValue(15.524, Unit::Length) == "15.52 cm"), "to a tenth of a millimetre");
+    EXPECT((formatValue(25.0, Unit::Angle) == "25°"), "an angle in degrees");
+    EXPECT((formatValue(2.0 / 3.0, Unit::Fraction) == "66.7 %"), "a fraction in per cent");
+    EXPECT((formatValue(0.5, Unit::None) == "0.5"), "a plain number as it is");
+    EXPECT((formatValue(-0.0001, Unit::Length) == "0 cm"), "never minus nothing");
+
+    Document doc;
+    const auto read = [&](std::string_view text) {
+        const auto parsed = parseExpr(text, doc);
+        return std::holds_alternative<Expr>(parsed) ? asNumber(std::get<Expr>(parsed)).value_or(-1.0) : -1.0;
+    };
+    EXPECT_NEAR((read("66.7 %")), (0.667), "per cent is read as a fraction");
+    EXPECT_NEAR((read("25°")), (25.0), "the degree sign is read");
+    EXPECT_NEAR((read(formatValue(15.524, Unit::Length))), (15.52), "what is shown reads back");
+}
+
+TEST_CASE("what is typed into a field is read in the field's unit")
+{
+    Document doc;
+    const Param chest = doc.add(Parameter{.name = "chest", .value = 96_cm});
+    const auto number = [&](std::string_view text, Unit unit) {
+        const auto read = parseValue(text, unit, doc);
+        return std::holds_alternative<Expr>(read) ? asNumber(std::get<Expr>(read)).value_or(-1.0) : -1.0;
+    };
+    EXPECT_NEAR((number("70", Unit::Length)), (70.0), "a bare number in a length is centimetres");
+    EXPECT_NEAR((number("70", Unit::Fraction)), (0.7), "a bare number in a fraction is per cent");
+    EXPECT_NEAR((number("70 %", Unit::Fraction)), (0.7), "and so is one with its sign");
+    EXPECT_NEAR((number("0.7 * 1", Unit::Fraction)), (-1.0), "a formula is not a number");
+    const auto formula = parseValue("= chest / 4", Unit::Length, doc);
+    EXPECT((std::holds_alternative<Expr>(formula) && formatExpr(std::get<Expr>(formula), doc) == "chest / 4"), "a formula may start with = , as it is shown");
+    const auto wrong = parseValue("= chest +", Unit::Length, doc);
+    EXPECT((std::holds_alternative<TextError>(wrong) && std::get<TextError>(wrong).position >= 2), "a problem points into what was typed");
+    (void)chest;
+}

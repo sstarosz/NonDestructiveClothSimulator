@@ -4,15 +4,52 @@
 #include <exception>
 #include <utility>
 
+#include "clothcad/core/Drawing.h"
 #include "clothcad/core/Fields.h"
+#include "clothcad/sim/Layout.h"
 
 namespace clothcad::session {
 
-Editor::Editor(Document document) : document_(std::move(document)), shapes_(std::make_shared<const Result>(evaluate(document_))) {}
+Editor::Editor(Document document) : document_(std::move(document)), shapes_(std::make_shared<const Result>(evaluate(document_))) {
+    placeNewPanels();
+}
+
+// Panels that have an outline and no place in space yet get one. Pieces only
+// used as a base are never in space.
+void Editor::placeNewPanels() {
+    for (const PanelResult& shape : shapes_->panels) {
+        if (!document_.contains(shape.panel)) continue;
+        const Panel& panel = document_.get(shape.panel);
+        if (panel.arrangement.placed || panel.construction) continue;
+        const Arrangement place = sim::firstPlace(panel, shape.pattern);
+        if (place.placed) document_.arrange(shape.panel, place);
+    }
+}
 
 void Editor::evaluateAgain() {
     shapes_ = std::make_shared<const Result>(evaluate(document_));
     ++shapesVersion_;
+}
+
+void Editor::keepSeamsInPlace(const Result& before, const Result& after) {
+    for (const PanelResult& now : after.panels) {
+        if (!document_.contains(now.panel) || now.pattern.vertices.empty()) continue;
+        const Panel& panel = document_.get(now.panel);
+        const auto was = std::find_if(before.panels.begin(), before.panels.end(), [&](const PanelResult& r) { return r.panel == now.panel; });
+        if (was == before.panels.end() || was->pattern.vertices.empty()) continue;
+        const Vec2 from = sim::anchorOf(panel.arrangement, was->pattern);
+        const Vec2 to = sim::anchorAfterChange(document_, now.panel, was->pattern, now.pattern, from);
+        if (to == from) continue;  // its outline did not move under it
+        // On the table: the spot that stays is drawn where it was.
+        const Vec2 by = turned(Vec2{to.x - from.x, to.y - from.y}, panel.angle);
+        const double x = panel.x - by.x, y = panel.y - by.y;
+        if (panel.arrangement.placed) {
+            Arrangement moved = panel.arrangement;
+            moved.anchor = to;
+            document_.arrange(now.panel, moved);
+        }
+        document_.place(now.panel, x, y);
+    }
 }
 
 std::expected<void, std::string> Editor::change(const std::function<void(Document&)>& verb, ChangeRules rules) {
@@ -30,11 +67,16 @@ std::expected<void, std::string> Editor::change(const std::function<void(Documen
             document_ = std::move(before);
             return std::unexpected(std::move(why));
         }
+        if (rules.grows == Grows::AwayFromSeams) keepSeamsInPlace(*shapes_, *after);
         shapes_ = std::move(after);
         ++shapesVersion_;
     }
+    placeNewPanels();
     // A continued step adds nothing to undo; with nothing to continue it starts one.
-    if (rules.step == Step::New || undo_.empty()) undo_.push_back(std::move(before));
+    if (rules.step == Step::New || undo_.empty()) {
+        undo_.push_back({std::move(before), step_});
+        step_ = ++lastStep_;
+    }
     redo_.clear();
     ++version_;
     return {};
@@ -42,7 +84,7 @@ std::expected<void, std::string> Editor::change(const std::function<void(Documen
 
 bool Editor::undo() {
     if (undo_.empty()) return false;
-    redo_.push_back(std::exchange(document_, std::move(undo_.back())));
+    redo_.push_back({std::exchange(document_, std::move(undo_.back().document)), std::exchange(step_, undo_.back().step)});
     undo_.pop_back();
     evaluateAgain();
     ++version_;
@@ -51,7 +93,7 @@ bool Editor::undo() {
 
 bool Editor::redo() {
     if (redo_.empty()) return false;
-    undo_.push_back(std::exchange(document_, std::move(redo_.back())));
+    undo_.push_back({std::exchange(document_, std::move(redo_.back().document)), std::exchange(step_, redo_.back().step)});
     redo_.pop_back();
     evaluateAgain();
     ++version_;
@@ -62,7 +104,9 @@ void Editor::replace(Document document) {
     document_ = std::move(document);
     undo_.clear();
     redo_.clear();
+    step_ = ++lastStep_;
     evaluateAgain();
+    placeNewPanels();
     ++version_;
 }
 

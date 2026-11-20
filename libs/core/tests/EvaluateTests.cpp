@@ -467,6 +467,88 @@ TEST_CASE("adjust point moves one corner")
     EXPECT_NEAR((result[panel].length(rect.right())), (50.0), "right edge becomes the 30-40-50 diagonal");
 }
 
+TEST_CASE("add point splits an edge, and the new corner can be moved")
+{
+    Document doc;
+    const Param width = doc.add(Parameter{.name = "width", .value = 40});
+    const PanelId panel = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = width, .height = 60_cm});
+    const OpRef<AddPoint> shoulder = doc.add(panel, AddPoint{.at = {rect.top(), 0.25}});
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    const Pattern& front = result[panel];
+    EXPECT((front.vertices.size() == 5u && front.edges.size() == 5u), "one more corner and one more edge");
+    // The top edge runs from the top-right corner to the top-left one.
+    EXPECT_NEAR((front.position(shoulder.corner()).x), (30.0), "a quarter of the way along the top, from its start at the right");
+    EXPECT_NEAR((front.position(shoulder.corner()).y), (60.0), "on the top edge");
+    EXPECT_NEAR((front.length(rect.top())), (10.0), "the part before the point keeps the top's name");
+    EXPECT_NEAR((front.length(shoulder.after(rect.top()))), (30.0), "the part after it is the top's after-part");
+
+    // The new corner is a corner like any other: it can be moved, and it
+    // keeps its place along the edge when the panel changes.
+    doc.add(panel, AdjustPoint{.corner = shoulder.corner(), .dx = 0_cm, .dy = -5_cm});
+    doc.set(width, Expr(48));
+    result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[panel].position(shoulder.corner()).x), (36.0), "wider, it is still a quarter of the way along");
+    EXPECT_NEAR((result[panel].position(shoulder.corner()).y), (55.0), "moved down 5 cm");
+    EXPECT_NEAR((result[panel].length(rect.top())), (std::hypot(12.0, 5.0)), "the shoulder slopes from the corner to it");
+}
+
+TEST_CASE("add point keeps a curved edge the same curve, in two pieces")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 30_cm, .height = 30_cm});
+    doc.add(panel, Curve{.edge = rect.right(), .bulge = 4_cm});
+    const double arc = evaluate(doc)[panel].length(rect.right());
+    const OpRef<AddPoint> onArc = doc.add(panel, AddPoint{.at = {rect.right(), 0.4}});
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    const Pattern& p = result[panel];
+    EXPECT((p.edge(rect.right()).arc && p.edge(onArc.after(rect.right())).arc), "both parts are arcs");
+    EXPECT_NEAR((p.length(rect.right()) + p.length(onArc.after(rect.right()))), (arc), "together as long as the arc was");
+    EXPECT_NEAR((p.length(rect.right()) / arc), (0.4), "split 40 cm in a hundred along it");
+
+    doc.add(panel, Bezier{.edge = rect.left(), .startHandle = {-6, -4}, .endHandle = {-6, 4}});
+    const double curve = evaluate(doc)[panel].length(rect.left());
+    const OpRef<AddPoint> onCurve = doc.add(panel, AddPoint{.at = {rect.left(), 0.5}});
+    result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT((result[panel].edge(rect.left()).cubic && result[panel].edge(onCurve.after(rect.left())).cubic), "a free curve splits into two free curves");
+    EXPECT((std::abs(result[panel].length(rect.left()) + result[panel].length(onCurve.after(rect.left())) - curve) < 0.01),
+           "of the same length, within a tenth of a millimetre");
+}
+
+TEST_CASE("add point fails where it should, in words")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 30_cm, .height = 30_cm});
+    const OpRef<AddPoint> atEnd = doc.add(panel, AddPoint{.at = {rect.top(), 1.0}});
+    EXPECT((evaluate(doc).failed(atEnd.id)), "not at the very end of the edge, where there is a corner already");
+    doc.set(atEnd, &AddPoint::at, EdgePoint{rect.top(), 0.5});
+    EXPECT((evaluate(doc).ok()), "half way is fine");
+    const OpRef<Cut> cut = doc.add(panel, Cut{.along = doc.add(panel, LineBetween{.from = {rect.left(), 0.5}, .to = {rect.right(), 0.5}}).line(), .keep = Cut::Side::Right});
+    const OpRef<AddPoint> gone = doc.add(panel, AddPoint{.at = {rect.top(), 0.5}});
+    const Result result = evaluate(doc);
+    EXPECT((result.failed(gone.id) && !result.failed(cut.id)), "on an edge a cut took away, it is an error on the point alone");
+}
+
+TEST_CASE("a point added to a half is mirrored with it")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "back"});
+    const OpRef<Rect> half = doc.add(panel, Rect{.width = 25_cm, .height = 60_cm});
+    const OpRef<Mirror> mirror = doc.add(panel, Mirror{.across = half.left()});
+    const OpRef<AddPoint> shoulder = doc.add(panel, AddPoint{.at = {half.top(), 0.4}});  // added after the mirror: still applied first
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    const Vec2 drawn = result[panel].position(shoulder.corner()), image = result[panel].position(mirror.image(shoulder.corner()));
+    EXPECT_NEAR((image.x), (-drawn.x), "the point has a mirror image");
+    EXPECT_NEAR((image.y), (drawn.y), "at the same height");
+}
+
 TEST_CASE("corners of arcs can move")
 {
     Document doc;

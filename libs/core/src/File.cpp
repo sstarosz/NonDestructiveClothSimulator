@@ -1,5 +1,6 @@
 #include "clothcad/core/File.h"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdio>
@@ -23,12 +24,17 @@ using Kind = ExprNode::Kind;
 // A name, once released, must keep meaning the same type.
 constexpr std::array<std::string_view, std::variant_size_v<OpData>> typeNames = {
     "Rect", "Circle", "RingSector", "Instance", "Offcut", "Curve",
-    "Bezier", "Line", "LineBetween", "Cut", "Mirror", "AdjustPoint",
+    "Bezier", "Line", "LineBetween", "Cut", "Mirror", "AdjustPoint", "AddPoint",
 };
+// Units by their names in a file, in Unit's order; never renamed once released.
+constexpr std::array<std::string_view, 4> unitNames = {"length", "angle", "fraction", "none"};
+static_assert(static_cast<std::size_t>(Unit::None) == 3);
+
 static_assert(std::is_same_v<std::variant_alternative_t<0, OpData>, Rect>);
 static_assert(std::is_same_v<std::variant_alternative_t<4, OpData>, Offcut>);
 static_assert(std::is_same_v<std::variant_alternative_t<9, OpData>, Cut>);
 static_assert(std::is_same_v<std::variant_alternative_t<11, OpData>, AdjustPoint>);
+static_assert(std::is_same_v<std::variant_alternative_t<12, OpData>, AddPoint>);
 
 template <std::size_t... I>
 std::optional<OpData> emptyOperation(std::size_t index, std::index_sequence<I...>) {
@@ -249,6 +255,8 @@ std::string toText(const Document& doc) {
         const Parameter& parameter = doc.get(id);
         out += "parameter " + std::to_string(id.value) + " " + quoted(parameter.name);
         write(out, parameter.value);
+        // A length says nothing, as in files before 0.1.1.
+        if (parameter.unit != Unit::Length) out += " unit " + std::string(unitNames[static_cast<std::size_t>(parameter.unit)]);
         out += "\n";
     }
     for (PanelId id : doc.panels()) {
@@ -257,7 +265,7 @@ std::string toText(const Document& doc) {
                number(panel.x) + " " + number(panel.y) + " " + number(panel.angle) + "\n";
         if (const Arrangement& in = panel.arrangement; in.placed)
             out += "arrange " + number(in.x) + " " + number(in.y) + " " + number(in.z) + " " + number(in.turn) + " " + number(in.tilt) + " " +
-                   number(in.roll) + " " + number(in.wrap) + "\n";
+                   number(in.roll) + " " + number(in.wrap) + (in.anchor ? " " + number(in.anchor->x) + " " + number(in.anchor->y) : std::string()) + "\n";
         for (OpId op : doc.operations(id)) {
             const OpData& data = doc.get(op);
             out += "op " + std::to_string(op.value) + " " + std::string(typeNames[data.index()]) + " " + (doc.enabled(op) ? "1" : "0");
@@ -316,7 +324,15 @@ std::variant<Document, FileError> fromText(std::string_view text) {
             } else if (what == "parameter") {
                 const Param id{fresh(words.id())};
                 std::string name = words.word();
-                DocumentAccess::restore(doc, id, Parameter{std::move(name), readExpr(words)});
+                Parameter parameter{std::move(name), readExpr(words)};
+                if (!words.done()) {
+                    if (words.word() != "unit") throw Problem{"a parameter has something after its value that is not its unit"};
+                    const std::string unit = words.word();
+                    const auto known = std::find(unitNames.begin(), unitNames.end(), unit);
+                    if (known == unitNames.end()) throw Problem{"\"" + unit + "\" is not a unit this version knows"};
+                    parameter.unit = static_cast<Unit>(known - unitNames.begin());
+                }
+                DocumentAccess::restore(doc, id, std::move(parameter));
             } else if (what == "panel") {
                 const PanelId id{fresh(words.id())};
                 Panel description;
@@ -338,6 +354,10 @@ std::variant<Document, FileError> fromText(std::string_view text) {
                 in.tilt = words.real();
                 in.roll = words.real();
                 in.wrap = words.real();
+                if (!words.done()) {  // files before 0.1.1 have no anchor
+                    const double x = words.real();
+                    in.anchor = Vec2{x, words.real()};
+                }
                 doc.arrange(*panel, in);
             } else if (what == "op") {
                 if (!panel) throw Problem{"an operation comes before any panel"};

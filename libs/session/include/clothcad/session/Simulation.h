@@ -40,9 +40,17 @@ public:
 
     // A new cloth, starting where it is arranged.
     void start(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, sim::Body body);
-    // The pattern changed: the cloth is carried over to the new mesh and
-    // stays draped; panels in `placeAgain` start from their arrangement.
-    void follow(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, std::vector<PanelId> placeAgain);
+    // The pattern changed, or panels were carried through space: the cloth is
+    // carried over to the new mesh and stays draped; the panels in `moved` go
+    // where they were carried, drape and all.
+    void follow(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, std::vector<sim::Moved> moved);
+    // Takes hold of a particle and leads it to `to` (see sim::Cloth::hold);
+    // called again, leads it somewhere else. A new mesh ends the hold.
+    void hold(std::uint32_t panel, std::uint32_t point, sim::Vec3 to);
+    void letGo();
+    // The cloth as it was before (undo and redo): `positions` on `mesh`,
+    // at rest, `time` seconds on; `sewing` as it was then.
+    void restore(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement positions, double time, bool sewing);
     void setBody(sim::Body body);
     // Lets time pass, or holds the cloth still.
     void run(bool on);
@@ -81,6 +89,11 @@ private:
     std::optional<sim::Cloth> cloth_;
     std::shared_ptr<const sim::ClothMesh> mesh_;
     sim::Body body_;
+    struct Held {
+        std::uint32_t panel, point;
+        sim::Vec3 to;
+    };
+    std::optional<Held> held_;
     bool failed_ = false;
     double stepMilliseconds_ = 0.0;
 
