@@ -114,6 +114,16 @@ private:
     std::vector<double> lightness_;  // one over a particle's mass; zero when pinned
     std::vector<Link> edges_, folds_;
     std::vector<Thread> threads_;
+    // Where seams meet at a corner, three or more particles are sewn into one
+    // point. Stitched shut one after another they pull each other open again
+    // (the last one wins), so once all of a knot's threads are drawn in its
+    // particles are put together at once, where their weights balance.
+    void tieKnots();
+    void pullTheKnotsTight();
+    std::vector<uint32_t> knotOf_;       // per thread: its knot, or none when it sews just two particles together
+    std::vector<uint32_t> firstInKnot_;  // per knot: where its particles start in knotted_; one more at the end
+    std::vector<uint32_t> knotted_;      // the knots' particles, knot after knot
+    std::vector<char> knotDrawnIn_;      // per knot: whether all its threads are drawn in, this sub-step
     std::vector<uint32_t> near_, firstNear_;  // per particle: the limbs within reach this step
     std::vector<char> nearScan_;              // per particle: whether the scanned surface is within reach this step
 

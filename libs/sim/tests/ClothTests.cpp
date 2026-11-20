@@ -350,8 +350,11 @@ TEST_CASE("a held particle is led by the hand and the cloth follows it")
     EXPECT((length(cloth.positions()[0][0] - up) < 1e-9), "then it is where the hand is");
     EXPECT((highest > 30.0 && worstStretch(mesh, cloth.positions()) < 0.1), "and the cloth hangs from it, whole");
     cloth.letGo();
-    run(cloth, nobody, 2.0);
-    EXPECT((!cloth.holding() && cloth.positions()[0][0].y < 2.0), "let go, it falls back to the floor");
+    run(cloth, nobody, 3.0);
+    // It lands on the floor or on a fold of itself, whichever way it happens to fall:
+    // a layer or two of cloth up, not more.
+    std::printf("      let go, the corner lies %.1f cm up\n", cloth.positions()[0][0].y);
+    EXPECT((!cloth.holding() && cloth.positions()[0][0].y < 5.0 && cloth.fastest() < 10.0), "let go, it falls back down and lies there");
     cloth.hold(0, 99999, up);
     EXPECT((!cloth.holding()), "a particle that is not there is not held");
 }
