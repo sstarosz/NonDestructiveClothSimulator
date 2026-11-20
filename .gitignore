@@ -1,1 +1,5 @@
+# Ignore build output and temporary files
 out/
+
+#Scratch — local notes, probes, experiments (never committed)
+scratch/
