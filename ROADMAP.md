@@ -11,9 +11,9 @@ Agreed on 16 November. In this order; each step is something to try.
 | --- | --- | --- |
 | 1 | Structure: libraries under `libs/` with public and private headers, C++23, vcpkg, Catch2 with one test file per source file, integration tests and benchmarks in CTest, a `session` library that owns the document, undo and redo, the mesh, the body and the cloth's thread, clear ownership | done |
 | 2 | Fixes: a hole where several panels share a seam corner; dragging a corner lags. The hole came from the body's friction holding cloth while seams pulled in, not from the shared corner: while sewing, nothing rubs now (band and skirt on the mannequin: widest stitch 3.3 cm before, 0.4 cm now). The lag came from making the mesh in the frame (64 ms a frame at 1 cm particles): it is made in the background now (4 ms a frame) | done |
-| 3 | Behaviour: a new panel gets a place in space once, then the 2D table and the 3D arrangement are independent; growth and shrinking keep sewn edges where they are (a longer skirt grows at the hem); dragging in 3D while simulating pulls the cloth, as in Marvelous Designer, and never restarts a panel; undo and redo bring the drape back too | |
-| 4 | Adding points on an edge, so that shirts can be made | |
-| 5 | The Qt 6.12 window, after a mockup is approved, with our own Vulkan renderer for the 3D view (volk, VMA); the ImGui window goes once Qt covers everything | |
+| 3 | Behaviour: a new panel gets a place in space once (wrapped into ±100 cm across and 0-200 cm up around the body, a step further forward each time round), then the table and space are independent; panels grow away from their seams, on the table and in space alike (an arrangement's anchor moves with the sewn edges that kept their length; a shape dragged by hand keeps its own coordinates instead); dragging draped cloth in 3D pulls it, as in Marvelous Designer, and the cloth runs while it is held; the gizmo carries a draped panel, drape and all; nothing starts a panel again except Reset; undo and redo bring the drape back (the last 64 states) | done |
+| 4 | Adding points on an edge, so that shirts can be made: the AddPoint operation and the Point tool (a click on the mirrored side of a symmetric panel adds the point on the drawn side); the new corner is dragged like any other; sample and example 6 are a T-shirt body | done |
+| 5 | The Qt 6.12 window, laid out as approved (Maya-like: shelf, dockable panels, 3D left and table right, operations as layers, units everywhere). In pieces: (a) the frame: shelf, docks, help line, layouts, Outliner, Parameters, Attribute Editor with layers, Cloth tab, the table showing and selecting (done); (b) the table's gestures, through the shared `session::Drafting`: Select (move, corners, box select, handles, turning knob, length by double-click), every drawing tool, choosing a layer's edge, corner or line on the table, the cloth mesh over the panels (done); (c) the 3D view: our own Vulkan renderer with Vulkan-Hpp (`libs/render`), tested off screen: drawing the body, cloth and floor with a Maya camera (done); a click selects a panel, the move gizmo (an arrow per axis and a middle square, drawn in front of everything, `render/Gizmo`) or a drag on the panel carries it as one undo step, and dragging draped cloth pulls it (done); (d) the ImGui window compared feature by feature (what it had and the Qt window lacked was added: lengths on the table, seam ends linked, placing from the table, the grid's step, axes in 3D), its tests moved to the Qt window and `session::Drafting`, then removed with Dear ImGui and GLFW; the program is `clothcad` again | done |
 
 ## 0.2 - make what is there comfortable
 
@@ -21,11 +21,11 @@ Agreed on 16 November. In this order; each step is something to try.
 | --- | --- | --- | --- |
 | 1 | Fabric settings in the window (weight, stretch, bend, friction), saved in the file | S | The solver has them; nothing shows them |
 | 2 | Pins: click particles in 3D to hold them | S | Holding a piece while the rest drapes |
-| 3 | Native file dialogs for open, save and avatar | S | Typing paths is the roughest part of the interface |
+| 3 | Native file dialogs for open, save and avatar | S | Done with the Qt window |
 | 4 | The avatar's path saved in the document | S | A file should reopen on the body it was made for |
 | 5 | Simulation settings: particle distance per document, quality (sub-steps) | S | Fine cloth and fast preview are different needs |
-| 6 | Redo, and undo that restores the drape | M | Undo exists; redo does not |
-| 7 | Rotate handle for a panel in 3D | M | Turn, tilt and roll are only number fields now |
+| 6 | Show which way a panel will grow before a parameter changes it (an arrow on the edges that move) | S | Growth follows the seams; seeing it first avoids surprises |
+| 7 | Rotate handle for a panel in 3D | M | Done: Maya's gizmos in both views (Q select, W move, E rotate, R scale) |
 | 8 | Arrangement points on the body (front, back, sleeve ...) | M | One click to place a panel instead of seven numbers |
 
 ## 0.3 - patterns
@@ -67,6 +67,8 @@ Agreed on 16 November. In this order; each step is something to try.
 - Wrapping patterns onto the body (tights, socks, shoes): flattening a 3D
   surface into panels. This is its own project.
 - A scripting layer (Python) over the document's verbs.
+- Seams along part of an edge, from one point to another, so that adding a
+  point to a sewn edge does not halve its seam.
 - Cloth that hardly resists being pushed shorter, so it buckles as real cloth
   does and a longer edge gathers onto a shorter one. Tried in 0.1.1: seams
   close tighter still (0.06 cm), but every cloth step took about a quarter
@@ -75,7 +77,8 @@ Agreed on 16 November. In this order; each step is something to try.
 
 ## Done after 0.1
 
-- Move gizmo in 3D on the selected panel: an arrow per axis and a centre square. It stands at the panel's arranged centre, so while the cloth is draped it can be away from where the cloth hangs. It is drawn over everything and has no plane handles; turning is step 7.
+- Move gizmo in 3D on the selected panel: an arrow per axis and a centre square. It stands at the panel's arranged centre, so while the cloth is draped it can be away from where the cloth hangs. It is drawn over everything.
+- Gizmos as in Maya, on Q, W, E and R, in the 3D view (`render/Gizmo`) and on the table (`session/TableGizmo`): Q selects only; W moves (arrows, a square per plane, the middle across the view); E turns (a ring per axis showing only what is not behind the gizmo, a ring about the line of sight, and between them a ball that turns freely, as Maya's trackball; one ring on the table, in place of the turning knob); R scales along the panel's own x and y, or evenly (the square between them, the middle; its z is grey: a panel has no thickness), as a new `Scale` operation at the end of the panel (the last one is changed again by the next drag). Moving and turning in space only place a panel (`sim::turnedAbout` works out turn, tilt and roll again). Keys typed in the 3D view's own window reach the shelf's shortcuts. In 3D the gizmos are drawn flat (`Surface::lit`), without light and shade. Rectangle has no key any more.
 - Performance: an unchanged frame costs 0.1 ms with or without the 3D view; the cloth runs on its own thread; benchmarks with baselines catch regressions.
 
 ## Things to keep true

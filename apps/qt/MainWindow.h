@@ -93,6 +93,8 @@ private:
     void buildMenus();
     // What a gesture on the table changes: decided by the rules both windows share.
     void on(const session::Gesture& gesture);
+    // The tool in use: kept by Drafting, shown by the shelf and both views.
+    void useTool(Tool tool);
 
     session::Session session_;
     Shelf* shelf_;
@@ -108,8 +110,7 @@ private:
     QTimer* timer_;
     std::vector<QDockWidget*> docks_;
 
-    session::Drafting drafting_;  // the selection, and the drags in progress
-    std::optional<Arrangement> carriedFrom_;
+    session::Drafting drafting_;  // the tool, the selection, and the drags in progress
     bool fieldDragTaken_ = false;  // the field being dragged has changed the document
     bool bodyShown_ = true;        // hidden, the body is also out of the simulation
     QAction* bodyAction_ = nullptr;

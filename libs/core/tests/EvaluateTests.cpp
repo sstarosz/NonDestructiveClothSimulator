@@ -549,6 +549,65 @@ TEST_CASE("a point added to a half is mirrored with it")
     EXPECT_NEAR((image.y), (drawn.y), "at the same height");
 }
 
+TEST_CASE("scale makes the outline bigger along x and y about the middle of its box")
+{
+    Document doc;
+    const Param wide = doc.add(Parameter{.name = "wide", .value = 1.5, .unit = Unit::Fraction});
+    const PanelId panel = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 40_cm, .height = 60_cm});
+    doc.add(panel, Bezier{.edge = rect.top(), .startHandle = {-10, 0}, .endHandle = {10, 0}});  // flat: the box stays the rectangle's
+    const OpRef<LineBetween> line = doc.add(panel, LineBetween{.from = {rect.left(), 0.5}, .to = {rect.right(), 0.5}});
+    const OpRef<Scale> scale = doc.add(panel, Scale{.x = wide, .y = 0.5});
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    const Pattern& front = result[panel];
+    EXPECT_NEAR((front.length(rect.bottom())), (60.0), "half as wide again");
+    EXPECT_NEAR((front.length(rect.left())), (30.0), "half as tall");
+    EXPECT_NEAR((front.position(rect.bottomLeft()).x), (-10.0), "about the middle of the box: it grows both ways");
+    EXPECT_NEAR((front.position(rect.bottomLeft()).y), (15.0), "and shrinks towards the middle");
+    const CubicCurve& top = *front.edge(rect.top()).cubic;
+    EXPECT_NEAR((top.control1.x - front.position(rect.topRight()).x), (-15.0), "a free curve's handles stretch with it");
+    EXPECT_NEAR((front.line(line.line()).start.y), (front.position(rect.bottomLeft()).y + 15.0), "an internal line moves with the outline");
+
+    // Non-destructive: the rectangle underneath still drives it.
+    doc.set(rect, &Rect::width, Expr(20_cm));
+    doc.set(wide, Expr(2.0));
+    result = evaluate(doc);
+    EXPECT_NEAR((result[panel].length(rect.bottom())), (40.0), "a narrower rectangle and a bigger scale, worked out again");
+    doc.set(scale, &Scale::x, Expr(1.0));
+    doc.set(scale, &Scale::y, Expr(1.0));
+    EXPECT_NEAR((evaluate(doc)[panel].length(rect.left())), (60.0), "a scale of 1 keeps the size");
+}
+
+TEST_CASE("scale keeps arcs round, and refuses to stretch a whole circle one way only")
+{
+    Document doc;
+    const PanelId slice = doc.add(Panel{.name = "slice"});
+    const OpRef<Circle> circle = doc.add(slice, Circle{.radius = 10_cm, .sweep = 90_deg});
+    const double arc = evaluate(doc)[slice].length(circle.arc());
+    const OpRef<Scale> scale = doc.add(slice, Scale{.x = 2.0, .y = 2.0});
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[slice].length(circle.arc())), (2.0 * arc), "scaled evenly, an arc is twice as long at twice the size");
+    EXPECT_NEAR((result[slice].edge(circle.arc()).arc->radius), (20.0), "with twice the radius");
+    doc.set(scale, &Scale::y, Expr(1.0));
+    result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[slice].edge(circle.arc()).arc->sweep), (90.0), "stretched one way, the arc turns through the same angle");
+
+    const PanelId round = doc.add(Panel{.name = "round"});
+    doc.add(round, Circle{.radius = 10_cm});
+    const OpRef<Scale> oval = doc.add(round, Scale{.x = 1.2, .y = 1.0});
+    EXPECT((evaluate(doc).failed(oval.id)), "a whole circle cannot be stretched one way only");
+    doc.set(oval, &Scale::y, Expr(1.2));
+    EXPECT((evaluate(doc).ok()), "but it can be scaled evenly");
+    doc.set(oval, &Scale::x, Expr(0.0));
+    EXPECT((evaluate(doc).failed(oval.id)), "a scale must be more than nothing");
+    const PanelId empty = doc.add(Panel{.name = "empty"});
+    const OpRef<Scale> alone = doc.add(empty, Scale{});
+    EXPECT((evaluate(doc).failed(alone.id)), "a scale needs an outline before it");
+}
+
 TEST_CASE("corners of arcs can move")
 {
     Document doc;

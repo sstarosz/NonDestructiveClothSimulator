@@ -24,8 +24,11 @@ struct ToolInfo {
 };
 
 const ToolInfo toolInfo[] = {
-    {Tool::Select, Icon::Select, theme::text, "Select", "Q", "Click a panel; drag it, or drag a corner."},
-    {Tool::Rectangle, Icon::Rectangle, theme::text, "Rectangle", "R", "Drag on the table."},
+    {Tool::Select, Icon::Select, theme::text, "Select", "Q", "Click a panel; drag a corner, or the panel on the table."},
+    {Tool::Move, Icon::Move, theme::text, "Move", "W", "Drag an arrow to move along it, a square to move in its plane. Ctrl: whole centimetres."},
+    {Tool::Rotate, Icon::Rotate, theme::text, "Rotate", "E", "Drag a ring to turn about its axis. Ctrl: steps of 15°."},
+    {Tool::Scale, Icon::Scale, theme::text, "Scale", "R", "Drag a handle to stretch along it, the middle to scale evenly. Ctrl: steps of 10 %."},
+    {Tool::Rectangle, Icon::Rectangle, theme::text, "Rectangle", "", "Drag on the table."},
     {Tool::Circle, Icon::Circle, theme::text, "Circle", "C", "Drag from the centre out."},
     {Tool::Ring, Icon::Ring, theme::text, "Ring", "G", "Click on the table."},
     {Tool::Point, Icon::Point, theme::text, "Point", "P", "Click an edge."},
@@ -47,6 +50,7 @@ const ToolInfo& infoOf(Tool tool) {
 } // namespace
 
 const char* nameOf(Tool tool) { return infoOf(tool).name; }
+
 const char* hintFor(Tool tool) { return infoOf(tool).hint; }
 
 Shelf::Shelf(QWidget* parent) : QWidget(parent) {
@@ -72,7 +76,7 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
         if (info.key[0]) action->setShortcut(QKeySequence(info.key));
         action->setActionGroup(toolGroup_);
         const Tool tool = info.tool;
-        connect(action, &QAction::triggered, this, [this, tool] { setTool(tool); emit toolChosen(tool); });
+        connect(action, &QAction::triggered, this, [this, tool] { emit toolChosen(tool); });
         tools_.push_back({tool, action});
     }
     action(Tool::Select)->setChecked(true);
@@ -111,19 +115,19 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     draft->addAction(undo_);
     draft->addAction(redo_);
     draft->addSeparator();
-    tools(draft, {Tool::Select});
+    tools(draft, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale});
     tools(draft, {Tool::Rectangle, Tool::Circle, Tool::Ring});
     tools(draft, {Tool::Point, Tool::Curve, Tool::Line, Tool::Mirror});
     tools(draft, {Tool::Cut, Tool::Split});
     tools(draft, {Tool::Sew});
     QToolBar* sew = row("Sew");
-    tools(sew, {Tool::Select});
+    tools(sew, {Tool::Select, Tool::Move, Tool::Rotate});
     tools(sew, {Tool::Sew});
     QToolBar* simulate = row("Simulate");
     simulate->addAction(undo_);
     simulate->addAction(redo_);
     simulate->addSeparator();
-    tools(simulate, {Tool::Select, Tool::Pull});
+    tools(simulate, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Pull});
     simulate->addAction(simulate_);
     simulate->addAction(reset_);
     connect(tabs_, &QTabBar::currentChanged, rows_, &QStackedWidget::setCurrentIndex);
@@ -157,9 +161,12 @@ QAction* Shelf::action(Tool tool) const {
     return nullptr;
 }
 
-void Shelf::setTool(Tool tool) {
-    tool_ = tool;
-    action(tool)->setChecked(true);
+void Shelf::setTool(Tool tool) { action(tool)->setChecked(true); }
+
+Tool Shelf::tool() const {
+    for (const auto& [which, action] : tools_)
+        if (action->isChecked()) return which;
+    return Tool::Select;
 }
 
 QAction* Shelf::layout(ViewLayout which) const {

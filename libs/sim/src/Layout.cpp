@@ -130,6 +130,37 @@ Vec3 unrotated(Vec3 p, const Arrangement& in) {
 
 } // namespace
 
+Vec3 inSpace(const Arrangement& arrangement, Vec3 own) { return rotated(own, arrangement); }
+
+Arrangement turnedAbout(const Arrangement& arrangement, Vec3 axis, double degrees) {
+    const double size = length(axis);
+    if (size < 1e-12) return arrangement;
+    const Vec3 k = axis * (1.0 / size);
+    const double c = std::cos(radians(degrees)), s = std::sin(radians(degrees));
+    // Rodrigues: v turned about k.
+    const auto turn = [&](Vec3 v) { return v * c + cross(k, v) * s + k * (dot(k, v) * (1.0 - c)); };
+    // The columns of the new orientation: where the panel's own x, y and z now point.
+    const Vec3 x = turn(rotated({1, 0, 0}, arrangement)), y = turn(rotated({0, 1, 0}, arrangement)), z = turn(rotated({0, 0, 1}, arrangement));
+    // arranged() turns by turn(y) · tilt(x) · roll(z), so the orientation is
+    //   [ ct·cr + st·sb·sr   st·sb·cr − ct·sr   st·cb ]
+    //   [ cb·sr              cb·cr              −sb   ]
+    //   [ ct·sb·sr − st·cr   st·sr + ct·sb·cr   ct·cb ]
+    // with t the turn, b the tilt and r the roll.
+    constexpr double degreesPerRadian = 180.0 / pi;
+    Arrangement now = arrangement;
+    const double sinTilt = std::clamp(-z.y, -1.0, 1.0);
+    now.tilt = std::asin(sinTilt) * degreesPerRadian;
+    if (std::abs(sinTilt) < 1.0 - 1e-12) {
+        now.turn = std::atan2(z.x, z.z) * degreesPerRadian;
+        now.roll = std::atan2(x.y, y.y) * degreesPerRadian;
+    } else {
+        // Facing straight up or down: turn and roll are the same motion.
+        now.roll = 0.0;
+        now.turn = (sinTilt > 0.0 ? std::atan2(y.x, x.x) : std::atan2(-y.x, x.x)) * degreesPerRadian;
+    }
+    return now;
+}
+
 Vec3 Motion::turned(Vec3 direction) const { return rotated(unrotated(direction, before), after); }
 
 Vec3 Motion::operator()(Vec3 point) const {

@@ -24,7 +24,7 @@ using Kind = ExprNode::Kind;
 // A name, once released, must keep meaning the same type.
 constexpr std::array<std::string_view, std::variant_size_v<OpData>> typeNames = {
     "Rect", "Circle", "RingSector", "Instance", "Offcut", "Curve",
-    "Bezier", "Line", "LineBetween", "Cut", "Mirror", "AdjustPoint", "AddPoint",
+    "Bezier", "Line", "LineBetween", "Cut", "Mirror", "AdjustPoint", "AddPoint", "Scale",
 };
 // Units by their names in a file, in Unit's order; never renamed once released.
 constexpr std::array<std::string_view, 4> unitNames = {"length", "angle", "fraction", "none"};
@@ -35,6 +35,7 @@ static_assert(std::is_same_v<std::variant_alternative_t<4, OpData>, Offcut>);
 static_assert(std::is_same_v<std::variant_alternative_t<9, OpData>, Cut>);
 static_assert(std::is_same_v<std::variant_alternative_t<11, OpData>, AdjustPoint>);
 static_assert(std::is_same_v<std::variant_alternative_t<12, OpData>, AddPoint>);
+static_assert(std::is_same_v<std::variant_alternative_t<13, OpData>, Scale>);
 
 template <std::size_t... I>
 std::optional<OpData> emptyOperation(std::size_t index, std::index_sequence<I...>) {

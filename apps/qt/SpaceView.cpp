@@ -29,6 +29,34 @@ QPointF where(const QMouseEvent* event) { return event->position(); }
 // How far, in screen pixels, the mouse may move while pressed and still click.
 constexpr double clickSlack = 4.0;
 
+// What dragging a handle does, for the help line.
+QString hintFor(render::GizmoHandle handle, session::GizmoMode mode) {
+    using H = render::GizmoHandle;
+    const auto axis = [](H h) { return h == H::AlongX || h == H::AboutX ? "x" : h == H::AlongY || h == H::AboutY ? "y" : "z"; };
+    switch (handle) {
+    case H::Middle:
+        return mode == session::GizmoMode::Scale ? "Drag right to make the panel bigger, left to make it smaller. Ctrl: steps of 10 %."
+                                                 : "Drag to move the panel across the view. Ctrl: whole centimetres.";
+    case H::AlongX:
+    case H::AlongY:
+    case H::AlongZ:
+        if (mode == session::GizmoMode::Scale && handle == H::AlongZ) return "A panel is flat: it has no thickness to scale along z.";
+        if (mode == session::GizmoMode::Scale) return QString("Drag to stretch the panel along its own %1. Ctrl: steps of 10 %.").arg(axis(handle));
+        return QString("Drag to move the panel along %1 only. Ctrl: whole centimetres.").arg(axis(handle));
+    case H::PlaneYZ: return "Drag to move the panel in the y-z plane. Ctrl: whole centimetres.";
+    case H::PlaneXZ: return "Drag to move the panel in the x-z plane. Ctrl: whole centimetres.";
+    case H::PlaneXY:
+        if (mode == session::GizmoMode::Scale) return "Drag to scale the panel along its own x and y together. Ctrl: steps of 10 %.";
+        return "Drag to move the panel in the x-y plane. Ctrl: whole centimetres.";
+    case H::AboutX:
+    case H::AboutY:
+    case H::AboutZ: return QString("Drag to turn the panel about %1. Ctrl: steps of 15°.").arg(axis(handle));
+    case H::AboutView: return "Drag to turn the panel about the line of sight. Ctrl: steps of 15°.";
+    case H::Free: return "Drag to turn the panel freely, as a ball. Ctrl: steps of 15°.";
+    }
+    return {};
+}
+
 } // namespace
 
 // ---- Drawing straight into a window ----------------------------------------
@@ -62,7 +90,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override { view_.moveTo(where(event), event->buttons(), event->modifiers()); }
     void mouseReleaseEvent(QMouseEvent*) override { view_.release(); }
     void wheelEvent(QWheelEvent* event) override { view_.wheel(event->angleDelta().y() / 120.0); }
-    void keyPressEvent(QKeyEvent* event) override { view_.key(event->key()); }
+    void keyPressEvent(QKeyEvent* event) override { view_.key(event->keyCombination()); }
 
 private:
     void present() {
@@ -123,7 +151,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override { view_.moveTo(where(event), event->buttons(), event->modifiers()); }
     void mouseReleaseEvent(QMouseEvent*) override { view_.release(); }
     void wheelEvent(QWheelEvent* event) override { view_.wheel(event->angleDelta().y() / 120.0); }
-    void keyPressEvent(QKeyEvent* event) override { view_.key(event->key()); }
+    void keyPressEvent(QKeyEvent* event) override { view_.key(event->keyCombination()); }
 
 private:
     SpaceView& view_;
@@ -194,14 +222,19 @@ SpaceView::~SpaceView() {
 
 const render::Picture* SpaceView::picture() const { return picture_ && picture_->picture ? &*picture_->picture : nullptr; }
 
-void SpaceView::show(const session::Session& session, std::optional<PanelId> selected, bool mesh, bool body) {
+void SpaceView::show(const session::Session& session, std::optional<PanelId> selected, session::Tool tool, bool mesh, bool body) {
+    if (const std::optional<session::GizmoMode> mode = session::gizmoOf(tool); mode != mode_) {
+        mode_ = mode;
+        hovered_.reset();
+        redraw();
+    }
     // The scene is kept even where nothing can be drawn: a click is picked in it.
     draped_ = session.clothShown();
     const Shown now{session.sceneVersion(), selected, mesh, body};
     if (shown_ == now) return;
     shown_ = now;
     selected_ = selected;
-    gizmoCentre_ = selected ? render::gizmoCentre(session, *selected) : std::nullopt;
+    gizmo_ = selected ? render::gizmoOf(session, *selected, session::GizmoMode::Move, 1.0) : std::nullopt;
     scene_ = render::sceneOf(session, camera_, 1.0, {.selected = selected, .body = body, .mesh = mesh});
     scene_.background = background;
     extent_ = render::extentOf(session);
@@ -253,8 +286,11 @@ render::ViewSize SpaceView::pictureSize() const {
 }
 
 std::optional<render::Gizmo> SpaceView::gizmo() const {
-    if (!gizmoCentre_) return std::nullopt;
-    return render::Gizmo{.centre = *gizmoCentre_, .pixel = pixelScale()};
+    if (!gizmo_ || !mode_) return std::nullopt;
+    render::Gizmo shown = *gizmo_;
+    shown.mode = *mode_;
+    shown.pixel = pixelScale();
+    return shown;
 }
 
 void SpaceView::redraw() {
@@ -278,11 +314,17 @@ void SpaceView::press(QPointF at, Qt::MouseButton button, Qt::KeyboardModifiers 
         const std::optional<render::Gizmo> shown = gizmo();
         const std::optional<render::GizmoHandle> handle = shown ? render::handleAt(*shown, camera_, pictureSize(), inPicture(at)) : std::nullopt;
         if (handle && selected_) {
-            carrying_ = Carrying{.panel = *selected_, .gizmo = *shown, .handle = *handle, .byGizmo = true, .by = {}};
+            carrying_ = Carrying{.panel = *selected_, .gizmo = *shown, .handle = *handle, .byGizmo = true, .by = {}, .turn = {}, .scale = {}};
         } else if (const std::optional<render::ClothHit> hit = render::clothAt(scene_, camera_, pictureSize(), inPicture(at))) {
             if (draped_) pulling_ = Pulling{*hit, hit->at};
-            else if (hit->panel == selected_)
-                carrying_ = Carrying{.panel = hit->panel, .gizmo = {.centre = hit->at, .pixel = pixelScale()}, .handle = render::GizmoHandle::AcrossTheView, .byGizmo = false, .by = {}};
+            else if (hit->panel == selected_ && mode_ == session::GizmoMode::Move)
+                carrying_ = Carrying{.panel = hit->panel,
+                                     .gizmo = {.mode = session::GizmoMode::Move, .centre = hit->at, .pixel = pixelScale()},
+                                     .handle = render::GizmoHandle::Middle,
+                                     .byGizmo = false,
+                                     .by = {},
+                                     .turn = {},
+                                     .scale = {}};
         }
     }
     handAt_ = at;
@@ -297,9 +339,7 @@ void SpaceView::moveTo(QPointF at, Qt::MouseButtons held, Qt::KeyboardModifiers 
         if (const std::optional<render::Gizmo> shown = gizmo()) under = render::handleAt(*shown, camera_, pictureSize(), inPicture(at));
         if (under != hovered_) {
             hovered_ = under;
-            if (under == render::GizmoHandle::AcrossTheView) emit hinted("Drag to move the panel across the view. Ctrl: whole centimetres.");
-            else if (under) emit hinted(QString("Drag to move the panel along %1 only. Ctrl: whole centimetres.")
-                                            .arg(under == render::GizmoHandle::AlongX ? "x" : under == render::GizmoHandle::AlongY ? "y" : "z"));
+            if (under && mode_) emit hinted(hintFor(*under, *mode_));
             redraw();
         }
         return;
@@ -321,14 +361,32 @@ void SpaceView::moveTo(QPointF at, Qt::MouseButtons held, Qt::KeyboardModifiers 
             }
         }
         if (carrying_ && movedFromPress_) {
-            const double step = keys & Qt::ControlModifier ? 1.0 : 0.1;  // whole centimetres with Ctrl, else millimetres
-            const std::optional<sim::Vec3> by =
-                render::moveBy(carrying_->gizmo, carrying_->handle, camera_, pictureSize(), inPicture(pressedAt_), inPicture(at), step);
-            if (by) {
-                carrying_->by = *by;
-                const session::DragPhase phase = carryingStarted_ ? session::DragPhase::Continue : session::DragPhase::Begin;
-                carryingStarted_ = true;
-                emit panelCarried(carrying_->panel, *by, phase);
+            const bool snapping = keys & Qt::ControlModifier;
+            const render::PicturePoint from = inPicture(pressedAt_), to = inPicture(at);
+            const session::DragPhase phase = carryingStarted_ ? session::DragPhase::Continue : session::DragPhase::Begin;
+            switch (carrying_->gizmo.mode) {
+            case session::GizmoMode::Move:
+                // Whole centimetres with Ctrl, else millimetres.
+                if (const std::optional<sim::Vec3> by = render::moveBy(carrying_->gizmo, carrying_->handle, camera_, pictureSize(), from, to, snapping ? 1.0 : 0.1)) {
+                    carrying_->by = *by;
+                    carryingStarted_ = true;
+                    emit gestured(session::MoveInSpace{carrying_->panel, *by, phase});
+                }
+                break;
+            case session::GizmoMode::Rotate:
+                if (const std::optional<render::Turn> turn = render::turnBy(carrying_->gizmo, carrying_->handle, camera_, pictureSize(), from, to, snapping ? 15.0 : 0.1)) {
+                    carrying_->turn = *turn;
+                    carryingStarted_ = true;
+                    emit gestured(session::TurnInSpace{carrying_->panel, turn->axis, turn->degrees, phase});
+                }
+                break;
+            case session::GizmoMode::Scale:
+                if (const std::optional<session::Factors> scale = render::scaleBy(carrying_->gizmo, carrying_->handle, camera_, pictureSize(), from, to, snapping ? 0.1 : 0.01)) {
+                    carrying_->scale = *scale;
+                    carryingStarted_ = true;
+                    emit gestured(session::ScalePanel{carrying_->panel, scale->x, scale->y, phase});
+                }
+                break;
             }
         }
         return;  // the picture follows the document
@@ -339,7 +397,14 @@ void SpaceView::moveTo(QPointF at, Qt::MouseButtons held, Qt::KeyboardModifiers 
 
 void SpaceView::release() {
     if (hand_ == Hand::Pick) {
-        if (carrying_ && carryingStarted_) emit panelCarried(carrying_->panel, carrying_->by, session::DragPhase::End);
+        if (carrying_ && carryingStarted_) {
+            const session::DragPhase end = session::DragPhase::End;
+            switch (carrying_->gizmo.mode) {
+            case session::GizmoMode::Move: emit gestured(session::MoveInSpace{carrying_->panel, carrying_->by, end}); break;
+            case session::GizmoMode::Rotate: emit gestured(session::TurnInSpace{carrying_->panel, carrying_->turn.axis, carrying_->turn.degrees, end}); break;
+            case session::GizmoMode::Scale: emit gestured(session::ScalePanel{carrying_->panel, carrying_->scale.x, carrying_->scale.y, end}); break;
+            }
+        }
         else if (pulling_ && pullingStarted_) emit clothPulled(pulling_->held.panel, pulling_->held.point, pulling_->to, session::DragPhase::End);
         else if (!(carrying_ && carrying_->byGizmo) && !movedFromPress_) emit panelClicked(render::panelAt(scene_, camera_, pictureSize(), inPicture(pressedAt_)));
     }
@@ -356,8 +421,9 @@ void SpaceView::wheel(double steps) {
     redraw();
 }
 
-void SpaceView::key(int pressed) {
-    if (pressed == Qt::Key_F) frame();
+void SpaceView::key(QKeyCombination pressed) {
+    if (pressed == QKeyCombination(Qt::Key_F)) frame();
+    else emit keyed(pressed);
 }
 
 } // namespace clothcad::ui

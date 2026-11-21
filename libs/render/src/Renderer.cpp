@@ -138,6 +138,7 @@ struct Renderer::Inside {
             std::uint32_t count, first;
             std::int32_t base;
             Colour colour;
+            bool lit;
         };
         struct Plain {
             std::uint32_t count, first;
@@ -298,7 +299,7 @@ Renderer::Inside::Draws Renderer::Inside::upload(const Scene& scene) {
             if (s.triangles.empty() || s.points.empty()) continue;
             for (std::size_t i = 0; i < s.points.size(); ++i) vertex[vertexAt + i] = {s.points[i], i < s.normals.size() ? s.normals[i] : Point{0, 0, 1}};
             std::copy(s.triangles.begin(), s.triangles.end(), index + indexAt);
-            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour});
+            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.lit});
             vertexAt += static_cast<std::uint32_t>(s.points.size());
             indexAt += static_cast<std::uint32_t>(s.triangles.size());
         }
@@ -325,8 +326,10 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
     Push push{scene.viewProjection, {}, {scene.toLight.x, scene.toLight.y, scene.toLight.z, 0.0f}};
     const vk::ShaderStageFlags stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
+    // The light's w says whether a surface is lit (0) or drawn in its colour alone (1).
     for (const Draws::Indexed& d : draws.surfaces) {
         push.colour = d.colour;
+        push.toLight[3] = d.lit ? 0.0f : 1.0f;
         commands.pushConstants<Push>(*layout, stages, 0, push);
         commands.drawIndexed(d.count, 1, d.first, d.base, 0);
     }
@@ -344,6 +347,7 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
         commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
         for (const Draws::Indexed& d : draws.overlay) {
             push.colour = d.colour;
+            push.toLight[3] = d.lit ? 0.0f : 1.0f;
             commands.pushConstants<Push>(*layout, stages, 0, push);
             commands.drawIndexed(d.count, 1, d.first, d.base, 0);
         }

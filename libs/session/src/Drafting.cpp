@@ -5,6 +5,7 @@
 
 #include "clothcad/core/Evaluate.h"
 #include "clothcad/session/Locks.h"
+#include "clothcad/sim/Layout.h"
 
 namespace clothcad::session {
 
@@ -65,13 +66,16 @@ std::string Drafting::freeName(const Document& doc, const std::string& base) {
 }
 
 Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
-    return std::visit([&](const auto& g) { return on(editor, g); }, gesture);
+    const Outcome outcome = std::visit([&](const auto& g) { return on(editor, g); }, gesture);
+    if (outcome.toolDone) tool = Tool::Select;
+    return outcome;
 }
 
 void Drafting::forget(const Document& doc) {
     dragging_.reset();
     cornerDrags_.clear();
     turning_.reset();
+    arrangedFrom_.reset();
     selection.corners.clear();
     if (selection.panel && !doc.contains(*selection.panel)) selection.panel.reset();
 }
@@ -132,6 +136,82 @@ Outcome Drafting::on(Editor& editor, const RotatePanel& g) {
         doc.turn(g.panel, g.angle);
     }, placing(g.phase == DragPhase::Begin), outcome);
     if (g.phase == DragPhase::End) turning_.reset();
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
+    Outcome outcome;
+    const Document& doc = editor.document();
+    if (!doc.contains(g.panel)) return outcome;
+    bool newStep = false;  // whether this change opens the drag's undo step
+    if (g.phase == DragPhase::Begin) {
+        dragging_.reset();
+        const std::vector<OpId> operations = doc.operations(g.panel);
+        if (operations.empty()) return outcome;
+        // The last operation that runs: a mirror applied last waits until the end, so look past it.
+        std::optional<OpId> last;
+        for (OpId op : operations) {
+            const Mirror* mirror = std::get_if<Mirror>(&doc.get(op));
+            if (!(mirror && mirror->appliedLast)) last = op;
+        }
+        const Scale* scale = last ? std::get_if<Scale>(&doc.get(*last)) : nullptr;
+        if (scale && asNumber(scale->x) && asNumber(scale->y)) {
+            newStep = true;  // the drag's first change opens its undo step
+            dragging_ = Dragging{*last, false, *asNumber(scale->x), *asNumber(scale->y)};
+        } else if (scale) {
+            outcome.notice = "This panel's scale is set by a formula. Change it in the Attribute Editor.";
+            outcome.refused = true;
+            return outcome;
+        } else {
+            OpId added;
+            if (!apply(editor, [&](Document& d) { added = d.add(g.panel, Scale{}); }, byHand(true), outcome)) return outcome;
+            dragging_ = Dragging{added, false, 1.0, 1.0};
+        }
+    }
+    if (!dragging_ || !doc.contains(dragging_->operation) || !std::holds_alternative<Scale>(doc.get(dragging_->operation))) return outcome;
+    // A thousandth, so that the numbers in the layer stay readable.
+    const auto rounded = [](double v) { return std::max(std::round(v * 1000.0) / 1000.0, 0.001); };
+    const OpRef<Scale> scale(dragging_->operation);
+    const double x = rounded(dragging_->baseX * g.x), y = rounded(dragging_->baseY * g.y);
+    apply(editor, [&](Document& d) {
+        d.set(scale, &Scale::x, Expr(x));
+        d.set(scale, &Scale::y, Expr(y));
+    }, byHand(newStep), outcome);
+    if (g.phase == DragPhase::End) dragging_.reset();
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const MoveInSpace& g) {
+    return arrangeByDrag(editor, g.panel, g.phase, [&](Arrangement now) {
+        now.x += g.by.x;
+        now.y += g.by.y;
+        now.z += g.by.z;
+        return now;
+    });
+}
+
+Outcome Drafting::on(Editor& editor, const TurnInSpace& g) {
+    return arrangeByDrag(editor, g.panel, g.phase, [&](const Arrangement& was) { return sim::turnedAbout(was, g.axis, g.degrees); });
+}
+
+Outcome Drafting::arrangeByDrag(Editor& editor, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now) {
+    // Carrying or turning a panel in space only places it: its shape stays,
+    // and a draped panel takes its drape along. One drag is one undo step.
+    Outcome outcome;
+    const Document& doc = editor.document();
+    if (!doc.contains(panel)) return outcome;
+    if (phase == DragPhase::Begin) {
+        // The editor places a panel once it has an outline; one that has none yet has no place to start from.
+        const Panel& placed = doc.get(panel);
+        arrangedFrom_.reset();
+        if (placed.arrangement.placed) arrangedFrom_ = placed.arrangement;
+        else if (const Arrangement first = sim::firstPlace(placed, editor.shapes()[panel]); first.placed) arrangedFrom_ = first;
+    }
+    if (!arrangedFrom_) return outcome;
+    Arrangement arranged = now(*arrangedFrom_);
+    arranged.placed = true;
+    apply(editor, [&](Document& d) { d.arrange(panel, arranged); }, placing(phase == DragPhase::Begin), outcome);
+    if (phase == DragPhase::End) arrangedFrom_.reset();
     return outcome;
 }
 

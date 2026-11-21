@@ -5,7 +5,7 @@
 // Starting operations create a panel's outline and must come first:
 //   Rect, Circle, RingSector, Instance
 // Modifying operations change the outline made so far:
-//   Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint
+//   Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint, Scale
 // Offcut is a starting operation too: the piece a cut in another panel removes.
 
 #include <concepts>
@@ -290,7 +290,26 @@ struct AddPoint {
     };
 };
 
-using OpData = std::variant<Rect, Circle, RingSector, Instance, Offcut, Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint>;
+// Makes the outline so far bigger or smaller along the panel's own x and y
+// axes, about the middle of its box: 1 keeps the size, 1.1 is a tenth
+// bigger. Names and corners stay; lengths change. The scale gizmo (R) adds
+// one, or keeps changing the last one.
+//
+//   Scale{.x = 1.1, .y = 1.0}   // a tenth wider, as tall
+//
+// An arc stretched more one way than the other stays a circular arc between
+// its moved ends, turning through the same angle; a whole circle can only be
+// scaled evenly (x and y the same).
+struct Scale {
+    Expr x = 1.0;
+    Expr y = 1.0;
+
+    struct Names {
+        OpId id;
+    };
+};
+
+using OpData = std::variant<Rect, Circle, RingSector, Instance, Offcut, Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint, Scale>;
 
 // True only for the exact types listed in OpData.
 template <class T, class Variant>
