@@ -132,8 +132,8 @@ Document tshirtBody() {
     sew(front.fold.image(front.body.right()), back.body.right());
     sew(front.body.top(), back.fold.image(back.body.top()));
     sew(front.fold.image(front.body.top()), back.body.top());
-    doc.arrange(front.panel, Arrangement{.placed = true, .x = 0, .y = 108, .z = 16, .wrap = 150});
-    doc.arrange(back.panel, Arrangement{.placed = true, .x = 0, .y = 108, .z = -16, .turn = 180, .wrap = 150});
+    doc.arrange(front.panel, Arrangement{.placed = true, .x = 0, .y = 104, .z = 14, .wrap = 165});
+    doc.arrange(back.panel, Arrangement{.placed = true, .x = 0, .y = 104, .z = -14, .turn = 180, .wrap = 165});
     return doc;
 }
 

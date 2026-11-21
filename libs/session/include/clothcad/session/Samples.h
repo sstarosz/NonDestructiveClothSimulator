@@ -15,9 +15,8 @@ struct Sample {
     const char* name;
     Document (*build)();
     // The avatar it is draped on, a Wavefront OBJ file in the project's
-    // assets/ folder (the window finds it beside the program); none: the
-    // built-in mannequin.
-    const char* avatar = nullptr;
+    // assets/ folder (the window finds it beside the program).
+    const char* avatar;
 };
 
 const std::vector<Sample>& samples();

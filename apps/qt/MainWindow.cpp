@@ -27,6 +27,7 @@
 #include "clothcad/core/File.h"
 #include "clothcad/core/Text.h"
 #include "clothcad/session/Samples.h"
+#include "clothcad/sim/Body.h"
 #include "clothcad/sim/Layout.h"
 
 namespace clothcad::ui {
@@ -416,7 +417,6 @@ void MainWindow::buildMenus() {
     edit->addAction(shelf_->redo());
 
     QMenu* body = menuBar()->addMenu("Body");
-    item(body, "Mannequin", {}, this, [this] { session_.useMannequin(); });
     item(body, "Avatar from OBJ…", {}, this, [this] {
         const QString path = QFileDialog::getOpenFileName(this, "Avatar", assetsFolder(), "Wavefront OBJ (*.obj)");
         if (!path.isEmpty()) loadAvatar(path);
@@ -481,10 +481,12 @@ bool MainWindow::saveAs(const QString& path) {
 }
 
 bool MainWindow::loadAvatar(const QString& path) {
-    if (const std::expected<void, std::string> loaded = session_.loadAvatar(path.toStdString()); !loaded) {
-        say(QString::fromStdString(loaded.error()), true);
+    sim::LoadedSurface loaded = sim::loadObj(path.toStdString());
+    if (!loaded.problem.empty()) {
+        say(QString::fromStdString(loaded.problem) + ". Choose a Wavefront OBJ file in cm, y up, facing +z.", true);
         return false;
     }
+    session_.useAvatar(std::move(loaded.surface), path.toStdString());
     refresh();
     return true;
 }
@@ -492,10 +494,6 @@ bool MainWindow::loadAvatar(const QString& path) {
 void MainWindow::openSample(std::size_t index) {
     const session::Sample& sample = session::samples().at(index);
     open(sample.build(), sample.name);
-    if (sample.avatar == nullptr) {
-        if (!session_.avatarPath().empty()) session_.useMannequin();
-        return;
-    }
     // The same avatar again is kept: working out how to collide with it takes a moment.
     const QString avatar = assetsFolder() + "/" + sample.avatar;
     if (session_.avatarPath() != avatar.toStdString()) loadAvatar(avatar);
@@ -578,7 +576,7 @@ void MainWindow::refresh() {
     const Result& shapes = session_.editor().shapes();
     std::optional<PanelId>& selected = drafting_.selection.panel;
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
-    const QString body = session_.avatarPath().empty() ? "Mannequin" : QFileInfo(QString::fromStdString(session_.avatarPath())).fileName();
+    const QString body = session_.avatarPath().empty() ? "No body" : QFileInfo(QString::fromStdString(session_.avatarPath())).fileName();
     outliner_->show(doc, shapes, selected, body);
     parameters_->show(doc, shapes);
     // Looking back only at a step of the selected panel.

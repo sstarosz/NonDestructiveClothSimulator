@@ -3,7 +3,7 @@
 // A panel's icon says what it is: mirrored (pink), an instance (violet).
 // Choosing a panel is only reported.
 //
-//   outliner->show(doc, shapes, selected, "Mannequin");
+//   outliner->show(doc, shapes, selected, "avatarV1.obj");
 //   connect(outliner, &Outliner::panelChosen, ...);
 
 #include <QTreeWidget>

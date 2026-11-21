@@ -64,7 +64,7 @@ void ClothPanel::show(const session::Session& session, bool ownThread, bool body
     const QSignalBlocker quiet(ownThread_);
     ownThread_->setChecked(ownThread);
     bodyShown_->setChecked(bodyShown);
-    const QString bodyName = session.avatarPath().empty() ? "Mannequin" : QString::fromStdString(session.avatarPath()).section('/', -1).section('\\', -1);
+    const QString bodyName = session.avatarPath().empty() ? "No body" : QString::fromStdString(session.avatarPath()).section('/', -1).section('\\', -1);
     // Working out how to collide with a new avatar takes a moment; the cloth waits for it.
     body_->setText(session.bodyReady() ? bodyName : bodyName + "  ·  preparing…");
     if (session.clothShown())

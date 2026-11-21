@@ -5,6 +5,7 @@
 // hands it what the user did. The window and the tests both use it.
 //
 //   Session session(std::move(doc));
+//   session.useAvatar(sim::loadObj(path).surface, path);
 //   session.editor().change(...);       // every change of the document
 //   session.simulate(true);
 //   ...each frame:
@@ -15,7 +16,6 @@
 // mesh is shared, so a view may keep it as long as it likes.
 
 #include <cstdint>
-#include <expected>
 #include <future>
 #include <map>
 #include <memory>
@@ -54,13 +54,14 @@ public:
     const sim::Placement& arranged() const { return arranged_; }
 
     // ---- The body ----
-    void useMannequin(sim::MannequinSize size = {});
-    // A body read from a Wavefront OBJ file (cm, y up, on the floor, facing
-    // +z). Its surface is there at once; working out how to collide with it
-    // takes a moment and happens in the background. Returns why it could not.
-    std::expected<void, std::string> loadAvatar(const std::string& path);
+    // An avatar's surface as the body (cm, y up, on the floor, facing +z), as
+    // sim::loadObj reads it from `path`; the session reads no files itself.
+    // The surface is there at once; working out how to collide with it takes
+    // a moment and happens in the background. Until there is one there is no
+    // body: the cloth falls to the floor.
+    void useAvatar(sim::Surface surface, std::string path);
     bool bodyReady() const { return !preparing_.valid(); }
-    const std::string& avatarPath() const { return avatarPath_; }  // empty: the mannequin
+    const std::string& avatarPath() const { return avatarPath_; }  // where it was read from; empty: no body
     const sim::Surface& bodySurface() const { return bodySurface_; }
     // Whether the cloth meets the body. A hidden body is out of the simulation.
     void setBodyPresent(bool present) { bodyPresent_ = present; }
@@ -135,8 +136,8 @@ private:
     Meshing meshing_;
     Threading threading_;
 
-    sim::Body body_ = sim::mannequin();
-    sim::Surface bodySurface_ = sim::surfaceOf(body_);
+    sim::Body body_;
+    sim::Surface bodySurface_;
     std::string avatarPath_;
     std::future<sim::Body> preparing_;
     bool bodyPresent_ = true;

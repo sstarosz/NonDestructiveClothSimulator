@@ -39,7 +39,7 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
     setRootIsDecorated(true);
     setIndentation(14);
     setFrameShape(QFrame::NoFrame);
-    body_ = new QTreeWidgetItem(this, {"Mannequin"});
+    body_ = new QTreeWidgetItem(this, {"No body"});
     body_->setIcon(0, icon(Icon::Body, theme::quiet));
     panels_ = new QTreeWidgetItem(this, {"Panels"});
     panels_->setIcon(0, icon(Icon::Folder, theme::quiet));

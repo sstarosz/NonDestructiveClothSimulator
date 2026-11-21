@@ -12,6 +12,13 @@ using namespace clothcad::render;
 
 namespace {
 
+// A body made in memory: one rounded limb standing on the floor, 160 cm tall.
+sim::Surface figure() {
+    sim::Body body;
+    body.parts.push_back({{0, 10, 0}, {0, 150, 0}, 10, 10});
+    return sim::surfaceOf(body);
+}
+
 struct TwoPanels {
     Document doc;
     PanelId front, copy;
@@ -31,11 +38,12 @@ TEST_CASE("the scene has the body, every panel and the floor")
 {
     TwoPanels start;
     session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    session.useAvatar(figure(), "figure.obj");
     session.update();
     OrbitCamera camera;
     const Scene scene = sceneOf(session, camera, 1.5, {.selected = start.front});
     REQUIRE(scene.surfaces.size() == 3);
-    EXPECT((scene.surfaces[0].triangles.size() == session.bodySurface().triangles.size() * 3), "the body first, whole");
+    EXPECT((!scene.surfaces[0].triangles.empty() && scene.surfaces[0].triangles.size() == session.bodySurface().triangles.size() * 3), "the body first, whole");
     const Surface& front = scene.surfaces[1];
     EXPECT((front.colour.red == 1.0f && front.colour.blue < 0.5f), "the selected panel is amber");
     EXPECT((scene.surfaces[2].colour.blue > scene.surfaces[2].colour.green), "an instance is violet");
@@ -61,6 +69,11 @@ TEST_CASE("the extent holds the body and the cloth")
 {
     TwoPanels start;
     session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    const auto cloth = extentOf(session);
+    REQUIRE(cloth);
+    EXPECT((cloth->first.y > 1.0 && cloth->first.z <= -30.0 && cloth->second.z >= 30.0), "with no body, only the cloth: it does not reach the floor");
+    session.useAvatar(figure(), "figure.obj");
     session.update();
     const auto box = extentOf(session);
     REQUIRE(box);

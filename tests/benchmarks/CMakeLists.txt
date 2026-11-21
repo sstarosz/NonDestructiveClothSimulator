@@ -18,6 +18,9 @@ if(TARGET clothcad_qt_ui)
     add_executable(clothcad_qt_window_benchmarks QtWindowBenchmarks.cpp)
     target_link_libraries(clothcad_qt_window_benchmarks PRIVATE clothcad::qt_ui)
     clothcad_warnings(clothcad_qt_window_benchmarks)
+    # On the project's avatar: tests/support/Avatar.h.
+    target_include_directories(clothcad_qt_window_benchmarks PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_compile_definitions(clothcad_qt_window_benchmarks PRIVATE CLOTHCAD_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets")
     add_test(NAME "benchmark: window" COMMAND clothcad_qt_window_benchmarks ${CMAKE_CURRENT_SOURCE_DIR}/baselines/QtWindow.txt)
     set_tests_properties("benchmark: window" PROPERTIES LABELS benchmark RUN_SERIAL TRUE
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"

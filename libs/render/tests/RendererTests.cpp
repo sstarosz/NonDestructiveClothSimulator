@@ -16,6 +16,13 @@ using namespace clothcad::render;
 
 namespace {
 
+// A body made in memory: one rounded limb standing on the floor, 160 cm tall.
+sim::Surface figure() {
+    sim::Body body;
+    body.parts.push_back({{0, 10, 0}, {0, 150, 0}, 10, 10});
+    return sim::surfaceOf(body);
+}
+
 // One renderer for all the tests: starting Vulkan takes a moment.
 Renderer* renderer() {
     static std::expected<std::unique_ptr<Renderer>, std::string> made = Renderer::create({});
@@ -104,10 +111,11 @@ TEST_CASE("lines are drawn over the background and pictures may change size")
     EXPECT((bigger && bigger->width == 300 && bigger->height == 200), "a picture of another size");
 }
 
-TEST_CASE("the mannequin is in the picture of a session")
+TEST_CASE("the body is in the picture of a session")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
     session::Session session({}, session::Threading::OneStepPerAdvance);
+    session.useAvatar(figure(), "figure.obj");
     session.update();
     OrbitCamera camera;
     const auto box = extentOf(session);
