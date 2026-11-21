@@ -140,13 +140,14 @@ Document tshirtBody() {
 } // namespace
 
 const std::vector<Sample>& samples() {
+    constexpr const char* avatar = "avatarV1.obj";
     static const std::vector<Sample> all = {
-        {"1. Waistband and skirt", waistbandAndSkirt},
-        {"2. Circle skirt", circleSkirt},
-        {"3. Asymmetric hem", asymmetricHem},
-        {"4. Mirrored sleeve", mirroredSleeve},
-        {"5. Shared base", sharedBase},
-        {"6. T-shirt body", tshirtBody},
+        {"1. Waistband and skirt", waistbandAndSkirt, avatar},
+        {"2. Circle skirt", circleSkirt, avatar},
+        {"3. Asymmetric hem", asymmetricHem, avatar},
+        {"4. Mirrored sleeve", mirroredSleeve, avatar},
+        {"5. Shared base", sharedBase, avatar},
+        {"6. T-shirt body", tshirtBody, avatar},
     };
     return all;
 }

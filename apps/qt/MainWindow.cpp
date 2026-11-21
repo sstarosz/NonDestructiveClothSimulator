@@ -53,6 +53,10 @@ QDockWidget* makeDock(const QString& title, QWidget* content, QMainWindow* windo
     return dock;
 }
 
+// The avatars that come with the program: the build and an installed
+// package put the project's assets/ beside it (apps/qt/CMakeLists.txt).
+QString assetsFolder() { return QCoreApplication::applicationDirPath() + "/assets"; }
+
 } // namespace
 
 MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWindow(parent), session_(Document{}, threading) {
@@ -414,7 +418,7 @@ void MainWindow::buildMenus() {
     QMenu* body = menuBar()->addMenu("Body");
     item(body, "Mannequin", {}, this, [this] { session_.useMannequin(); });
     item(body, "Avatar from OBJ…", {}, this, [this] {
-        const QString path = QFileDialog::getOpenFileName(this, "Avatar", {}, "Wavefront OBJ (*.obj)");
+        const QString path = QFileDialog::getOpenFileName(this, "Avatar", assetsFolder(), "Wavefront OBJ (*.obj)");
         if (!path.isEmpty()) loadAvatar(path);
     });
 
@@ -488,6 +492,13 @@ bool MainWindow::loadAvatar(const QString& path) {
 void MainWindow::openSample(std::size_t index) {
     const session::Sample& sample = session::samples().at(index);
     open(sample.build(), sample.name);
+    if (sample.avatar == nullptr) {
+        if (!session_.avatarPath().empty()) session_.useMannequin();
+        return;
+    }
+    // The same avatar again is kept: working out how to collide with it takes a moment.
+    const QString avatar = assetsFolder() + "/" + sample.avatar;
+    if (session_.avatarPath() != avatar.toStdString()) loadAvatar(avatar);
 }
 
 void MainWindow::showBody(bool shown) {

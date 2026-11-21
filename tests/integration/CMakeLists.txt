@@ -3,14 +3,15 @@
 # examples/).
 #
 # Built when the window is. Its tests are listed when ctest runs (not when
-# built), with Qt's libraries on the path; they find assets/ from the
-# project's folder.
+# built), with Qt's libraries on the path; the avatars are put beside them,
+# as beside the program.
 if(TARGET clothcad_qt_ui)
     find_package(Qt6 6.2 REQUIRED COMPONENTS Core)  # its targets are seen only where Qt was found
     add_executable(clothcad_qt_window_tests QtWindowTests.cpp)
     target_link_libraries(clothcad_qt_window_tests PRIVATE clothcad::qt_ui Catch2::Catch2WithMain)
     target_include_directories(clothcad_qt_window_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
     clothcad_warnings(clothcad_qt_window_tests)
+    clothcad_avatars_beside(clothcad_qt_window_tests)
     catch_discover_tests(clothcad_qt_window_tests
         TEST_PREFIX "qt: "
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}

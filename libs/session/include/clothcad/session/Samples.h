@@ -1,6 +1,7 @@
 #pragma once
-// The example garments, as documents a window can open; the same garments
-// as examples/, built through the same verbs.
+// The example garments, as documents a window can open, each with the body
+// it is draped on; the same garments as examples/, built through the same
+// verbs.
 //
 //   for (const Sample& sample : samples()) menu.add(sample.name, sample.build);
 
@@ -13,6 +14,10 @@ namespace clothcad::session {
 struct Sample {
     const char* name;
     Document (*build)();
+    // The avatar it is draped on, a Wavefront OBJ file in the project's
+    // assets/ folder (the window finds it beside the program); none: the
+    // built-in mannequin.
+    const char* avatar = nullptr;
 };
 
 const std::vector<Sample>& samples();

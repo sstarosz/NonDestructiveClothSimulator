@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QDockWidget>
 #include <QKeyEvent>
 #include <QLabel>
@@ -62,6 +63,14 @@ struct Window {
     Window() {
         window.openSample(5);
         window.show();
+        waitForTheBody();
+    }
+    // An avatar is there at once; working out how to collide with it takes a moment.
+    void waitForTheBody() {
+        for (int i = 0; i < 1000 && !window.session().bodyReady(); ++i) {
+            window.tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
         window.tick();
     }
     const Document& doc() const { return window.session().document(); }
@@ -1095,22 +1104,28 @@ TEST_CASE("every sample saves and opens unchanged; a file that cannot be read sa
     EXPECT((!w.window.saveAs(folder.filePath("no such folder/x.clothcad")) && !w.window.helpLine().isEmpty()), "a place that cannot be written says why");
 }
 
-TEST_CASE("an avatar is read from a file; one that cannot be read leaves the mannequin", "[qt]")
+TEST_CASE("each sample opens on its avatar, found from any folder; one that cannot be read leaves the body", "[qt]")
 {
     Window w;
-    EXPECT((!w.window.loadAvatar("no/such/avatar.obj") && !w.window.helpLine().isEmpty()), "a missing avatar file is refused, with why");
-    EXPECT((w.window.session().avatarPath().empty()), "and the mannequin stays");
-    REQUIRE(w.window.loadAvatar("assets/avatarV1.obj"));
-    EXPECT((w.window.session().bodySurface().triangles.size() > 1000), "the project's avatar is there at once");
-    for (int i = 0; i < 1000 && !w.window.session().bodyReady(); ++i) {
-        w.window.tick();
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    w.window.tick();
+    EXPECT((w.window.session().avatarPath().ends_with("avatarV1.obj")), "the T-shirt is draped on the project's avatar");
+    EXPECT((w.window.session().bodySurface().triangles.size() > 1000), "its surface is there");
     EXPECT((w.window.session().bodyReady()), "and ready to collide with soon after");
     auto* body = w.window.cloth()->findChild<QLabel*>("bodyName");
     REQUIRE(body != nullptr);
     EXPECT((body->text() == "avatarV1.obj"), "the Cloth tab names it");
+
+    const QString started = QDir::currentPath();
+    QDir::setCurrent(QDir::tempPath());  // as when the program is started from its build folder
+    for (std::size_t i = 0; i < session::samples().size(); ++i) {
+        w.window.openSample(i);
+        const char* avatar = session::samples()[i].avatar;
+        EXPECT((avatar != nullptr && w.window.session().avatarPath().ends_with(avatar)), std::string(session::samples()[i].name) + " opens on its avatar");
+    }
+    QDir::setCurrent(started);
+
+    const std::string before = w.window.session().avatarPath();
+    EXPECT((!w.window.loadAvatar("no/such/avatar.obj") && !w.window.helpLine().isEmpty()), "a missing avatar file is refused, with why");
+    EXPECT((w.window.session().avatarPath() == before), "and the body stays");
 }
 
 TEST_CASE("every sample meshes; random clicks, drags and keys on both views and the shelf find no crash", "[qt]")
