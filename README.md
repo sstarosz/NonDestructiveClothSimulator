@@ -58,7 +58,23 @@ sets):
 
 Without the presets: `cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake`.
 `-DCLOTHCAD_WINDOW=OFF` builds everything but the program that opens a
-window, for machines without a display.
+window, for machines without a display. A warning stops the build;
+`-DCLOTHCAD_WARNINGS_AS_ERRORS=OFF` lets it through, only for trying
+something out with another compiler.
+
+### Continuous integration
+
+Every pull request and every push to `main` is built and tested by GitHub
+Actions (`.github/workflows/ci.yml`): Windows, MSVC, Release, Qt 6.12 and
+the Vulkan SDK, then the unit and integration tests.
+To run the same tests locally:
+
+    ctest --preset x64-win-msvc2026-ci
+
+The runner has no graphics card, so the renderer's tests are skipped there,
+and the benchmarks are not run there (shared machines are too noisy for
+their limits): run them on your own machine when `sim`, `session` or the
+drawing changed.
 
 ## Performance
 
@@ -155,6 +171,11 @@ holds and hands it what the user did.
 - While seams are pulled shut the cloth slides on the body without friction.
   Seams that cannot close (the pieces do not fit, or cloth is caught on an
   arm) are given up 3 seconds after the thread is drawn in, and stay open.
+- Where three or more panel corners are sewn into one point (a band's side
+  seam meeting a skirt), the stitches there pull against each other and that
+  corner stays up to about 0.8 cm open. Pulling such a corner shut at once
+  was tried and taken back: it held a band that a seam had pulled through
+  the body in that wrong place, instead of letting it slide free.
 - While a corner is dragged, the 3D view shows the mesh a frame or a few
   behind the outline (more with fine particles).
 - A new panel stands where the table has it only within ±100 cm across and

@@ -48,7 +48,7 @@ QApplication& application() {
     static int argc = 1;
     static char name[] = "clothcad_qt_window_tests";
     static char* argv[] = {name, nullptr};
-    if (!std::getenv("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
+    if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     static QApplication& app = *new QApplication(argc, argv);
     static const bool themed = (theme::apply(app), true);
     (void)themed;
@@ -1119,7 +1119,7 @@ TEST_CASE("every sample meshes; random clicks, drags and keys on both views and 
     w.window.shelf()->mesh()->setChecked(true);
     std::mt19937 random(12345);
     const auto below = [&](int n) { return static_cast<int>(random() % static_cast<unsigned>(n)); };
-    const int rounds = std::getenv("FUZZ") ? std::atoi(std::getenv("FUZZ")) : 60;
+    const int rounds = qEnvironmentVariableIsSet("FUZZ") ? qEnvironmentVariableIntValue("FUZZ") : 60;
     const std::vector<QAction*> tools = [&] {
         std::vector<QAction*> found;
         for (const Tool tool : {Tool::Select, Tool::Rectangle, Tool::Circle, Tool::Ring, Tool::Point, Tool::Curve, Tool::Line, Tool::Mirror, Tool::Cut, Tool::Split, Tool::Sew})

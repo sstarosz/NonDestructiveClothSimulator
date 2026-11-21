@@ -5,6 +5,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <thread>
 
 #include <catch2/catch_test_macros.hpp>
@@ -151,14 +154,9 @@ TEST_CASE("opening another document ends the cloth and the history")
 
 TEST_CASE("an avatar is shown at once and can be collided with a moment later")
 {
-    const char* path = "clothcad_session_cube.obj";
-    {
-        std::FILE* file = std::fopen(path, "w");
-        std::fputs("v -10 0 -10\nv 10 0 -10\nv 10 20 -10\nv -10 20 -10\nv -10 0 10\nv 10 0 10\nv 10 20 10\nv -10 20 10\n"
-                   "f 5 6 7 8\nf 2 1 4 3\nf 6 2 3 7\nf 1 5 8 4\nf 8 7 3 4\nf 1 2 6 5\n",
-                   file);
-        std::fclose(file);
-    }
+    const std::string path = (std::filesystem::temp_directory_path() / "clothcad_session_cube.obj").string();
+    std::ofstream(path) << "v -10 0 -10\nv 10 0 -10\nv 10 20 -10\nv -10 20 -10\nv -10 0 10\nv 10 0 10\nv 10 20 10\nv -10 20 10\n"
+                           "f 5 6 7 8\nf 2 1 4 3\nf 6 2 3 7\nf 1 5 8 4\nf 8 7 3 4\nf 1 2 6 5\n";
     Session session;
     EXPECT(!session.loadAvatar("no/such/avatar.obj").has_value(), "a missing file is reported");
     EXPECT(session.avatarPath().empty(), "and the mannequin stays");
@@ -169,7 +167,7 @@ TEST_CASE("an avatar is shown at once and can be collided with a moment later")
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     EXPECT(session.bodyReady(), "and ready to collide with soon after");
-    std::remove(path);
+    std::filesystem::remove(path);
 }
 
 TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")
@@ -188,7 +186,12 @@ TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")
     Session session(doc, Threading::OneStepPerAdvance);
     session.useMannequin();
     session.simulate(true);
-    frames(session, 120);
+    // Until it is sewn and has hung under its own weight for a while: a skirt
+    // still falling into place would move its waist by itself, whatever the change.
+    frames(session, 2);
+    for (int frame = 0; frame < 900 && session.cloth().sewing; ++frame) session.update();
+    REQUIRE(!session.cloth().sewing);
+    frames(session, 180);
     const auto waistAndHem = [&] {
         const sim::PanelMesh& panel = *session.cloth().mesh->find(skirt);
         const auto& at = session.cloth().positions[static_cast<std::size_t>(&panel - session.cloth().mesh->panels.data())];

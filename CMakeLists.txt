@@ -22,6 +22,9 @@ option(CLOTHCAD_BUILD_QT_APP "The window, when Qt 6 and the Vulkan SDK are found
 # Off: build the window's code and its tests, but not the program that opens
 # a window. For machines without a display, such as a build server.
 option(CLOTHCAD_WINDOW "Build the program that opens a window" ON)
+# Warnings are defects: a warning stops the build. Off only to try something
+# out with a compiler that warns about things the project's compilers do not.
+option(CLOTHCAD_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 
 include(cmake/ClothCad.cmake)
 
