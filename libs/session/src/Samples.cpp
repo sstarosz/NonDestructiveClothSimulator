@@ -132,21 +132,22 @@ Document tshirtBody() {
     sew(front.fold.image(front.body.right()), back.body.right());
     sew(front.body.top(), back.fold.image(back.body.top()));
     sew(front.fold.image(front.body.top()), back.body.top());
-    doc.arrange(front.panel, Arrangement{.placed = true, .x = 0, .y = 108, .z = 16, .wrap = 150});
-    doc.arrange(back.panel, Arrangement{.placed = true, .x = 0, .y = 108, .z = -16, .turn = 180, .wrap = 150});
+    doc.arrange(front.panel, Arrangement{.placed = true, .x = 0, .y = 104, .z = 14, .wrap = 165});
+    doc.arrange(back.panel, Arrangement{.placed = true, .x = 0, .y = 104, .z = -14, .turn = 180, .wrap = 165});
     return doc;
 }
 
 } // namespace
 
 const std::vector<Sample>& samples() {
+    constexpr const char* avatar = "avatarV1.obj";
     static const std::vector<Sample> all = {
-        {"1. Waistband and skirt", waistbandAndSkirt},
-        {"2. Circle skirt", circleSkirt},
-        {"3. Asymmetric hem", asymmetricHem},
-        {"4. Mirrored sleeve", mirroredSleeve},
-        {"5. Shared base", sharedBase},
-        {"6. T-shirt body", tshirtBody},
+        {"1. Waistband and skirt", waistbandAndSkirt, avatar},
+        {"2. Circle skirt", circleSkirt, avatar},
+        {"3. Asymmetric hem", asymmetricHem, avatar},
+        {"4. Mirrored sleeve", mirroredSleeve, avatar},
+        {"5. Shared base", sharedBase, avatar},
+        {"6. T-shirt body", tshirtBody, avatar},
     };
     return all;
 }

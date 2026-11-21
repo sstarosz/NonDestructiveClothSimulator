@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
     // ---- Bodies ----
     const Surface surface = egg();
     report.time("prepare a 19,600-triangle body to collide with", 900.0, [&] { DistanceField field(surface); }, 3);
-    const Body scanned = bodyFrom(surface), limbs = mannequin(), nobody;
+    const Body scanned = bodyFrom(surface), nobody;
 
     // ---- The cloth ----
     // A step is timed on cloth that has been falling for a second, so that it is in contact and its seams are closing.
@@ -103,7 +103,6 @@ int main(int argc, char** argv) {
     Fabric through;
     through.collidesWithItself = false;
     report.record("cloth step, 2,800 particles, no body", 16.0, step(nobody, plain));
-    report.record("cloth step, 2,800 particles, mannequin", 16.0, step(limbs, plain));
     report.record("cloth step, 2,800 particles, scanned body", 16.0, step(scanned, plain));
     report.record("cloth step, cloth passing through cloth", 15.0, step(scanned, through));
     {

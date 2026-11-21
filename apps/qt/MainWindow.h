@@ -42,6 +42,7 @@ public:
     ~MainWindow() override;
 
     void open(Document document, const QString& title);
+    // A sample, on the body it is draped on (its avatar from assets/).
     void openSample(std::size_t index);
     // What the File and Body menus do once a file is chosen. Each says why in
     // the help line when it cannot, and then changes nothing.

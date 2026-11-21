@@ -9,55 +9,6 @@
 
 namespace clothcad::sim {
 
-namespace {
-
-// Two round columns side by side make a trunk that is wider than it is
-// deep. With their centres 0.9 radii apart, the distance around both is
-// about 8.08 radii.
-constexpr double apart = 0.9;
-double radiusAround(double around) { return around / (2.0 * pi + 2.0 * apart); }
-
-} // namespace
-
-Body mannequin(MannequinSize size) {
-    const double h = size.height;
-    const double hips = radiusAround(size.hips), waist = radiusAround(size.waist), chest = radiusAround(size.chest);
-    // Heights of the body's landmarks, as parts of its height.
-    const double ankle = 0.045 * h, knee = 0.28 * h, crotch = 0.47 * h, hip = 0.53 * h, waistLine = 0.62 * h, chestLine = 0.72 * h,
-                 shoulder = 0.80 * h, neckTop = 0.88 * h, headTop = h;
-
-    Body body;
-    const auto part = [&](Vec3 a, Vec3 b, double radiusA, double radiusB) { body.parts.push_back({a, b, radiusA, radiusB}); };
-    const double limb = h / 170.0;  // limb thickness follows height
-
-    for (double side : {-1.0, 1.0}) {
-        // Trunk: one column each side, hips to waist to chest to shoulders.
-        const auto column = [&](double radius) { return side * radius * apart / 2.0; };
-        part({column(hips), hip, 0}, {column(waist), waistLine, 0}, hips, waist);
-        part({column(waist), waistLine, 0}, {column(chest), chestLine, 0}, waist, chest);
-        part({column(chest), chestLine, 0}, {column(chest) * 1.25, shoulder, 0}, chest, chest * 0.62);
-
-        // Leg and foot.
-        const double legX = side * (hips * apart / 2.0 + 0.2 * hips);
-        part({legX, crotch + 4.0 * limb, 0}, {legX, knee, 0}, hips * 0.74, 5.6 * limb);
-        part({legX, knee, 0}, {legX, ankle + 3.0 * limb, 0}, 5.6 * limb, 3.6 * limb);
-        part({legX, ankle, 0}, {legX, 3.0 * limb, 13.0 * limb}, 3.6 * limb, 3.0 * limb);
-
-        // Arm, held away from the side, and hand.
-        const Vec3 shoulderJoint{side * (chest * (apart / 2.0 + 1.0) + 1.0 * limb), shoulder - 1.5 * limb, 0};
-        const Vec3 elbow{shoulderJoint.x + side * 11.0 * limb, shoulderJoint.y - 0.165 * h, 0};
-        const Vec3 wrist{elbow.x + side * 9.0 * limb, elbow.y - 0.14 * h, 3.0 * limb};
-        part(shoulderJoint, elbow, 4.9 * limb, 4.1 * limb);
-        part(elbow, wrist, 4.1 * limb, 2.9 * limb);
-        part(wrist, {wrist.x + side * 3.0 * limb, wrist.y - 0.06 * h, wrist.z + 1.5 * limb}, 2.9 * limb, 3.3 * limb);
-    }
-    // Neck and head.
-    part({0, shoulder, 0}, {0, neckTop, 0.5 * limb}, 5.6 * limb, 5.2 * limb);
-    const double head = (headTop - neckTop) * 0.36;
-    part({0, neckTop + head * 0.9, 1.0 * limb}, {0, headTop - head, 1.0 * limb}, head * 0.95, head);
-    return body;
-}
-
 Contact contactWith(const Capsule& c, Vec3 point) {
     const Vec3 axis = c.b - c.a;
     const double lengthSquared = dot(axis, axis);
@@ -129,16 +80,12 @@ Surface surfaceOf(const Body& body, int around) {
 
 // ---- A body from a file ----------------------------------------------------
 
-LoadedSurface loadObj(const std::string& path) {
+LoadedSurface readObj(std::string_view text) {
     LoadedSurface loaded;
-    std::ifstream file(path);
-    if (!file) {
-        loaded.problem = "could not open \"" + path + "\"";
-        return loaded;
-    }
+    std::istringstream lines{std::string(text)};
     std::string line;
     std::size_t lineNumber = 0;
-    while (std::getline(file, line)) {
+    while (std::getline(lines, line)) {
         ++lineNumber;
         std::istringstream words(line);
         std::string kind;
@@ -172,7 +119,17 @@ LoadedSurface loadObj(const std::string& path) {
             for (std::size_t i = 2; i < corners.size(); ++i) loaded.surface.triangles.push_back({corners[0], corners[i - 1], corners[i]});
         }
     }
-    if (loaded.surface.triangles.empty()) loaded.problem = "\"" + path + "\" has no faces";
+    if (loaded.surface.triangles.empty()) loaded.problem = "it has no faces";
+    return loaded;
+}
+
+LoadedSurface loadObj(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) return {.surface = {}, .problem = "could not open \"" + path + "\""};
+    std::ostringstream text;
+    text << file.rdbuf();
+    LoadedSurface loaded = readObj(text.str());
+    if (!loaded.problem.empty()) loaded.problem = "\"" + path + "\": " + loaded.problem;
     return loaded;
 }
 

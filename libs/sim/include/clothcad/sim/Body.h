@@ -1,18 +1,19 @@
 #pragma once
-// The body the cloth is put on: a set of rounded limbs. Simple shapes are
-// exact and fast to collide with; a scanned avatar can replace them later.
+// The body the cloth is put on: an avatar's surface read from a file, made
+// ready to collide with. Rounded limbs (Capsule) can be added too: exact
+// and fast, as a ball for tests.
 //
-//   sim::Body body = sim::mannequin({.height = 170_cm, .chest = 88_cm});
+//   sim::LoadedSurface avatar = sim::loadObj("assets/avatarV1.obj");
+//   sim::Body body = sim::bodyFrom(avatar.surface);
 //   sim::distanceTo(body, point)    // negative inside the body
-//   sim::surfaceOf(body)            // triangles, to draw it
 //
-// The body stands on the floor (y = 0) at x = 0, z = 0, facing +z, with its
-// arms held a little away from its sides.
+// The body stands on the floor (y = 0) at x = 0, z = 0, facing +z.
 
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "clothcad/core/Units.h"
@@ -29,21 +30,11 @@ struct Capsule {
 
 class DistanceField;
 
-// What the cloth rests on: limbs, a scanned surface, or both.
+// What the cloth rests on: limbs, a scanned surface, or both; nothing: no body.
 struct Body {
     std::vector<Capsule> parts;
     std::shared_ptr<const DistanceField> scanned;  // a surface loaded from a file, if any
 };
-
-// Measurements, in cm. Chest, waist and hips are measured around.
-struct MannequinSize {
-    double height = 170.0_cm;
-    double chest = 88.0_cm;
-    double waist = 68.0_cm;
-    double hips = 94.0_cm;
-};
-
-Body mannequin(MannequinSize size = {});
 
 // How far a point is from the body's surface; negative inside. Large and
 // positive for a body with no parts.
@@ -78,8 +69,10 @@ struct LoadedSurface {
     Surface surface;
     std::string problem;  // why the file could not be used; empty if it could
 };
-// Reads the vertices and faces of a Wavefront OBJ file. Faces with more than
-// three corners are split into triangles.
+// The vertices and faces of a Wavefront OBJ file's text. Faces with more
+// than three corners are split into triangles.
+LoadedSurface readObj(std::string_view text);
+// The same, read from a file.
 LoadedSurface loadObj(const std::string& path);
 
 // How far any point near a surface is from it, worked out once on a grid so

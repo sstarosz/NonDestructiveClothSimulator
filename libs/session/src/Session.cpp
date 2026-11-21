@@ -27,26 +27,14 @@ void Session::setParticleDistance(double cm) { particleDistance_ = std::max(cm, 
 
 // ---- The body --------------------------------------------------------------------
 
-void Session::useMannequin(sim::MannequinSize size) {
+void Session::useAvatar(sim::Surface surface, std::string path) {
     resetCloth();
-    preparing_ = {};
-    avatarPath_.clear();
-    body_ = sim::mannequin(size);
-    bodySurface_ = sim::surfaceOf(body_);
-    ++sceneVersion_;
-}
-
-std::expected<void, std::string> Session::loadAvatar(const std::string& path) {
-    sim::LoadedSurface loaded = sim::loadObj(path);
-    if (!loaded.problem.empty()) return std::unexpected(std::move(loaded.problem));
-    resetCloth();
-    bodySurface_ = std::move(loaded.surface);
+    bodySurface_ = std::move(surface);
     body_ = sim::Body{};
-    avatarPath_ = path;
+    avatarPath_ = std::move(path);
     // The background work has its own copy of the surface: nothing is shared with it.
     preparing_ = std::async(std::launch::async, [surface = bodySurface_] { return sim::bodyFrom(surface); });
     ++sceneVersion_;
-    return {};
 }
 
 // ---- The cloth ---------------------------------------------------------------------

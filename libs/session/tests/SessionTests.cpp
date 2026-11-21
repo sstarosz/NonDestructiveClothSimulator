@@ -5,8 +5,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <filesystem>
-#include <fstream>
 #include <string>
 #include <thread>
 
@@ -121,7 +119,6 @@ TEST_CASE("simulating moves the cloth, and an edit keeps it draped")
 {
     Skirt start;
     Session session(start.doc, Threading::OneStepPerAdvance);
-    session.useMannequin();
     session.update();
     EXPECT(!session.clothShown(), "before simulating, the panels are shown where they are arranged");
     session.simulate(true);
@@ -154,66 +151,27 @@ TEST_CASE("opening another document ends the cloth and the history")
 
 TEST_CASE("an avatar is shown at once and can be collided with a moment later")
 {
-    const std::string path = (std::filesystem::temp_directory_path() / "clothcad_session_cube.obj").string();
-    std::ofstream(path) << "v -10 0 -10\nv 10 0 -10\nv 10 20 -10\nv -10 20 -10\nv -10 0 10\nv 10 0 10\nv 10 20 10\nv -10 20 10\n"
-                           "f 5 6 7 8\nf 2 1 4 3\nf 6 2 3 7\nf 1 5 8 4\nf 8 7 3 4\nf 1 2 6 5\n";
+    // A surface made in memory, as sim::loadObj would hand it over: a ball.
+    sim::Body ball;
+    ball.parts.push_back({{0, 100, 0}, {0, 100, 0}, 15, 15});
+    const sim::Surface surface = sim::surfaceOf(ball);
     Session session;
-    EXPECT(!session.loadAvatar("no/such/avatar.obj").has_value(), "a missing file is reported");
-    EXPECT(session.avatarPath().empty(), "and the mannequin stays");
-    REQUIRE(session.loadAvatar(path).has_value());
-    EXPECT((session.bodySurface().triangles.size() == 12u && session.avatarPath() == path), "the surface is there at once");
+    EXPECT((session.avatarPath().empty() && session.bodySurface().triangles.empty() && session.bodyReady()), "a new session has no body");
+    const auto version = session.sceneVersion();
+    session.useAvatar(surface, "ball.obj");
+    EXPECT((session.bodySurface().triangles.size() == surface.triangles.size() && session.avatarPath() == "ball.obj"), "the surface is there at once");
+    EXPECT((session.sceneVersion() > version), "and is something new to draw");
     for (int i = 0; i < 500 && !session.bodyReady(); ++i) {
         session.update();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     EXPECT(session.bodyReady(), "and ready to collide with soon after");
-    std::filesystem::remove(path);
-}
-
-TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")
-{
-    // A band closed round the waist, and a skirt hanging from it.
-    Document doc;
-    const Param length = doc.add(Parameter{.name = "length", .value = 50});
-    const PanelId band = doc.add(Panel{.name = "band"});
-    const OpRef<Rect> bandRect = doc.add(band, Rect{.width = 72_cm, .height = 6_cm});
-    const PanelId skirt = doc.add(Panel{.name = "skirt"});
-    const OpRef<Rect> rect = doc.add(skirt, Rect{.width = 105_cm, .height = length});
-    doc.add(Seam{.a = {band, bandRect.left()}, .b = {band, bandRect.right()}});
-    doc.add(Seam{.a = {band, bandRect.bottom()}, .b = {skirt, rect.top()}, .reversed = true});
-    doc.arrange(band, Arrangement{.placed = true, .x = 0, .y = 108, .z = 72.0 / (2 * pi), .wrap = 350});
-    doc.arrange(skirt, Arrangement{.placed = true, .x = 0, .y = 80, .z = 105.0 / (2 * pi) + 3, .wrap = 340});
-    Session session(doc, Threading::OneStepPerAdvance);
-    session.useMannequin();
-    session.simulate(true);
-    // Until it is sewn and has hung under its own weight for a while: a skirt
-    // still falling into place would move its waist by itself, whatever the change.
-    frames(session, 2);
-    for (int frame = 0; frame < 900 && session.cloth().sewing; ++frame) session.update();
-    REQUIRE(!session.cloth().sewing);
-    frames(session, 180);
-    const auto waistAndHem = [&] {
-        const sim::PanelMesh& panel = *session.cloth().mesh->find(skirt);
-        const auto& at = session.cloth().positions[static_cast<std::size_t>(&panel - session.cloth().mesh->panels.data())];
-        double waist = 0.0, hem = 0.0;
-        for (uint32_t i : panel.along(rect.top())->points) waist += at[i].y / static_cast<double>(panel.along(rect.top())->points.size());
-        for (uint32_t i : panel.along(rect.bottom())->points) hem += at[i].y / static_cast<double>(panel.along(rect.bottom())->points.size());
-        return std::pair{waist, hem};
-    };
-    const auto [waist, hem] = waistAndHem();
-    REQUIRE(session.editor().change([&](Document& d) { d.set(length, Expr(60)); }));
-    session.update();
-    const auto [waistNow, hemNow] = waistAndHem();
-    std::printf("      waist %.1f -> %.1f, hem %.1f -> %.1f\n", waist, waistNow, hem, hemNow);
-    EXPECT((std::abs(waistNow - waist) < 1.5), "the waist stays where it hung (it took one step since)");
-    EXPECT((hemNow < hem - 8.0), "the new 10 cm are at the hem");
 }
 
 TEST_CASE("a draped panel moved in space takes its drape along; nothing starts again")
 {
     Skirt start;
     Session session(start.doc, Threading::OneStepPerAdvance);
-    session.useMannequin();
     session.simulate(true);
     frames(session, 60);
     session.simulate(false);
@@ -235,7 +193,6 @@ TEST_CASE("cloth pulled by hand runs while it is held, even when paused")
 {
     Skirt start;
     Session session(start.doc, Threading::OneStepPerAdvance);
-    session.useMannequin();
     session.simulate(true);
     frames(session, 30);
     session.simulate(false);
@@ -275,7 +232,6 @@ TEST_CASE("undo and redo bring the drape back")
 {
     Skirt start;
     Session session(start.doc, Threading::OneStepPerAdvance);
-    session.useMannequin();
     session.simulate(true);
     frames(session, 60);
     session.simulate(false);

@@ -17,8 +17,9 @@ the body follows too.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
   back at.
 - **Seams** between named edges, which follow the edges through every edit.
-- **3D**: panels arranged around a body (the avatar in `assets/`, or a
-  built-in mannequin), meshed and simulated: gravity, seams drawing closed,
+- **3D**: panels arranged around a body (each sample opens on the avatar in
+  `assets/`; Body > Avatar from OBJ… loads another),
+  meshed and simulated: gravity, seams drawing closed,
   cloth against body, floor and cloth.
   The selected panel has a move gizmo in the 3D view: drag an arrow to move
   it along x, y or z only, or the centre square to move it across the view
@@ -41,7 +42,9 @@ Windows: the presets point `CMAKE_PREFIX_PATH` at it) and the Vulkan SDK
 (its headers, with Vulkan-Hpp, and `glslangValidator` for the shaders);
 CMake finds the SDK through the `VULKAN_SDK` variable its installer sets.
 Without them, everything but the window is built. The program is
-`clothcad`; on Windows Qt's libraries are copied next to it when it is built.
+`clothcad`; on Windows Qt's libraries are copied next to it when it is built,
+and the avatars (the OBJ files in `assets/`) go in an `assets/` folder beside
+it, where the window looks for them.
 
 **Use a Release (or RelWithDebInfo) build to work in.** A Debug build runs
 the cloth five to ten times slower, so it moves in slow motion; the interface
@@ -61,6 +64,11 @@ Without the presets: `cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts
 window, for machines without a display. A warning stops the build;
 `-DCLOTHCAD_WARNINGS_AS_ERRORS=OFF` lets it through, only for trying
 something out with another compiler.
+
+A package to hand out, with the program, Qt's libraries, the compiler's
+runtime and the avatars in `<folder>/bin`:
+
+    cmake --install out/build/x64-win-msvc2026 --config Release --prefix <folder>
 
 ### Continuous integration
 
@@ -149,7 +157,7 @@ How it is kept fast:
 | `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move `Gizmo`. Built when the Vulkan SDK is found | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers) and Cloth, 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
 | `examples/` | Six small garments as programs, the sixth a T-shirt body | `core` |
-| `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` | everything |
+| `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` and read and write no files (bodies are made in memory); tests on the project's avatar are in `tests/integration/AvatarTests.cpp` | everything |
 
 The core never draws and the window never computes: `evaluate(doc)` turns a
 document into outlines, `sim::meshOf` turns outlines into triangles,
@@ -188,9 +196,10 @@ holds and hands it what the user did.
 - Undo and redo bring back the drape of the last 64 states.
 - A point added on a sewn edge splits it: the seam then sews only the part
   before the point, and the part after it must be sewn on its own.
-- The mannequin's arms hang close to its sides, so a loose top without
-  sleeves (sample 6) is caught on them at the underarm. On the mannequin
-  without arms, or with the sides arranged under the arms, it drapes well.
+- The body is always an avatar read from an OBJ file. Without the avatar
+  file beside the program there is no body, and the cloth falls to the floor.
+- The avatar's armpits pinch a top without sleeves (sample 6) at its
+  underarm points: a few edges there stretch up to about 30 %.
 - The 3D view draws without smoothing of edges (no multisampling) and one
   picture at a time (the processor waits for each before the next). Drawing
   into a window is checked only by hand: the tests draw off screen.

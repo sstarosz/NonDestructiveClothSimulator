@@ -14,6 +14,7 @@
 #include <chrono>
 #include <thread>
 
+#include "Avatar.h"
 #include "ClothPanel.h"
 #include "MainWindow.h"
 #include "Perf.h"
@@ -65,6 +66,12 @@ int main(int argc, char** argv) {
         window.setTicking(false);  // the frames are run here, one at a time
         window.resize(1600, 900);
         window.open(skirt(), "skirt");
+        // On the project's avatar, as the samples are; the cloth waits until it can collide with it.
+        if (!window.loadAvatar(QString::fromStdString(project::avatarPath()))) return 1;
+        for (int i = 0; i < 1000 && !window.session().bodyReady(); ++i) {
+            window.tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
         window.show();
         const auto best = [&](int runs) { return perf::bestMilliseconds([&] { frame(window); }, runs); };
 
