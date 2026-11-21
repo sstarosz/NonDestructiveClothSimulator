@@ -107,7 +107,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     // ---- What the user did, and what it changes ----
     connect(shelf_, &Shelf::toolChosen, this, [this](Tool tool) {
         stopPicking();
-        table_->setTool(tool);
+        useTool(tool);
         say(QString(nameOf(tool)) + ": " + hintFor(tool));
     });
     connect(shelf_->undo(), &QAction::triggered, this, [this] {
@@ -139,25 +139,19 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         lastView_ = space_;
         select(panel);
     });
-    connect(space_, &SpaceView::panelCarried, this, [this](PanelId panel, sim::Vec3 by, session::DragPhase phase) {
-        // Carrying a panel through space only places it: its shape stays,
-        // and a draped panel takes its drape along. One drag is one undo step.
+    connect(space_, &SpaceView::gestured, this, [this](const session::Gesture& gesture) {
         lastView_ = space_;
-        if (!session_.document().contains(panel)) return;
-        if (phase == session::DragPhase::Begin) {
-            carriedFrom_.reset();
-            if (session_.mesh())
-                if (const sim::PanelMesh* mesh = session_.mesh()->find(panel)) carriedFrom_ = sim::arrangementOf(session_.document(), *mesh);
-        }
-        if (!carriedFrom_) return;
-        Arrangement now = *carriedFrom_;
-        now.placed = true;
-        now.x += by.x;
-        now.y += by.y;
-        now.z += by.z;
-        change([&](Document& doc) { doc.arrange(panel, now); },
-               {.step = phase == session::DragPhase::Begin ? session::Step::New : session::Step::Continue, .touches = session::Touches::PlacementOnly});
-        if (phase == session::DragPhase::End) carriedFrom_.reset();
+        on(gesture);
+    });
+    connect(space_, &SpaceView::keyed, this, [this](QKeyCombination pressed) {
+        // Keys typed while the 3D view's own window has the focus do not reach
+        // the window's shortcuts by themselves.
+        const QKeySequence typed(pressed);
+        for (QAction* action : findChildren<QAction*>())
+            if (action->isEnabled() && action->shortcuts().contains(typed)) {
+                action->trigger();
+                return;
+            }
     });
     connect(space_, &SpaceView::hinted, this, [this](const QString& next) { say(next); });
     connect(space_, &SpaceView::clothPulled, this, [this](PanelId panel, std::uint32_t point, sim::Vec3 to, session::DragPhase phase) {
@@ -508,8 +502,7 @@ void MainWindow::showBody(bool shown) {
 
 void MainWindow::startPicking(OpId layer, ReferenceId reference) {
     picking_ = Picking{layer, reference};
-    shelf_->setTool(Tool::Select);
-    table_->setTool(Tool::Select);
+    useTool(Tool::Select);
     refresh();
 }
 
@@ -532,7 +525,7 @@ void MainWindow::tick() {
     if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) say(QString::fromStdString(*problem), true);
     table_->setMesh(meshShown ? session_.mesh() : nullptr);
     if (session_.editor().version() != shownVersion_) refresh();
-    if (space_->isVisible()) space_->show(session_, drafting_.selection.panel, meshShown, bodyShown_);
+    if (space_->isVisible()) space_->show(session_, drafting_.selection.panel, drafting_.tool, meshShown, bodyShown_);
     space_->showTime(session_.clothShown() ? std::optional<double>(session_.cloth().time) : std::nullopt, session_.clothShown() && session_.cloth().sewing);
     cloth_->show(session_, session_.threading() == session::Threading::OwnThread, bodyShown_);
     (void)took;
@@ -583,7 +576,8 @@ void MainWindow::refresh() {
     if (viewUntil_ && (!selected || !doc.contains(*viewUntil_) || !(doc.panelOf(*viewUntil_) == *selected))) viewUntil_.reset();
     if (viewUntil_) past_ = evaluateUpTo(doc, *viewUntil_);
     attributes_->show(doc, shapes, selected, viewUntil_);
-    table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners);
+    table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners, drafting_.tool);
+    if (space_->isVisible()) space_->show(session_, selected, drafting_.tool, shelf_->mesh()->isChecked(), bodyShown_);
     // A layer's reference being chosen: offer what that layer could use.
     if (picking_ && (!doc.contains(picking_->operation))) picking_.reset();
     std::optional<TableView::Choice> choice;
@@ -617,7 +611,9 @@ void MainWindow::refresh() {
 }
 
 void MainWindow::on(const session::Gesture& gesture) {
-    if (viewUntil_ && !std::holds_alternative<session::SelectPanel>(gesture)) {
+    // Looking back at an earlier step, the pattern does not change; placing panels in space still does.
+    const bool placesInSpace = std::holds_alternative<session::MoveInSpace>(gesture) || std::holds_alternative<session::TurnInSpace>(gesture);
+    if (viewUntil_ && !std::holds_alternative<session::SelectPanel>(gesture) && !placesInSpace) {
         table_->cancel();
         say("Showing an earlier step: click Show all steps in the Attribute Editor to change the pattern again.", true);
         return;
@@ -625,10 +621,7 @@ void MainWindow::on(const session::Gesture& gesture) {
     const session::Outcome done = drafting_.handle(session_.editor(), gesture);
     if (!done.notice.empty()) say(QString::fromStdString(done.notice), done.refused);
     else if (std::holds_alternative<session::MoveCorner>(gesture) || std::holds_alternative<session::MovePanel>(gesture)) say({});
-    if (done.toolDone) {
-        shelf_->setTool(Tool::Select);
-        table_->setTool(Tool::Select);
-    }
+    shelf_->setTool(drafting_.tool);  // a drawing tool that has done its work is back to Select
     refresh();
     if (done.typeLength) {
         // The length is a field of a layer: open that layer and type there.
@@ -641,6 +634,12 @@ void MainWindow::on(const session::Gesture& gesture) {
         }
         say(QString::fromStdString("Type the " + done.typeLength->label + "."));
     }
+}
+
+void MainWindow::useTool(Tool tool) {
+    drafting_.tool = tool;
+    shelf_->setTool(tool);
+    refresh();
 }
 
 void MainWindow::stopPicking() {

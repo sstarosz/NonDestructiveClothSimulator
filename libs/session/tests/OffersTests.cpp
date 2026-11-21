@@ -1,6 +1,8 @@
 // Unit tests of Offers.cpp: what the "Add operation" list offers, and what
 // an operation added from it starts as.
 
+#include <cmath>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
@@ -21,7 +23,7 @@ TEST_CASE("an empty panel is offered shapes; a panel with a shape is offered cha
     addOffered(doc, panel, Offer::Rectangle);
     bool changes = true;
     for (const Offered& offer : offersFor(doc, panel)) changes = changes && !offer.starting;
-    EXPECT((changes && offersFor(doc, panel).size() == 8), "then eight changes, no shape");
+    EXPECT((changes && offersFor(doc, panel).size() == 9), "then nine changes, no shape");
 }
 
 TEST_CASE("an added shape works at once; a change that needs an edge asks for it")
@@ -50,4 +52,18 @@ TEST_CASE("an instance follows another panel; a cut is along the panel's latest 
     const Added cut = addOffered(doc, source, Offer::Cut);
     EXPECT((std::get<Cut>(doc.get(cut.operation)).along == line.line()), "the cut is along the line");
     EXPECT((!cut.toChoose), "so nothing is left to choose");
+}
+
+TEST_CASE("a scale can be added from the list, and starts at the size the panel has")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "piece"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 30_cm, .height = 20_cm});
+    bool offered = false;
+    for (const Offered& offer : offersFor(doc, panel)) offered = offered || offer.offer == Offer::Scale;
+    EXPECT(offered, "a panel with a shape is offered a scale");
+    const Added scale = addOffered(doc, panel, Offer::Scale);
+    EXPECT((std::holds_alternative<Scale>(doc.get(scale.operation)) && !scale.toChoose), "it needs nothing chosen");
+    const Result result = evaluate(doc);
+    EXPECT((result.ok() && std::abs(result[panel].length(rect.bottom()) - 30.0) < 1e-9), "and changes nothing until it is set");
 }

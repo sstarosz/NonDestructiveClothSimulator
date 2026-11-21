@@ -7,6 +7,9 @@
 //   shelf->action(Tool::Point)->trigger();
 
 #include <QWidget>
+#include <optional>
+
+#include "clothcad/session/Tools.h"
 
 class QAction;
 class QActionGroup;
@@ -16,7 +19,9 @@ class QToolBar;
 
 namespace clothcad::ui {
 
-enum class Tool { Select, Rectangle, Circle, Ring, Point, Curve, Line, Mirror, Cut, Split, Sew, Pull };
+// The tools are the session's (session/Tools.h): the shelf only shows them.
+using session::Tool;
+using session::gizmoOf;
 
 // How the two views share the middle of the window.
 enum class ViewLayout { One, SideBySide, Stacked };
@@ -31,7 +36,8 @@ public:
     explicit Shelf(QWidget* parent = nullptr);
 
     QAction* action(Tool tool) const;
-    Tool tool() const { return tool_; }
+    // The tool shown as chosen.
+    Tool tool() const;
     void setTool(Tool tool);
 
     QAction* undo() const { return undo_; }
@@ -60,7 +66,6 @@ private:
     QAction* simulate_;
     QAction* reset_;
     QAction* mesh_;
-    Tool tool_ = Tool::Select;
 };
 
 } // namespace clothcad::ui

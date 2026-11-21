@@ -43,7 +43,11 @@ Pattern placedOnTable(const Pattern& own, double angle, Vec2 place) {
 
 } // namespace
 
-void TableView::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners) {
+void TableView::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners, Tool tool) {
+    if (tool != tool_) {
+        tool_ = tool;
+        cancel();
+    }
     selected_ = selected;
     corners_ = corners;
     drawn_.clear();
@@ -87,11 +91,6 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
     }
     if (!fitted_ && !drawn_.empty()) fit();
     update();
-}
-
-void TableView::setTool(Tool tool) {
-    tool_ = tool;
-    cancel();
 }
 
 QString TableView::gridKey() const { return QString::fromStdString("grid " + formatValue(gridStep(), Unit::Length)); }
@@ -138,7 +137,6 @@ Vec2 TableView::toTable(QPointF s) const {
 namespace {
 
 constexpr double reach = 10.0;   // how close, in pixels, the pointer must be to take hold of something
-constexpr double knobAbove = 30.0;
 
 double distance(QPointF a, QPointF b) { return std::hypot(a.x() - b.x(), a.y() - b.y()); }
 
@@ -161,20 +159,23 @@ const TableView::Drawn* TableView::chosen() const {
     return nullptr;
 }
 
-std::optional<QPointF> TableView::knob() const {
+bool TableView::selecting() const { return tool_ == Tool::Select || gizmoOf(tool_).has_value(); }
+
+std::optional<session::TableGizmo> TableView::gizmo() const {
     const Drawn* d = chosen();
-    if (!d) return std::nullopt;
-    const std::optional<Bounds> box = bounds(d->pattern);
-    if (!box) return std::nullopt;
-    return toScreen({(box->min.x + box->max.x) / 2.0, box->max.y}) - QPointF(0, knobAbove);
+    const std::optional<session::GizmoMode> mode = gizmoOf(tool_);
+    if (!d || !mode || choosing_) return std::nullopt;
+    return session::TableGizmo{.mode = *mode, .centre = d->pivot, .angle = d->angle, .cmPerPixel = 1.0 / scale_};
 }
 
 std::optional<TableView::Grab> TableView::grabAt(QPointF screen, std::string& locked) const {
     locked.clear();
     const Drawn* d = chosen();
     if (!d) return std::nullopt;
-    if (const std::optional<QPointF> k = knob(); k && distance(screen, *k) < reach)
-        return Grab{Grab::Kind::Rotate, d->panel, {}, {}, false, d->pivot};
+    // The gizmo first: it stands over the panel's corners.
+    if (const std::optional<session::TableGizmo> shown = gizmo())
+        if (const std::optional<session::TableHandle> handle = session::handleAt(*shown, toTable(screen)))
+            return Grab{Grab::Kind::Gizmo, d->panel, {}, {}, false, d->place, *handle};
     for (std::size_t i = 0; i < d->pattern.edges.size(); ++i) {
         const Edge& edge = d->pattern.edges[i];
         if (!edge.cubic) continue;
@@ -186,7 +187,7 @@ std::optional<TableView::Grab> TableView::grabAt(QPointF screen, std::string& lo
                 locked = why;
                 return std::nullopt;
             }
-            return Grab{Grab::Kind::Handle, d->panel, {}, edge.name, end, at};
+            return Grab{Grab::Kind::Handle, d->panel, {}, edge.name, end, at, session::TableHandle::Middle};
         }
     }
     for (std::size_t i = 0; i < d->pattern.vertices.size(); ++i) {
@@ -196,7 +197,7 @@ std::optional<TableView::Grab> TableView::grabAt(QPointF screen, std::string& lo
             locked = d->cornerLocks[i];
             return std::nullopt;
         }
-        return Grab{Grab::Kind::Corner, d->panel, vertex.name, {}, false, vertex.position};
+        return Grab{Grab::Kind::Corner, d->panel, vertex.name, {}, false, vertex.position, session::TableHandle::Middle};
     }
     return std::nullopt;
 }
@@ -359,8 +360,8 @@ void TableView::paintEvent(QPaintEvent*) {
         p.drawText(QPointF(8, height() - 8), gridKey());
     }
 
-    // The selected panel's handles, corners and turning knob.
-    if (const Drawn* d = chosen(); d && tool_ == Tool::Select && !choosing_) {
+    // The selected panel's handles and corners.
+    if (const Drawn* d = chosen(); d && selecting() && !choosing_) {
         for (std::size_t i = 0; i < d->pattern.edges.size(); ++i) {
             const Edge& edge = d->pattern.edges[i];
             if (!edge.cubic) continue;
@@ -383,13 +384,8 @@ void TableView::paintEvent(QPaintEvent*) {
             p.setBrush(picked ? colour : theme::table);
             p.drawRect(QRectF(toScreen(vertex.position) - QPointF(4, 4), QSizeF(8, 8)));
         }
-        if (const std::optional<QPointF> k = knob()) {
-            p.setPen(QPen(theme::selected, 1.2));
-            p.drawLine(*k + QPointF(0, 6), *k + QPointF(0, knobAbove));
-            p.setBrush(theme::table);
-            p.drawEllipse(*k, 6, 6);
-        }
     }
+    paintGizmo(p);
 
     if (choosing_) paintChoice(p);
     else paintTool(p);
@@ -409,12 +405,12 @@ void TableView::paintEvent(QPaintEvent*) {
             inside.setAlpha(30);
             p.setBrush(inside);
             p.drawRect(QRectF(toScreen(drag_->pressedAt), pointer_).normalized());
-        } else if (drag_->grab.kind == Grab::Kind::Rotate) {
+        } else if (drag_->grab.kind == Grab::Kind::Gizmo && drag_->gizmo && drag_->gizmo->mode == session::GizmoMode::Rotate) {
             p.setPen(QPen(offered, 1.5));
-            p.drawLine(toScreen(drag_->grab.thingWasAt), pointer_);
+            p.drawLine(toScreen(drag_->gizmo->centre), pointer_);
             p.setBrush(offered);
-            p.drawEllipse(toScreen(drag_->grab.thingWasAt), 4, 4);
-        } else if (drag_->grab.kind != Grab::Kind::Panel) {
+            p.drawEllipse(toScreen(drag_->gizmo->centre), 4, 4);
+        } else if (drag_->grab.kind != Grab::Kind::Panel && drag_->grab.kind != Grab::Kind::Gizmo) {
             p.setPen(QPen(theme::quiet, 1.5));
             p.drawEllipse(toScreen(drag_->grab.thingWasAt), 5, 5);  // where it was
         }
@@ -434,7 +430,7 @@ void TableView::mousePressEvent(QMouseEvent* event) {
         if (const std::optional<Reference> picked = choiceAt(event->position())) emit referencePicked(*picked);
         return;
     }
-    if (tool_ != Tool::Select) {
+    if (!selecting()) {
         pressWithTool(event->position(), event->modifiers() & Qt::ControlModifier);
         return;
     }
@@ -446,17 +442,17 @@ void TableView::mousePressEvent(QMouseEvent* event) {
         emit told(QString::fromStdString(locked));
         return;
     }
-    if (!grab && shift && chosen()) grab = Grab{Grab::Kind::Box, chosen()->panel, {}, {}, false, at};
+    if (!grab && shift && chosen()) grab = Grab{Grab::Kind::Box, chosen()->panel, {}, {}, false, at, session::TableHandle::Middle};
     if (!grab) {
         // The panel under the pointer; the selected one wins where they overlap.
         const Drawn* under = nullptr;
         for (const Drawn& d : drawn_)
             if (encloses(d.pattern, at) && (!under || (selected_ && d.panel == *selected_))) under = &d;
-        if (under) grab = Grab{Grab::Kind::Panel, under->panel, {}, {}, false, under->place};
+        if (under) grab = Grab{Grab::Kind::Panel, under->panel, {}, {}, false, under->place, session::TableHandle::Middle};
         emit gestured(session::SelectPanel{under ? std::optional<PanelId>(under->panel) : std::nullopt});
     }
-    if (grab) drag_ = Drag{*grab, at, event->position(), 0.0, false};
-    if (drag_ && drag_->grab.kind == Grab::Kind::Rotate)
+    if (grab) drag_ = Drag{*grab, at, event->position(), 0.0, false, grab->kind == Grab::Kind::Gizmo ? gizmo() : std::nullopt};
+    if (drag_ && drag_->grab.kind == Grab::Kind::Gizmo)
         for (const Drawn& d : drawn_)
             if (d.panel == drag_->grab.panel) drag_->angleWas = d.angle;
     offered_.reset();
@@ -473,14 +469,31 @@ void TableView::dragTo(QPointF screen, bool snapping, bool released) {
     const Grab grab = drag.grab;  // the handler below may redraw the table
     switch (grab.kind) {
     case Grab::Kind::Box: break;  // only drawn; the corners are chosen on release
-    case Grab::Kind::Rotate: {
-        const Vec2 pivot = grab.thingWasAt;
-        const double now = std::atan2(at.y - pivot.y, at.x - pivot.x);
-        const double was = std::atan2(drag.pressedAt.y - pivot.y, drag.pressedAt.x - pivot.x);
-        double angle = drag.angleWas + (now - was) * 180.0 / std::numbers::pi;
-        angle = std::remainder(roundTo(angle, snapping ? 15.0 : 0.1), 360.0);
-        readout_ = QString::fromStdString(formatValue(angle, Unit::Angle));
-        emit gestured(session::RotatePanel{grab.panel, angle, phase});
+    case Grab::Kind::Gizmo: {
+        // The gizmo as it stood when it was taken hold of: what it stands on changes as it is dragged.
+        if (!drag.gizmo) break;
+        const session::TableGizmo& held = *drag.gizmo;
+        if (held.mode == session::GizmoMode::Move) {
+            // As a drag of the panel, along one axis only for an arrow.
+            const Vec2 by = session::moveBy(held, grab.handle, drag.pressedAt, at);
+            const Vec2 target = snapped({grab.thingWasAt.x + by.x, grab.thingWasAt.y + by.y}, snapping);
+            const double dx = grab.handle == session::TableHandle::AlongY ? 0.0 : roundTo(target.x - grab.thingWasAt.x, snapping ? 1e-6 : 0.1);
+            const double dy = grab.handle == session::TableHandle::AlongX ? 0.0 : roundTo(target.y - grab.thingWasAt.y, snapping ? 1e-6 : 0.1);
+            readout_ = signedCm(dx) + ", " + signedCm(dy) + " cm";
+            emit gestured(session::MovePanel{grab.panel, grab.thingWasAt.x + dx, grab.thingWasAt.y + dy, phase});
+        } else if (held.mode == session::GizmoMode::Rotate) {
+            double angle = drag.angleWas + session::turnBy(held, drag.pressedAt, at);
+            angle = std::remainder(roundTo(angle, snapping ? 15.0 : 0.1), 360.0);
+            readout_ = QString::fromStdString(formatValue(angle, Unit::Angle));
+            emit gestured(session::RotatePanel{grab.panel, angle, phase});
+        } else {
+            // Whole hundredths, or tenths when snapping.
+            const double step = snapping ? 0.1 : 0.01;
+            const session::Factors by = session::scaleBy(held, grab.handle, drag.pressedAt, at);
+            const double x = std::max(roundTo(by.x, step), step), y = std::max(roundTo(by.y, step), step);
+            readout_ = QString::fromStdString(formatValue(x, Unit::Fraction) + " × " + formatValue(y, Unit::Fraction));
+            emit gestured(session::ScalePanel{grab.panel, x, y, phase});
+        }
         break;
     }
     default: {
@@ -510,21 +523,24 @@ void TableView::mouseMoveEvent(QMouseEvent* event) {
         choiceOffered_ = choiceAt(event->position());
         setCursor(choiceOffered_ ? Qt::PointingHandCursor : Qt::ArrowCursor);
         if (was != choiceOffered_) update();
-    } else if (tool_ != Tool::Select) {
+    } else if (!selecting()) {
         offer_ = drawFrom_ ? std::nullopt : offerAt(event->position());
         setCursor(offer_ && (offer_->edge || offer_->point || offer_->line) ? Qt::PointingHandCursor : Qt::CrossCursor);
         update();
     } else if (drag_ && (event->buttons() & Qt::LeftButton)) {
         dragTo(event->position(), event->modifiers() & Qt::ControlModifier, false);
-    } else if (tool_ == Tool::Select) {
-        // Ring what the pointer would take hold of; say why when it is locked.
+    } else {
+        // Ring what the pointer would take hold of, or light the gizmo's handle.
         std::string locked;
         const std::optional<Grab> grab = grabAt(event->position(), locked);
         const std::optional<QPointF> was = offered_;
-        offered_ = grab ? std::optional<QPointF>(grab->kind == Grab::Kind::Rotate ? *knob() : toScreen(grab->thingWasAt)) : std::nullopt;
+        const std::optional<session::TableHandle> wasHandle = gizmoOffered_;
+        const bool onGizmo = grab && grab->kind == Grab::Kind::Gizmo;
+        offered_ = grab && !onGizmo ? std::optional<QPointF>(toScreen(grab->thingWasAt)) : std::nullopt;
+        gizmoOffered_ = onGizmo ? std::optional(grab->handle) : std::nullopt;
         if (grab) setCursor(Qt::PointingHandCursor);
         else unsetCursor();
-        if (was != offered_) update();
+        if (was != offered_ || wasHandle != gizmoOffered_) update();
     }
     emit pointerAt(toTable(event->position()));
 }
@@ -708,6 +724,51 @@ void TableView::pressWithTool(QPointF screen, bool snapping) {
     update();
 }
 
+void TableView::paintGizmo(QPainter& p) const {
+    const std::optional<session::TableGizmo> shown = drag_ && drag_->gizmo ? drag_->gizmo : gizmo();
+    if (!shown) return;
+    const std::optional<session::TableHandle> lit = drag_ && drag_->grab.kind == Grab::Kind::Gizmo ? std::optional(drag_->grab.handle) : gizmoOffered_;
+    const auto colourOf = [&](session::TableHandle handle, QColor own) { return lit == handle ? theme::selected : own; };
+    const QPointF centre = toScreen(shown->centre);
+    p.save();
+    p.setBrush(Qt::NoBrush);
+    if (shown->mode == session::GizmoMode::Rotate) {
+        // The ring about z, the table's upright axis: blue, as in Maya.
+        p.setPen(QPen(colourOf(session::TableHandle::Ring, theme::axisZ), 3.0));
+        p.drawEllipse(centre, session::tableRingPixels, session::tableRingPixels);
+        p.restore();
+        return;
+    }
+    for (const session::TableHandle along : {session::TableHandle::AlongX, session::TableHandle::AlongY}) {
+        const QColor colour = colourOf(along, along == session::TableHandle::AlongX ? theme::axisX : theme::axisY);
+        const QPointF end = toScreen(session::handleEnd(*shown, along));
+        const QPointF unit = (end - centre) / session::tableArrowPixels;  // one pixel along it
+        const QPointF across(-unit.y(), unit.x());
+        p.setPen(QPen(colour, 3.0));
+        p.drawLine(centre + unit * session::tableMiddlePixels, end - unit * (shown->mode == session::GizmoMode::Move ? 16.0 : 6.0));
+        p.setPen(Qt::NoPen);
+        p.setBrush(colour);
+        if (shown->mode == session::GizmoMode::Move)
+            p.drawPolygon(QPolygonF({end, end - unit * 19.0 + across * 7.0, end - unit * 19.0 - across * 7.0}));  // the head
+        else
+            p.drawPolygon(QPolygonF({end + (unit + across) * 6.0, end + (unit - across) * 6.0, end - (unit + across) * 6.0, end - (unit - across) * 6.0}));
+        p.setBrush(Qt::NoBrush);
+    }
+    if (shown->mode == session::GizmoMode::Scale) {
+        // The square between x and y: blue, as the axis it faces in Maya.
+        QPolygonF square;
+        for (const Vec2& corner : session::planeCorners(*shown)) square << toScreen(corner);
+        p.setPen(Qt::NoPen);
+        p.setBrush(colourOf(session::TableHandle::Plane, theme::axisZ));
+        p.drawPolygon(square);
+    }
+    const double half = session::tableMiddlePixels;
+    p.setPen(QPen(theme::table, 1.0));
+    p.setBrush(colourOf(session::TableHandle::Middle, QColor(235, 235, 235)));
+    p.drawRect(QRectF(centre - QPointF(half, half), QSizeF(2 * half, 2 * half)));
+    p.restore();
+}
+
 void TableView::paintTool(QPainter& p) const {
     const QColor offered(255, 226, 150);
     const auto polyline = [&](const Drawn& d, const EdgeRef& edge) {
@@ -836,7 +897,7 @@ void TableView::paintChoice(QPainter& p) const {
 
 void TableView::mouseDoubleClickEvent(QMouseEvent* event) {
     // Two quick clicks with a drawing tool are two clicks, not a double-click.
-    if (tool_ != Tool::Select || choosing_) return mousePressEvent(event);
+    if (!selecting() || choosing_) return mousePressEvent(event);
     // A double-click on an edge of the selected panel types its length.
     if (event->button() != Qt::LeftButton) return;
     std::string locked;

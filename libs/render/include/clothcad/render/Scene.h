@@ -40,6 +40,7 @@ struct Surface {
     std::vector<std::uint32_t> triangles;    // three points each
     Colour colour;
     std::optional<PanelId> panel{};          // the panel it shows, for picking; none for the body
+    bool lit = true;                         // false: drawn in its colour alone, without light and shade (the gizmo)
 };
 
 // Straight lines, one pixel wide, blended by their alpha.

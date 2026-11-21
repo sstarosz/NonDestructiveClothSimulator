@@ -34,6 +34,25 @@ TEST_CASE("copy points references at the copy")
     EXPECT((result[copy].edge(copyRect.top()).arc.has_value()), "the copy is curved");
 }
 
+TEST_CASE("a copied scale scales the copy, and follows the same parameter")
+{
+    Document doc;
+    const Param wider = doc.add(Parameter{.name = "wider", .value = 1.25, .unit = Unit::Fraction});
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 20_cm, .height = 20_cm});
+    const OpRef<Scale> scale = doc.add(original, Scale{.x = wider, .y = 1.0});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[copy].length(copy[rect].bottom())), (25.0), "the copy is scaled as the original is");
+    doc.set(wider, Expr(1.5));
+    doc.set(copy[scale], &Scale::y, Expr(2.0));
+    result = evaluate(doc);
+    EXPECT_NEAR((result[copy].length(copy[rect].bottom())), (30.0), "both follow the parameter");
+    EXPECT_NEAR((result[original].length(rect.left())), (20.0), "and the copy's own scale is its own");
+}
+
 TEST_CASE("a copied point is on the copy's edge, and so is its after-part")
 {
     Document doc;

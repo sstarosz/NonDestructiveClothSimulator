@@ -51,6 +51,20 @@ void draw(Icon which, Pen& d) {
     QPainter& p = d.p;
     switch (which) {
     case Icon::Select: d.lines({{5, 3}, {11, 20}, {13, 13}, {20, 11}, {5, 3}}); break;
+    case Icon::Move:  // four arrows out from the middle
+        d.line({12, 3}, {12, 21}); d.line({3, 12}, {21, 12});
+        d.lines({{9, 6}, {12, 3}, {15, 6}}); d.lines({{9, 18}, {12, 21}, {15, 18}});
+        d.lines({{6, 9}, {3, 12}, {6, 15}}); d.lines({{18, 9}, {21, 12}, {18, 15}});
+        break;
+    case Icon::Rotate: {  // a ring nearly closed, with an arrow head
+        QPainterPath around; around.moveTo(19.5, 9); around.arcTo(QRectF(4, 4, 16, 16), 20, 290); p.drawPath(around);
+        d.lines({{15.5, 4.5}, {19.5, 9}, {21, 3.5}});
+        break;
+    }
+    case Icon::Scale:  // a small box, a big one, an arrow from the one to the other
+        p.drawRect(QRectF(3, 13, 8, 8)); p.drawRect(QRectF(3, 3, 18, 18));
+        d.line({10, 14}, {18, 6}); d.lines({{13, 6}, {18, 6}, {18, 11}});
+        break;
     case Icon::Rectangle: p.drawRoundedRect(QRectF(4, 6, 16, 12), 1, 1); break;
     case Icon::Circle: p.drawEllipse(QPointF(12, 12), 8, 8); break;
     case Icon::Ring: {

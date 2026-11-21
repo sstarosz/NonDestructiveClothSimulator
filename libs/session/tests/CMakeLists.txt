@@ -6,4 +6,5 @@ clothcad_unit_tests(session SOURCES
     OffersTests.cpp
     SessionTests.cpp
     SimulationTests.cpp
+    TableGizmoTests.cpp
 )
