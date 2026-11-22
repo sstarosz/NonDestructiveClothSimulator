@@ -210,6 +210,14 @@ private:
         OpId operation;    // the adjustment it is written to
     };
     std::vector<CornerDrag> cornerDrags_;  // while a group of corners is dragged
+    // A panel being scaled by the gizmo. The layer is only added with the first
+    // change that is accepted, so a refused drag leaves nothing behind.
+    struct Scaling {
+        std::optional<OpId> layer;  // empty until the drag has added its own
+        double baseX, baseY;
+        bool stepOpen;              // whether an accepted change has opened the undo step
+    };
+    std::optional<Scaling> scaling_;
     // A panel being turned by the gizmo turns about the table position of its box's centre.
     struct Turning {
         Vec2 centre;  // in its own coordinates

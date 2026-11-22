@@ -20,8 +20,7 @@ TEST_CASE("each edge's length is labelled; a formula that sets it is shown with 
     const auto of = [&](EdgeRef edge) {
         for (const session::EdgeLength& l : lengths)
             if (l.edge == edge) return l;
-        FAIL("no such edge");
-        return session::EdgeLength{};
+        throw std::runtime_error("no such edge");
     };
     EXPECT((of(rect.bottom()).length == 35.0 && of(rect.bottom()).formula == "waist / 2"), "the width follows the waist, and says so");
     EXPECT((of(rect.left()).length == 4.0 && of(rect.left()).formula.empty()), "a typed number has no formula");

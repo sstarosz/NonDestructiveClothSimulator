@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
 #include <QKeyEvent>
@@ -67,12 +68,15 @@ struct Window {
         window.show();
         waitForTheBody();
     }
-    // An avatar is there at once; working out how to collide with it takes a moment.
+    // An avatar is there at once; working out how to collide with it takes a
+    // moment, and longer in a build that is not optimised.
     void waitForTheBody() {
-        for (int i = 0; i < 1000 && !window.session().bodyReady(); ++i) {
+        const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (!window.session().bodyReady() && std::chrono::steady_clock::now() < limit) {
             window.tick();
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
+        REQUIRE(window.session().bodyReady());
         window.tick();
     }
     const Document& doc() const { return window.session().document(); }
@@ -80,13 +84,11 @@ struct Window {
         for (PanelId p : doc().panels())
             if (doc().get(p).name == name) return p;
         FAIL("no panel " << name);
-        return {};
     }
     Param parameter(const std::string& name) const {
         for (Param p : doc().parameters())
             if (doc().get(p).name == name) return p;
         FAIL("no parameter " << name);
-        return {};
     }
 };
 
@@ -1232,7 +1234,10 @@ TEST_CASE("an empty table says how to start; the grid's step is written in its c
 TEST_CASE("every sample saves and opens unchanged; a file that cannot be read says why", "[qt]")
 {
     Window w;
-    QTemporaryDir folder;
+    // A folder of its own to write in, beside the program: a place that is
+    // certainly writable (some machines keep programs from writing in the
+    // system's temp folder), and gone again when the test is done.
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-samples-XXXXXX");
     REQUIRE(folder.isValid());
     const QString path = folder.filePath("sample.clothcad");
     for (std::size_t i = 0; i < session::samples().size(); ++i) {

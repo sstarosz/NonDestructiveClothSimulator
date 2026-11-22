@@ -159,11 +159,11 @@ const TableView::Drawn* TableView::chosen() const {
     return nullptr;
 }
 
-bool TableView::selecting() const { return tool_ == Tool::Select || gizmoOf(tool_).has_value(); }
+bool TableView::selecting() const { return tool_ == Tool::Select || session::gizmoOf(tool_).has_value(); }
 
 std::optional<session::TableGizmo> TableView::gizmo() const {
     const Drawn* d = chosen();
-    const std::optional<session::GizmoMode> mode = gizmoOf(tool_);
+    const std::optional<session::GizmoMode> mode = session::gizmoOf(tool_);
     if (!d || !mode || choosing_) return std::nullopt;
     return session::TableGizmo{.mode = *mode, .centre = d->pivot, .angle = d->angle, .cmPerPixel = 1.0 / scale_};
 }

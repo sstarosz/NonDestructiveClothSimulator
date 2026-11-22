@@ -73,6 +73,7 @@ Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
 
 void Drafting::forget(const Document& doc) {
     dragging_.reset();
+    scaling_.reset();
     cornerDrags_.clear();
     turning_.reset();
     arrangedFrom_.reset();
@@ -143,41 +144,46 @@ Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
     Outcome outcome;
     const Document& doc = editor.document();
     if (!doc.contains(g.panel)) return outcome;
-    bool newStep = false;  // whether this change opens the drag's undo step
     if (g.phase == DragPhase::Begin) {
-        dragging_.reset();
-        const std::vector<OpId> operations = doc.operations(g.panel);
-        if (operations.empty()) return outcome;
-        // The last operation that runs: a mirror applied last waits until the end, so look past it.
+        scaling_.reset();
+        // The last operation that runs and is on: a mirror applied last waits until the end, so look past it.
         std::optional<OpId> last;
-        for (OpId op : operations) {
+        for (OpId op : doc.operations(g.panel)) {
             const Mirror* mirror = std::get_if<Mirror>(&doc.get(op));
-            if (!(mirror && mirror->appliedLast)) last = op;
+            if (doc.enabled(op) && !(mirror && mirror->appliedLast)) last = op;
         }
+        if (!last && doc.operations(g.panel).empty()) return outcome;
         const Scale* scale = last ? std::get_if<Scale>(&doc.get(*last)) : nullptr;
         if (scale && asNumber(scale->x) && asNumber(scale->y)) {
-            newStep = true;  // the drag's first change opens its undo step
-            dragging_ = Dragging{*last, false, *asNumber(scale->x), *asNumber(scale->y)};
+            scaling_ = Scaling{*last, *asNumber(scale->x), *asNumber(scale->y), false};
         } else if (scale) {
             outcome.notice = "This panel's scale is set by a formula. Change it in the Attribute Editor.";
             outcome.refused = true;
             return outcome;
         } else {
-            OpId added;
-            if (!apply(editor, [&](Document& d) { added = d.add(g.panel, Scale{}); }, byHand(true), outcome)) return outcome;
-            dragging_ = Dragging{added, false, 1.0, 1.0};
+            scaling_ = Scaling{std::nullopt, 1.0, 1.0, false};  // its own layer comes with the first accepted change
         }
     }
-    if (!dragging_ || !doc.contains(dragging_->operation) || !std::holds_alternative<Scale>(doc.get(dragging_->operation))) return outcome;
+    if (!scaling_ || (scaling_->layer && (!doc.contains(*scaling_->layer) || !std::holds_alternative<Scale>(doc.get(*scaling_->layer))))) return outcome;
     // A thousandth, so that the numbers in the layer stay readable.
     const auto rounded = [](double v) { return std::max(std::round(v * 1000.0) / 1000.0, 0.001); };
-    const OpRef<Scale> scale(dragging_->operation);
-    const double x = rounded(dragging_->baseX * g.x), y = rounded(dragging_->baseY * g.y);
-    apply(editor, [&](Document& d) {
+    const double x = rounded(scaling_->baseX * g.x), y = rounded(scaling_->baseY * g.y);
+    std::optional<OpId> layer = scaling_->layer;
+    if (!layer && x == 1.0 && y == 1.0) {  // nothing to scale yet: no layer for a drag that has not moved
+        if (g.phase == DragPhase::End) scaling_.reset();
+        return outcome;
+    }
+    const bool done = apply(editor, [&](Document& d) {
+        if (!layer) layer = d.add(g.panel, Scale{}).id;
+        const OpRef<Scale> scale(*layer);
         d.set(scale, &Scale::x, Expr(x));
         d.set(scale, &Scale::y, Expr(y));
-    }, byHand(newStep), outcome);
-    if (g.phase == DragPhase::End) dragging_.reset();
+    }, byHand(!scaling_->stepOpen), outcome);
+    if (done) {
+        scaling_->layer = layer;
+        scaling_->stepOpen = true;
+    }
+    if (g.phase == DragPhase::End) scaling_.reset();
     return outcome;
 }
 
@@ -340,7 +346,20 @@ Outcome Drafting::on(Editor& editor, const MoveHandle& image) {
     }
     if (!dragging_ || !doc.contains(dragging_->operation)) return outcome;
     const OpRef<Bezier> curve(dragging_->operation);
-    const Offset handle{dragging_->baseX + moved.dx, dragging_->baseY + moved.dy};
+    // A Scale after the curve stretches the handle's offset, so the offset moves by the pointer's drag divided by it.
+    double stretchX = 1.0, stretchY = 1.0;
+    bool later = false;
+    for (OpId op : doc.operations(image.panel)) {
+        if (later && doc.enabled(op))
+            if (const Scale* scale = std::get_if<Scale>(&doc.get(op)); scale && asNumber(scale->x) && asNumber(scale->y)) {
+                stretchX *= *asNumber(scale->x);
+                stretchY *= *asNumber(scale->y);
+            }
+        if (op == dragging_->operation) later = true;
+    }
+    if (stretchX < 1e-9) stretchX = 1.0;
+    if (stretchY < 1e-9) stretchY = 1.0;
+    const Offset handle{dragging_->baseX + moved.dx / stretchX, dragging_->baseY + moved.dy / stretchY};
     const bool whichEnd = dragging_->endHandle;
     apply(editor, [&](Document& d) { d.set(curve, whichEnd ? &Bezier::endHandle : &Bezier::startHandle, handle); }, byHand(image.phase == DragPhase::Begin), outcome);
     if (image.phase == DragPhase::End) dragging_.reset();

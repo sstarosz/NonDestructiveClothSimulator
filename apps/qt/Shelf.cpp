@@ -121,13 +121,13 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     tools(draft, {Tool::Cut, Tool::Split});
     tools(draft, {Tool::Sew});
     QToolBar* sew = row("Sew");
-    tools(sew, {Tool::Select, Tool::Move, Tool::Rotate});
+    tools(sew, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale});
     tools(sew, {Tool::Sew});
     QToolBar* simulate = row("Simulate");
     simulate->addAction(undo_);
     simulate->addAction(redo_);
     simulate->addSeparator();
-    tools(simulate, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Pull});
+    tools(simulate, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale, Tool::Pull});
     simulate->addAction(simulate_);
     simulate->addAction(reset_);
     connect(tabs_, &QTabBar::currentChanged, rows_, &QStackedWidget::setCurrentIndex);

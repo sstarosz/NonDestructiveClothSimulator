@@ -7,6 +7,7 @@
 
 #include "Expect.h"
 #include "clothcad/session/Drafting.h"
+#include "clothcad/session/Locks.h"
 
 using namespace clothcad;
 using namespace clothcad::session;
@@ -214,8 +215,55 @@ TEST_CASE("the scale gizmo adds a Scale layer, then keeps changing it, one undo 
     drafting.handle(circleEditor, ScalePanel{circle, 1.0, 1.0, DragPhase::Begin});
     const Outcome oval = drafting.handle(circleEditor, ScalePanel{circle, 1.5, 1.0, DragPhase::Continue});
     EXPECT((oval.refused && oval.notice.find("evenly") != std::string::npos), "a whole circle is not stretched one way only");
+    EXPECT((count<Scale>(circleEditor.document(), circle) == 0), "a refused first change leaves no empty Scale layer behind");
     drafting.handle(circleEditor, ScalePanel{circle, 1.5, 1.5, DragPhase::End});
     EXPECT((asNumber(last<Scale>(circleEditor.document(), circle).x) == 1.5), "but it is scaled evenly");
+}
+
+TEST_CASE("a switched-off Scale is not the one the gizmo changes")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    const OpRef<Scale> off = doc.add(box, Scale{.x = 1.5, .y = 1.5});
+    doc.setEnabled(off.id, false);
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, ScalePanel{box, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(editor, ScalePanel{box, 2.0, 2.0, DragPhase::End});
+    EXPECT((count<Scale>(editor.document(), box) == 2), "a new Scale is added instead");
+    EXPECT((asNumber(editor.document().get(off).x) == 1.5), "the switched-off one is left as it was");
+}
+
+TEST_CASE("a refused scale change does not take the next accepted one into an earlier undo step")
+{
+    Document doc;
+    const PanelId circle = doc.add(Panel{.name = "circle"});
+    doc.add(circle, Circle{.radius = 10_cm});
+    const OpRef<Scale> layer = doc.add(circle, Scale{.x = 1.2, .y = 1.2});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, DrawRect{50.0, 50.0, 5.0, 5.0});  // an earlier step, which must stay
+    drafting.handle(editor, ScalePanel{circle, 1.0, 1.0, DragPhase::Begin});
+    EXPECT((drafting.handle(editor, ScalePanel{circle, 1.5, 1.0, DragPhase::Continue}).refused), "stretching one way is refused");
+    drafting.handle(editor, ScalePanel{circle, 1.5, 1.5, DragPhase::End});
+    EXPECT_NEAR((*asNumber(editor.document().get(layer).x)), (1.8), "then the even change is accepted");
+    EXPECT((editor.undo() && editor.document().panels().size() == 2 && asNumber(editor.document().get(layer).x) == 1.2), "one undo takes back only the drag");
+}
+
+TEST_CASE("a handle dragged under a later Scale follows the pointer")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, BendEdge{box, rect.bottom()});
+    const OpRef<Bezier> curve = *curveOf(editor.document(), box, rect.bottom());
+    const double before = *asNumber(editor.document().get(curve).startHandle.x);
+    EXPECT((editor.change([&](Document& d) { d.add(box, Scale{.x = 2.0, .y = 1.0}); }).has_value()), "a Scale after the curve");
+    drag(drafting, editor, MoveHandle{box, rect.bottom(), false, 0, 0, DragPhase::Begin}, 4.0, 0.0);
+    EXPECT_NEAR((*asNumber(editor.document().get(curve).startHandle.x) - before), (2.0), "4 cm of drag moves a handle that is drawn twice as wide by 2 cm of offset");
 }
 
 TEST_CASE("a symmetric panel is scaled before its mirror, and stays symmetric")

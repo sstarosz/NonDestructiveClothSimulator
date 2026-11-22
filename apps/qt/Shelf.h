@@ -21,7 +21,6 @@ namespace clothcad::ui {
 
 // The tools are the session's (session/Tools.h): the shelf only shows them.
 using session::Tool;
-using session::gizmoOf;
 
 // How the two views share the middle of the window.
 enum class ViewLayout { One, SideBySide, Stacked };
