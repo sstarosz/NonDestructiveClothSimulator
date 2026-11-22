@@ -2,12 +2,19 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QEasingCurve>
+#include <QFrame>
+#include <QGraphicsEffect>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QLineEdit>
 #include <QMenu>
+#include <QMouseEvent>
+#include <QPropertyAnimation>
 #include <QPushButton>
+#include <QScrollBar>
+#include <QStyleHints>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -69,6 +76,12 @@ std::string choicesOf(const OpData& op, const Document& doc) {
     return words;
 }
 
+// A layer's card: lighter when open, and outlined brighter while the panel is shown as of that step.
+QString cardStyle(const QString& selector, bool open, bool lookedBackTo) {
+    return QString("%1 { background: %2; border: 1px solid %3; border-radius: 6px; }")
+        .arg(selector, open ? theme::header.name() : theme::panel.name(), (lookedBackTo ? theme::cardEdgeViewed : open ? theme::cardEdgeOpen : theme::cardEdge).name());
+}
+
 QToolButton* smallButton(Icon picture, QColor colour, const QString& tip, QWidget* parent) {
     auto* button = new QToolButton(parent);
     button->setIcon(icon(picture, colour));
@@ -87,75 +100,6 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     auto* column = new QVBoxLayout(page_);
     column->setContentsMargins(0, 0, 0, 0);
     column->setSpacing(0);
-
-    // The name, and what can be done to the whole panel.
-    auto* top = new QWidget(page_);
-    auto* topRow = new QHBoxLayout(top);
-    topRow->setContentsMargins(8, 6, 6, 6);
-    name_ = new QLineEdit(top);
-    name_->setObjectName("panelName");
-    topRow->addWidget(name_, 1);
-    QToolButton* copy = smallButton(Icon::Copy, theme::text, "Copy", top);
-    QToolButton* instance = smallButton(Icon::Instance, theme::instance, "Instance: a panel that follows this one entirely", top);
-    QToolButton* mirrored = smallButton(Icon::Mirror, theme::instance, "Mirrored instance: follows this one, flipped left to right", top);
-    QToolButton* bake = smallButton(Icon::Lock, theme::formula,
-                                    "Bake: replace every formula of this panel with the number it comes to now,\nso that it follows no parameter. Useful on a copy.", top);
-    QToolButton* remove = smallButton(Icon::Delete, theme::error, "Delete", top);
-    copy->setObjectName("copyPanel");
-    instance->setObjectName("instancePanel");
-    mirrored->setObjectName("mirroredInstancePanel");
-    bake->setObjectName("bakePanel");
-    remove->setObjectName("deletePanel");
-    topRow->addWidget(copy);
-    topRow->addWidget(instance);
-    topRow->addWidget(mirrored);
-    topRow->addWidget(bake);
-    topRow->addWidget(remove);
-    column->addWidget(top);
-    baseOnly_ = new QCheckBox("Base only: not cut from cloth", page_);
-    baseOnly_->setObjectName("baseOnly");
-    baseOnly_->setToolTip("A base for instances to follow. It is not meshed or simulated.");
-    baseOnly_->setContentsMargins(8, 0, 8, 4);
-    column->addWidget(baseOnly_);
-    connect(baseOnly_, &QCheckBox::clicked, this, [this](bool on) { if (panel_) emit baseOnlyChanged(*panel_, on); });
-    connect(mirrored, &QToolButton::clicked, this, [this] { if (panel_) emit mirroredInstanceRequested(*panel_); });
-    connect(bake, &QToolButton::clicked, this, [this] { if (panel_) emit bakeRequested(*panel_); });
-    connect(name_, &QLineEdit::editingFinished, this, [this] {
-        if (panel_ && name_->isModified()) emit renamed(*panel_, name_->text());
-    });
-    connect(copy, &QToolButton::clicked, this, [this] { if (panel_) emit copyRequested(*panel_); });
-    connect(instance, &QToolButton::clicked, this, [this] { if (panel_) emit instanceRequested(*panel_); });
-    connect(remove, &QToolButton::clicked, this, [this] { if (panel_) emit deleteRequested(*panel_); });
-
-    layersSection_ = new Section("Layers", page_);
-    auto* layersColumn = new QVBoxLayout(layersSection_->content());
-    layersColumn->setContentsMargins(0, 0, 0, 0);
-    layersColumn->setSpacing(0);
-    layerRows_ = new QVBoxLayout();
-    layerRows_->setContentsMargins(4, 4, 4, 4);
-    layerRows_->setSpacing(1);
-    layersColumn->addLayout(layerRows_);
-    // Operations that have no tool, or that are easier to add from a list: a
-    // shape for an empty panel, then changes to it.
-    auto* add = new QToolButton(layersSection_->content());
-    add->setObjectName("addOperation");
-    add->setText("Add operation");
-    add->setIcon(icon(Icon::Plus));
-    add->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    add->setAutoRaise(true);
-    add->setPopupMode(QToolButton::InstantPopup);
-    auto* menu = new QMenu(add);
-    connect(menu, &QMenu::aboutToShow, this, [this, menu] {
-        menu->clear();
-        for (const session::Offered& offer : offers_) {
-            QAction* action = menu->addAction(QString(offer.name) + "   —   " + offer.hint);
-            const session::Offer which = offer.offer;
-            connect(action, &QAction::triggered, this, [this, which] { addOperation(which); });
-        }
-    });
-    add->setMenu(menu);
-    layersColumn->addWidget(add, 0, Qt::AlignLeft);
-    column->addWidget(layersSection_);
 
     // Where it is in space: lengths in cm, turns in degrees.
     spaceSection_ = new Section("In space", page_);
@@ -216,21 +160,62 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     seamRows_->setContentsMargins(8, 6, 8, 6);
     seamRows_->setSpacing(6);
     column->addWidget(seamsSection_);
-    column->addStretch(1);
+
+    // The layers come last: they are what grows as the panel is worked on.
+    layersSection_ = new Section("Layers", page_);
+    auto* layersColumn = new QVBoxLayout(layersSection_->content());
+    layersColumn->setContentsMargins(0, 0, 0, 0);
+    layersColumn->setSpacing(0);
+    // Operations that have no tool, or that are easier to add from a list: a
+    // shape for an empty panel, then changes to it.
+    auto* add = new QToolButton(layersSection_->content());
+    add->setObjectName("addOperation");
+    add->setText("Add operation");
+    add->setIcon(icon(Icon::Plus));
+    add->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    add->setAutoRaise(true);
+    add->setPopupMode(QToolButton::InstantPopup);
+    auto* menu = new QMenu(add);
+    connect(menu, &QMenu::aboutToShow, this, [this, menu] {
+        menu->clear();
+        for (const session::Offered& offer : offers_) {
+            QAction* action = menu->addAction(QString(offer.name) + "   —   " + offer.hint);
+            const session::Offer which = offer.offer;
+            connect(action, &QAction::triggered, this, [this, which] { addOperation(which); });
+        }
+    });
+    add->setMenu(menu);
+    layersColumn->addWidget(add, 0, Qt::AlignLeft);
+    // The layers scroll on their own, so that a long list does not push the rest away.
+    layerScroll_ = new QScrollArea(layersSection_->content());
+    layerScroll_->setObjectName("layerScroll");
+    layerScroll_->setWidgetResizable(true);
+    layerScroll_->setFrameShape(QFrame::NoFrame);
+    layerScroll_->setMinimumHeight(240);
+    layerPage_ = new QWidget(layerScroll_);
+    auto* pageColumn = new QVBoxLayout(layerPage_);
+    pageColumn->setContentsMargins(4, 6, 4, 6);
+    pageColumn->setSpacing(0);
+    layerRows_ = new QVBoxLayout();
+    layerRows_->setContentsMargins(0, 0, 0, 0);
+    layerRows_->setSpacing(8);
+    pageColumn->addLayout(layerRows_);
+    pageColumn->addStretch(1);
+    layerScroll_->setWidget(layerPage_);
+    layersColumn->addWidget(layerScroll_, 1);
+    column->addWidget(layersSection_, 1);
     setWidget(page_);
 }
 
 void AttributeEditor::show(const Document& doc, const Result& shapes, std::optional<PanelId> panel, std::optional<OpId> viewed) {
     if (panel && !doc.contains(*panel)) panel.reset();
-    if (panel != panel_) open_.reset();
+    if (panel != panel_) closed_.clear();
     panel_ = panel;
     viewed_ = viewed;
     offers_ = panel ? session::offersFor(doc, *panel) : std::vector<session::Offered>{};
     page_->setVisible(panel.has_value());
     if (!panel) return;
     const clothcad::Panel& p = doc.get(*panel);  // QFrame has a Panel of its own
-    if (!name_->hasFocus()) name_->setText(QString::fromStdString(p.name));
-    baseOnly_->setChecked(p.construction);
     rebuildLayers(doc, shapes);
 
     const Arrangement& at = p.arrangement;
@@ -344,12 +329,22 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
             if (which == op) return words;
         return QString();
     };
-    std::string signature = std::to_string(panel_->value) + ":" + (open_ ? std::to_string(open_->value) : "-") + "@" + (viewed_ ? std::to_string(viewed_->value) : "-");
-    for (OpId op : order) signature += "," + std::to_string(op.value) + (doc.enabled(op) ? "+" : "-") + problemOf(op).toStdString() + choicesOf(doc.get(op), doc);
+    std::string signature = std::to_string(panel_->value) + "@" + (viewed_ ? std::to_string(viewed_->value) : "-");
+    for (OpId op : order)
+        signature += "," + std::to_string(op.value) + (doc.enabled(op) ? "+" : "-") + (isOpen(op) ? "o" : "c") + problemOf(op).toStdString() + choicesOf(doc.get(op), doc);
     if (signature != shownLayers_) {
+        // Everything is made, laid out and then painted at once, so that the rows never show blank.
+        page_->setUpdatesEnabled(false);
         shownLayers_ = signature;
         layers_ = order;
+        made_ = made;
+        onTop_.clear();
+        for (OpId op : order)
+            if (appliedLast(doc.get(op))) onTop_.push_back(op);
         problems_ = problems;
+        for (QPointer<QPropertyAnimation>& slide : slides_)
+            if (slide) slide->stop();  // its row is about to go
+        slides_.clear();
         while (QLayoutItem* item = layerRows_->takeAt(0)) {
             delete item->widget();
             delete item;
@@ -360,85 +355,77 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
         const int viewedIndex = viewed_ ? indexOf(*viewed_) : static_cast<int>(made.size());
         if (viewed_) {
             // Looking back: say so, and how to come back.
-            auto* back = new QWidget(layersSection_->content());
-            auto* backRow = new QHBoxLayout(back);
-            backRow->setContentsMargins(6, 2, 2, 4);
-            auto* words = new QLabel("Showing an earlier step", back);
+            auto* words = new QLabel("Showing an earlier step  ·  Esc shows all", layerPage_);
+            words->setContentsMargins(6, 2, 2, 4);
             words->setStyleSheet(QString("color: %1").arg(theme::formula.name()));
-            auto* all = new QPushButton("Show all steps", back);
-            all->setObjectName("showAllSteps");
-            connect(all, &QPushButton::clicked, this, [this] { emit stepViewed(std::nullopt); });
-            backRow->addWidget(words, 1);
-            backRow->addWidget(all);
-            layerRows_->addWidget(back);
+            layerRows_->addWidget(words);
         }
         for (OpId op : order) {
             const OpData& operation = doc.get(op);
             const bool on = doc.enabled(op);
-            const bool isOpen = open_ && *open_ == op;
+            const bool showsFields = isOpen(op);
             const int index = indexOf(op);
             const bool afterViewed = index > viewedIndex;  // left out of what the table shows now
             const QString problem = problemOf(op);
-            auto* box = new QWidget(layersSection_->content());
+            // Every layer is a card: a little lighter when it shows its fields.
+            auto* box = new QFrame(layerPage_);
             box->setObjectName(QString("layer%1").arg(op.value));
-            if (isOpen) box->setStyleSheet("#" + box->objectName() + " { background: #2e2a20; border: 1px solid #6b5426; border-radius: 5px; }");
+            box->setStyleSheet(cardStyle("#" + box->objectName(), showsFields, viewed_ && *viewed_ == op));
             auto* boxColumn = new QVBoxLayout(box);
-            boxColumn->setContentsMargins(2, 0, 2, isOpen ? 6 : 0);
-            boxColumn->setSpacing(2);
-            auto* row = new QHBoxLayout();
+            boxColumn->setContentsMargins(0, 0, 0, showsFields ? 8 : 0);
+            boxColumn->setSpacing(4);
+            // The icon and the name sit on a band a little darker than the card.
+            auto* head = new QFrame(box);
+            head->setObjectName("layerHead");
+            head->setStyleSheet(QString("#layerHead { background: %1; border-radius: 5px; }").arg((showsFields ? theme::cardBandOpen : theme::cardBand).name()));
+            auto* row = new QHBoxLayout(head);
+            row->setContentsMargins(8, 2, 4, 2);
             row->setSpacing(4);
+            boxColumn->addWidget(head);
             QToolButton* eye = op == base ? smallButton(Icon::Lock, theme::quiet, "The base shape", box)
                                           : smallButton(on ? Icon::Eye : Icon::EyeShut, on ? theme::text : theme::quiet, on ? "Switch off" : "Switch on", box);
             eye->setObjectName("eye");
             eye->setEnabled(op != base);
             connect(eye, &QToolButton::clicked, this, [this, op, on] { emit layerSwitched(op, !on); });
-            QColor colour = !problem.isEmpty() ? theme::error : appliedLast(operation) ? theme::symmetry : isOpen ? theme::selected : on && !afterViewed ? theme::text : theme::quiet;
+            QColor colour = !problem.isEmpty() ? theme::error : appliedLast(operation) ? theme::symmetry : on && !afterViewed ? theme::text : theme::quiet;
             auto* name = new QPushButton(icon(iconOf(operation), colour), QString(label(operation).data()), box);
             name->setObjectName("layerName");
             name->setFlat(true);
             name->setStyleSheet(QString("text-align: left; color: %1; %2").arg(colour.name(), on ? "" : "text-decoration: line-through;"));
-            connect(name, &QPushButton::clicked, this, [this, op] { openLayer(op); });
+            name->setToolTip("Click: close or open.  Alt+click: show the panel as it was at this step.  Drag: move the layer.");
+            // Taken by its name and moved; the base shape and a mirror applied last stay where they are.
+            if (op != base && !appliedLast(operation)) {
+                name->setCursor(Qt::OpenHandCursor);
+                name->setProperty("layer", op.value);
+                name->installEventFilter(this);
+            }
+            connect(name, &QPushButton::clicked, this, [this, op] {
+                if (QGuiApplication::keyboardModifiers() & Qt::AltModifier) viewStep(op);
+                else toggleLayer(op);
+            });
             auto* summary = new QLabel(summaryOf(operation, doc, shapes), box);
             const bool driven = !fields(operation).empty() && !asNumber(fields(operation)[0].value);
             summary->setStyleSheet(QString("color: %1").arg((driven ? theme::formula : theme::quiet).name()));
-            row->addWidget(eye);
-            row->addWidget(name, 1);
-            row->addWidget(summary);
-            // Look back to this step, move it, remove it. The base shape stays first and stays.
-            const bool viewedHere = viewed_ && *viewed_ == op;
-            QToolButton* clock = smallButton(Icon::Clock, viewedHere ? theme::selected : theme::quiet,
-                                             viewedHere ? "Show all steps again" : "Show the panel as it was at this step", box);
-            clock->setObjectName("clock");
-            connect(clock, &QToolButton::clicked, this, [this, op] { viewStep(op); });
-            row->addWidget(clock);
-            const bool movable = op != base && !appliedLast(operation);
-            QToolButton* up = smallButton(Icon::Up, theme::quiet, "Move up: apply it later", box);
-            up->setObjectName("up");
-            up->setEnabled(movable && index + 1 < static_cast<int>(made.size()));
-            connect(up, &QToolButton::clicked, this, [this, op] { moveLayer(op, true); });
-            QToolButton* down = smallButton(Icon::Down, theme::quiet, "Move down: apply it earlier", box);
-            down->setObjectName("down");
-            down->setEnabled(movable && index > 1);
-            connect(down, &QToolButton::clicked, this, [this, op] { moveLayer(op, false); });
+            // The base shape stays first and stays.
             QToolButton* bin = smallButton(Icon::Delete, theme::quiet, "Remove this layer", box);
             bin->setObjectName("remove");
             bin->setEnabled(op != base);
             connect(bin, &QToolButton::clicked, this, [this, op] { removeLayer(op); });
-            row->addWidget(up);
-            row->addWidget(down);
+            row->addWidget(name, 1);
+            row->addWidget(summary);
             row->addWidget(bin);
-            boxColumn->addLayout(row);
+            row->addWidget(eye);  // top right, where the eye of a layer is expected
             if (!problem.isEmpty()) {
                 auto* why = new QLabel(problem, box);
                 why->setObjectName("problem");
                 why->setWordWrap(true);
-                why->setContentsMargins(26, 0, 4, 2);
+                why->setContentsMargins(26, 0, 8, 2);
                 why->setStyleSheet(QString("color: %1").arg(theme::error.name()));
                 boxColumn->addWidget(why);
             }
-            if (isOpen) {
+            if (showsFields) {
                 auto* grid = new QGridLayout();
-                grid->setContentsMargins(26, 0, 4, 0);
+                grid->setContentsMargins(26, 2, 8, 0);
                 grid->setSpacing(4);
                 int line = 0;
                 for (const ReferenceField& reference : references(operation)) {
@@ -511,29 +498,167 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                     connect(value, &ValueField::dragged, this,
                             [this, op, id](double number, session::DragPhase phase) { emit fieldDragged(op, id, number, phase); });
                     grid->addWidget(value, line++, 1);
-                    openFields_.push_back({id, value});
+                    openFields_.push_back({op, id, value});
                 }
                 boxColumn->addLayout(grid);
             }
             layerRows_->addWidget(box);
         }
+        layerPage_->layout()->activate();
+        page_->layout()->activate();
+        page_->setUpdatesEnabled(true);
     } else {
         // Same rows: only the values change, and the open fields keep what is being typed.
-        if (open_)
-            for (const auto& [id, value] : openFields_) value->show(fields(doc.get(*open_))[id.index].value, doc, shapes);
+        for (const OpenField& open : openFields_)
+            if (doc.contains(open.layer)) open.value->show(fields(doc.get(open.layer))[open.id.index].value, doc, shapes);
     }
 }
 
+bool AttributeEditor::isOpen(OpId layer) const { return std::find(closed_.begin(), closed_.end(), layer) == closed_.end(); }
+
 void AttributeEditor::openLayer(OpId layer) {
-    open_ = open_ && *open_ == layer ? std::optional<OpId>() : std::optional<OpId>(layer);  // a second click closes it
+    if (isOpen(layer)) return;
+    toggleLayer(layer);
+}
+
+void AttributeEditor::toggleLayer(OpId layer) {
+    if (isOpen(layer)) closed_.push_back(layer);
+    else closed_.erase(std::find(closed_.begin(), closed_.end(), layer));
     shownLayers_.clear();
     emit layerOpened();
 }
 
 void AttributeEditor::switchLayer(OpId layer, bool on) { emit layerSwitched(layer, on); }
 
-// The layers are shown newest on top: up is later among the operations.
-void AttributeEditor::moveLayer(OpId layer, bool up) { emit layerMoved(layer, up); }
+void AttributeEditor::moveLayer(OpId layer, std::size_t to) { emit layerMoved(layer, to); }
+
+QRect AttributeEditor::rowOf(OpId layer) const {
+    const QString name = QString("layer%1").arg(layer.value);
+    for (int i = 0; i < layerRows_->count(); ++i)
+        if (const QWidget* row = layerRows_->itemAt(i)->widget(); row && row->objectName() == name) return layerRows_->itemAt(i)->geometry();
+    return {};
+}
+
+// Where a dragged layer lands is read off the rows as the layout places them (not
+// as they slide): the free rows whose middle is above `y` are newer than it, the
+// rest older. A mirror applied last never moves, and nothing goes below the base.
+std::optional<AttributeEditor::Drop> AttributeEditor::dropAt(OpId layer, int y) const {
+    std::vector<OpId> rows;  // the other layers that can be passed, newest first
+    for (OpId op : layers_)
+        if (!(op == layer) && std::find(onTop_.begin(), onTop_.end(), op) == onTop_.end()) rows.push_back(op);
+    if (rows.empty()) return std::nullopt;
+    std::size_t newer = 0;
+    while (newer + 1 < rows.size() && rowOf(rows[newer]).center().y() < y) ++newer;
+    std::vector<OpId> others = made_;  // without the dragged one: where it goes is counted among these
+    others.erase(std::remove(others.begin(), others.end(), layer), others.end());
+    // Right after the newest layer that stays older.
+    return Drop{static_cast<std::size_t>(std::find(others.begin(), others.end(), rows[newer]) - others.begin()) + 1, rows[newer]};
+}
+
+// The dragged row moves to just above `above` in the layout and every row that
+// has to move slides to its new place, so that the gap follows the mouse.
+void AttributeEditor::makeRoom(QWidget* row, OpId above) {
+    const QString aboveName = QString("layer%1").arg(above.value);
+    QWidget* target = nullptr;
+    for (int i = 0; i < layerRows_->count(); ++i)
+        if (QWidget* other = layerRows_->itemAt(i)->widget(); other && other->objectName() == aboveName) target = other;
+    if (!target || layerRows_->indexOf(row) == layerRows_->indexOf(target) - 1) return;
+    std::vector<std::pair<QWidget*, QPoint>> before;
+    for (int i = 0; i < layerRows_->count(); ++i)
+        if (QWidget* other = layerRows_->itemAt(i)->widget()) before.push_back({other, other->pos()});
+    layerRows_->removeWidget(row);
+    layerRows_->insertWidget(layerRows_->indexOf(target), row);
+    layerPage_->layout()->activate();
+    for (const auto& [other, from] : before) {
+        const QPoint to = other->pos();
+        if (from == to) continue;
+        for (QPointer<QPropertyAnimation>& old : slides_)
+            if (old && old->targetObject() == other) old->stop();
+        std::erase_if(slides_, [](const QPointer<QPropertyAnimation>& slide) { return slide.isNull(); });
+        other->move(from);
+        auto* slide = new QPropertyAnimation(other, "pos", this);
+        slide->setDuration(140);
+        slide->setEasingCurve(QEasingCurve::OutCubic);
+        slide->setStartValue(from);
+        slide->setEndValue(to);
+        slide->start(QAbstractAnimation::DeleteWhenStopped);
+        slides_.push_back(slide);
+    }
+}
+
+void AttributeEditor::endDrag(bool drop) {
+    if (!dragging_) return;
+    const Dragging was = *dragging_;
+    dragging_.reset();
+    if (was.picture) was.picture->deleteLater();
+    if (!was.started) return;
+    QGuiApplication::restoreOverrideCursor();
+    if (was.row) was.row->setGraphicsEffect(nullptr);  // the gap is full again, where it will land
+    const std::size_t now = static_cast<std::size_t>(std::find(made_.begin(), made_.end(), was.layer) - made_.begin());
+    // Reported after this event: the rows are made again, and this button goes with them.
+    const auto later = [this](auto what) { QMetaObject::invokeMethod(this, what, Qt::QueuedConnection); };
+    if (drop && was.drop && was.drop->to != now) later([this, layer = was.layer, to = was.drop->to] { moveLayer(layer, to); });
+    else later([this] { shownLayers_.clear(); emit layerOpened(); });  // put back as it was
+}
+
+bool AttributeEditor::eventFilter(QObject* watched, QEvent* event) {
+    const QVariant layerOf = watched->property("layer");
+    if (!layerOf.isValid()) return QScrollArea::eventFilter(watched, event);
+    const OpId layer{layerOf.toUInt()};
+    const QEvent::Type type = event->type();
+    if (type != QEvent::MouseButtonPress && type != QEvent::MouseMove && type != QEvent::MouseButtonRelease) return false;
+    const auto* mouse = static_cast<QMouseEvent*>(event);
+    const QPoint where = mouse->globalPosition().toPoint();
+    if (type == QEvent::MouseButtonPress && mouse->button() == Qt::LeftButton) {
+        dragging_ = Dragging{.layer = layer, .from = where};
+    } else if (type == QEvent::MouseMove && dragging_ && (mouse->buttons() & Qt::LeftButton)) {
+        if (!dragging_->started && (where - dragging_->from).manhattanLength() >= QGuiApplication::styleHints()->startDragDistance()) {
+            QWidget* row = layerPage_->findChild<QWidget*>(QString("layer%1").arg(layer.value));
+            if (!row) return false;
+            dragging_->started = true;
+            dragging_->row = row;
+            dragging_->grabbed = layerPage_->mapFromGlobal(dragging_->from).y() - row->y();
+            // A picture of the row follows the mouse; the row stays behind as a dim gap.
+            auto* picture = new QLabel(layerPage_);
+            picture->setPixmap(row->grab());
+            picture->setAttribute(Qt::WA_TransparentForMouseEvents);
+            picture->setStyleSheet(QString("border: 1px solid %1; border-radius: 6px; background: %2;").arg(theme::cardEdgeViewed.name(), theme::header.name()));
+            picture->setGeometry(row->geometry());
+            auto* fade = new QGraphicsOpacityEffect(picture);
+            fade->setOpacity(0.9);
+            picture->setGraphicsEffect(fade);
+            picture->show();
+            picture->raise();
+            dragging_->picture = picture;
+            auto* dim = new QGraphicsOpacityEffect(row);
+            dim->setOpacity(0.25);
+            row->setGraphicsEffect(dim);
+            QGuiApplication::setOverrideCursor(Qt::ClosedHandCursor);
+        }
+        if (dragging_->started) {
+            if (!dragging_->row || !dragging_->picture) return true;  // the rows were made again meanwhile
+            // Near the top or bottom edge of the list, it scrolls on.
+            const int inView = layerScroll_->viewport()->mapFromGlobal(where).y();
+            QScrollBar* bar = layerScroll_->verticalScrollBar();
+            if (inView < 28) bar->setValue(bar->value() - 14);
+            else if (inView > layerScroll_->viewport()->height() - 28) bar->setValue(bar->value() + 14);
+            const int top = layerPage_->mapFromGlobal(where).y() - dragging_->grabbed;
+            const QRect room = layerRows_->geometry();
+            const int height = dragging_->picture->height();
+            dragging_->picture->move(dragging_->picture->x(), std::clamp(top, room.top(), std::max(room.top(), room.bottom() - height)));
+            if (const std::optional<Drop> at = dropAt(layer, dragging_->picture->geometry().center().y())) {
+                dragging_->drop = at;
+                makeRoom(dragging_->row, at->above);
+            }
+            return true;
+        }
+    } else if (type == QEvent::MouseButtonRelease && dragging_) {
+        const bool dragged = dragging_->started;
+        endDrag(true);
+        return dragged;  // a drag is not a click
+    }
+    return false;
+}
 
 void AttributeEditor::removeLayer(OpId layer) { emit layerRemoved(layer); }
 
@@ -549,15 +674,17 @@ void AttributeEditor::addOperation(session::Offer offer) {
 
 void AttributeEditor::viewStep(OpId layer) { emit stepViewed(viewed_ && *viewed_ == layer ? std::nullopt : std::optional<OpId>(layer)); }
 
+void AttributeEditor::showAllSteps() { emit stepViewed(std::nullopt); }
+
 QString AttributeEditor::problemShown(OpId layer) const {
     for (const auto& [which, words] : problems_)
         if (which == layer) return words;
     return {};
 }
 
-ValueField* AttributeEditor::field(FieldId id) const {
-    for (const auto& [which, value] : openFields_)
-        if (which == id) return value;
+ValueField* AttributeEditor::field(OpId layer, FieldId id) const {
+    for (const OpenField& open : openFields_)
+        if (open.layer == layer && open.id == id) return open.value;
     return nullptr;
 }
 

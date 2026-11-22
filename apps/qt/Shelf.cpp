@@ -94,6 +94,17 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     });
     reset_ = new QAction(icon(Icon::Reset), "Reset the cloth", this);
 
+    instance_ = new QAction(icon(Icon::Instance, theme::instance), "Instance", this);
+    instance_->setToolTip("Instance  ·  a panel that follows the selected one entirely");
+    mirroredInstance_ = new QAction(icon(Icon::Mirror, theme::instance), "Mirrored instance", this);
+    mirroredInstance_->setToolTip("Mirrored instance  ·  follows the selected panel, flipped left to right");
+    bake_ = new QAction(icon(Icon::Lock, theme::formula), "Bake", this);
+    bake_->setToolTip("Bake  ·  replace every formula of the selected panel with the number it comes to now,\nso that it follows no parameter. Useful on a copy.");
+    for (QAction* panelAction : {instance_, mirroredInstance_, bake_}) panelAction->setEnabled(false);
+    connect(instance_, &QAction::triggered, this, &Shelf::instanceRequested);
+    connect(mirroredInstance_, &QAction::triggered, this, &Shelf::mirroredInstanceRequested);
+    connect(bake_, &QAction::triggered, this, &Shelf::bakeRequested);
+
     layoutGroup_ = new QActionGroup(this);
     for (const auto& [which, picture, name] : {std::tuple{ViewLayout::One, Icon::OneView, "One view"},
                                                 std::tuple{ViewLayout::SideBySide, Icon::SideBySide, "Side by side"},
@@ -120,6 +131,9 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     tools(draft, {Tool::Point, Tool::Curve, Tool::Line, Tool::Mirror});
     tools(draft, {Tool::Cut, Tool::Split});
     tools(draft, {Tool::Sew});
+    draft->addAction(instance_);
+    draft->addAction(mirroredInstance_);
+    draft->addAction(bake_);
     QToolBar* sew = row("Sew");
     tools(sew, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale});
     tools(sew, {Tool::Sew});

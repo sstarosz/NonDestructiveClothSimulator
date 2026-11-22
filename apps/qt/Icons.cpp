@@ -141,9 +141,6 @@ void draw(Icon which, Pen& d) {
     case Icon::Instance: p.drawRect(QRectF(4, 4, 10, 10)); p.drawRect(QRectF(10, 10, 10, 10)); break;
     case Icon::Delete: d.line({4, 7}, {20, 7}); d.lines({{9, 7}, {9, 4}, {15, 4}, {15, 7}}); d.lines({{6, 7}, {7, 20}, {17, 20}, {18, 7}}); break;
     case Icon::Folder: d.lines({{3, 7}, {10, 7}, {12, 9}, {21, 9}, {21, 19}, {3, 19}, {3, 7}}); break;
-    case Icon::Up: d.lines({{6, 15}, {12, 9}, {18, 15}}); break;
-    case Icon::Down: d.lines({{6, 9}, {12, 15}, {18, 9}}); break;
-    case Icon::Clock: p.drawEllipse(QPointF(12, 12), 8.5, 8.5); d.lines({{12, 7}, {12, 12}, {16, 14}}); break;
     }
 }
 

@@ -1,6 +1,8 @@
 #include "Outliner.h"
 
 #include <QHeaderView>
+#include <QKeyEvent>
+#include <QMenu>
 
 #include "Icons.h"
 #include "clothcad/core/Fields.h"
@@ -10,6 +12,7 @@ namespace clothcad::ui {
 namespace {
 
 constexpr int panelRole = Qt::UserRole + 1;
+constexpr int baseOnlyRole = Qt::UserRole + 2;  // a panel kept as a base for instances, not cut from cloth
 
 // What a panel is, for its icon: an instance follows another; a mirror makes two halves.
 Icon iconOf(const Document& doc, PanelId panel, QColor& colour) {
@@ -51,6 +54,48 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
         if (showing_ || !item || !item->data(0, panelRole).isValid()) return;
         emit panelChosen(PanelId{item->data(0, panelRole).toUInt()});
     });
+    // Only the name column of a panel is edited, and only by double click or F2.
+    setEditTriggers(QAbstractItemView::EditKeyPressed);
+    connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item, int column) {
+        if (column == 0 && panelOf(item)) editItem(item, 0);
+    });
+    connect(this, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem* item, int column) {
+        if (showing_ || column != 0) return;
+        if (const std::optional<PanelId> panel = panelOf(item)) emit renamed(*panel, item->text(0));
+    });
+    setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(this, &QWidget::customContextMenuRequested, this, [this](const QPoint& where) {
+        QTreeWidgetItem* item = itemAt(where);
+        const std::optional<PanelId> panel = panelOf(item);
+        if (!panel) return;
+        QMenu menu(this);
+        menu.addAction(icon(Icon::Copy, theme::text), "Copy", [this, panel] { emit copyRequested(*panel); });
+        menu.addAction("Rename", [this, item] { editItem(item, 0); });
+        QAction* baseOnly = menu.addAction("Base only: not cut from cloth", [this, panel](bool on) { emit baseOnlyChanged(*panel, on); });
+        baseOnly->setToolTip("A base for instances to follow. It is not meshed or simulated.");
+        baseOnly->setCheckable(true);
+        baseOnly->setChecked(item->data(0, baseOnlyRole).toBool());
+        menu.addAction(icon(Icon::Delete, theme::error), "Delete", [this, panel] { emit deleteRequested(*panel); });
+        menu.exec(viewport()->mapToGlobal(where));
+    });
+}
+
+std::optional<PanelId> Outliner::panelOf(const QTreeWidgetItem* item) const {
+    if (!item || !item->data(0, panelRole).isValid()) return std::nullopt;
+    return PanelId{item->data(0, panelRole).toUInt()};
+}
+
+void Outliner::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Delete && state() != EditingState)
+        if (const std::optional<PanelId> panel = panelOf(currentItem())) return emit deleteRequested(*panel);
+    QTreeWidget::keyPressEvent(event);
+}
+
+void Outliner::setBaseOnly(PanelId panel, bool on) { emit baseOnlyChanged(panel, on); }
+
+void Outliner::rename(PanelId panel, const QString& name) {
+    for (int i = 0; i < panels_->childCount(); ++i)
+        if (panelOf(panels_->child(i)) == panel) panels_->child(i)->setText(0, name);
 }
 
 void Outliner::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const QString& body) {
@@ -64,6 +109,8 @@ void Outliner::show(const Document& doc, const Result& shapes, std::optional<Pan
         auto* item = new QTreeWidgetItem(panels_, {QString::fromStdString(doc.get(panel).name), QString::number(doc.operations(panel).size())});
         item->setIcon(0, icon(picture, colour));
         item->setData(0, panelRole, panel.value);
+        item->setData(0, baseOnlyRole, doc.get(panel).construction);
+        item->setFlags(item->flags() | Qt::ItemIsEditable);
         item->setForeground(1, theme::quiet);
         // A panel with a problem in one of its steps says so in its colour.
         for (OpId op : doc.operations(panel))
