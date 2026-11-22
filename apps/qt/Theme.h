@@ -30,6 +30,14 @@ inline const QColor header{43, 45, 50};
 inline const QColor field{20, 21, 23};
 inline const QColor table{23, 24, 27};
 
+// A layer's card in the Attribute Editor: its outline (shut, open, and while
+// the panel is shown as of that step) and the band its name sits on.
+inline const QColor cardEdge{47, 49, 55};
+inline const QColor cardEdgeOpen{59, 62, 69};
+inline const QColor cardEdgeViewed{138, 143, 156};
+inline const QColor cardBand{26, 27, 30};
+inline const QColor cardBandOpen{35, 37, 41};
+
 void apply(QApplication& app);
 
 } // namespace clothcad::ui::theme

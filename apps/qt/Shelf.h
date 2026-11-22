@@ -47,7 +47,16 @@ public:
     QAction* mesh() const { return mesh_; }  // checkable: the cloth mesh drawn over the panels
     int tabCount() const;
 
+    // What can be done to the selected panel; the window enables them while one is selected.
+    QAction* instance() const { return instance_; }
+    QAction* mirroredInstance() const { return mirroredInstance_; }
+    QAction* bake() const { return bake_; }
+
 signals:
+    void instanceRequested();
+    void mirroredInstanceRequested();
+    // Every formula of the panel replaced by the number it comes to now.
+    void bakeRequested();
     void toolChosen(clothcad::ui::Tool tool);
     void layoutChosen(clothcad::ui::ViewLayout layout);
 
@@ -65,6 +74,9 @@ private:
     QAction* simulate_;
     QAction* reset_;
     QAction* mesh_;
+    QAction* instance_;
+    QAction* mirroredInstance_;
+    QAction* bake_;
 };
 
 } // namespace clothcad::ui

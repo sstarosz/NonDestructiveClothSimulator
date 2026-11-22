@@ -1,7 +1,8 @@
 #pragma once
 // The scene as a tree, as Maya's Outliner: the body, the panels, the seams.
 // A panel's icon says what it is: mirrored (pink), an instance (violet).
-// Choosing a panel is only reported.
+// Choosing, renaming (double click or F2), copying, making it base only and
+// deleting a panel (its context menu, Delete) are only reported.
 //
 //   outliner->show(doc, shapes, selected, "avatarV1.obj");
 //   connect(outliner, &Outliner::panelChosen, ...);
@@ -22,12 +23,26 @@ public:
 
     // For tests and the window: the panels in the order shown.
     std::vector<PanelId> panelsShown() const;
-    void choose(PanelId panel);  // as a click on its row
+    void choose(PanelId panel);                   // as a click on its row
+    void rename(PanelId panel, const QString& name);  // as typing a name into its row
+    void copy(PanelId panel) { emit copyRequested(panel); }      // as "Copy" in its menu
+    void remove(PanelId panel) { emit deleteRequested(panel); }  // as "Delete" in its menu
+    void setBaseOnly(PanelId panel, bool on);                    // as ticking "Base only" in its menu
 
 signals:
     void panelChosen(clothcad::PanelId panel);
+    void renamed(clothcad::PanelId panel, QString name);
+    void copyRequested(clothcad::PanelId panel);
+    void deleteRequested(clothcad::PanelId panel);
+    // Base only: a panel kept as a base for instances, not cut from cloth.
+    void baseOnlyChanged(clothcad::PanelId panel, bool baseOnly);
+
+protected:
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
+    std::optional<PanelId> panelOf(const QTreeWidgetItem* item) const;
+
     QTreeWidgetItem* body_;
     QTreeWidgetItem* panels_;
     QTreeWidgetItem* seams_;

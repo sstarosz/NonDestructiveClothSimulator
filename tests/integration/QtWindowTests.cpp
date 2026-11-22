@@ -12,6 +12,9 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QShortcut>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QWheelEvent>
@@ -132,6 +135,22 @@ TEST_CASE("a chosen panel's operations show as layers, newest on top", "[qt]")
     EXPECT((std::holds_alternative<Bezier>(w.doc().get(layers[1]))), "below the mirror, the newest step");
 }
 
+TEST_CASE("every layer shows its fields until it is closed with a click on its name", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    AttributeEditor& editor = *w.window.attributes();
+    const OpId rect = first<Rect>(w.doc(), front);
+    const OpId armhole = first<Curve>(w.doc(), front);
+    EXPECT((editor.isOpen(rect) && editor.isOpen(armhole)), "layers are open by default");
+    EXPECT((editor.field(rect, FieldId{0}) != nullptr && editor.field(armhole, FieldId{0}) != nullptr), "and show their fields together");
+    editor.toggleLayer(armhole);
+    EXPECT((!editor.isOpen(armhole) && editor.field(armhole, FieldId{0}) == nullptr && editor.isOpen(rect)), "a click closes that layer only");
+    editor.toggleLayer(armhole);
+    EXPECT((editor.isOpen(armhole)), "a second click opens it again");
+}
+
 TEST_CASE("a layer is switched off with its eye, and undo brings it back", "[qt]")
 {
     Window w;
@@ -169,18 +188,18 @@ TEST_CASE("an open layer's fields show their units; a change that breaks the pan
     for (OpId op : w.doc().operations(front))
         if (const AddPoint* point = std::get_if<AddPoint>(&w.doc().get(op)); point && point->at.edge.role == static_cast<uint16_t>(Rect::Edge::Right)) underarm = op;
     w.window.attributes()->openLayer(underarm);
-    REQUIRE(w.window.attributes()->openLayer() == underarm);
-    ValueField* position = w.window.attributes()->field(FieldId{0});
+    REQUIRE(w.window.attributes()->isOpen(underarm));
+    ValueField* position = w.window.attributes()->field(underarm, FieldId{0});
     REQUIRE(position != nullptr);
     std::printf("      the underarm point's position shows as \"%s\"\n", position->text().toStdString().c_str());
     EXPECT((position->text().startsWith("=")), "it is a formula, shown as one");
     type(position, "50");
     EXPECT((asNumber(std::get<AddPoint>(w.doc().get(underarm)).at.along) == 0.5), "50 in a fraction is 50 %");
-    EXPECT((w.window.attributes()->field(FieldId{0})->text() == "50 %"), "and is shown so");
+    EXPECT((w.window.attributes()->field(underarm, FieldId{0})->text() == "50 %"), "and is shown so");
 
     const OpId rect = first<Rect>(w.doc(), front);
     w.window.attributes()->openLayer(rect);
-    type(w.window.attributes()->field(FieldId{0}), "-5");
+    type(w.window.attributes()->field(rect, FieldId{0}), "-5");
     EXPECT((asNumber(std::get<Rect>(w.doc().get(rect)).width) != -5.0), "a width below nothing is refused");
     EXPECT((w.window.helpLine().startsWith("Not changed")), "and the help line says so");
 }
@@ -213,9 +232,10 @@ TEST_CASE("simulate runs the cloth; copy and instance add a panel beside", "[qt]
 
     const PanelId front = w.panel("front");
     w.window.select(front);
-    emit w.window.attributes()->copyRequested(front);
+    w.window.outliner()->copy(front);
     EXPECT((w.doc().panels().size() == 3 && w.window.selected() != front), "Copy adds a panel and selects it");
-    emit w.window.attributes()->instanceRequested(front);
+    w.window.select(front);
+    w.window.shelf()->instance()->trigger();
     EXPECT((w.doc().panels().size() == 4 && std::holds_alternative<Instance>(w.doc().get(w.doc().operations(*w.window.selected()).front()))), "Instance adds one that follows");
     EXPECT((w.window.outliner()->panelsShown().size() == 4), "and the Outliner shows them");
 }
@@ -353,8 +373,8 @@ TEST_CASE("a double-click on an edge opens its length for typing", "[qt]")
     const QPointF at = w.table()->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2});
     send(w.table(), QEvent::MouseButtonDblClick, at, Qt::LeftButton, Qt::LeftButton, {});
     const OpId rect = first<Rect>(w.doc(), plain);
-    EXPECT((w.window.attributes()->openLayer() == rect), "the layer that sets the length opens");
-    ValueField* field = w.window.attributes()->field(FieldId{0});
+    EXPECT((w.window.attributes()->isOpen(rect)), "the layer that sets the length is open");
+    ValueField* field = w.window.attributes()->field(rect, FieldId{0});
     REQUIRE(field != nullptr);
     type(field, "42");
     EXPECT((w.width(plain) == 42.0), "and the typed length is the edge's");
@@ -892,7 +912,7 @@ std::size_t indexOf(const Document& doc, PanelId panel, OpId op) {
 
 } // namespace
 
-TEST_CASE("layers move up and down, are removed, show their problem, and undo brings them back", "[qt]")
+TEST_CASE("layers are dragged to a new place, are removed, show their problem, and undo brings them back", "[qt]")
 {
     Window w;
     const Hem hem;
@@ -901,14 +921,16 @@ TEST_CASE("layers move up and down, are removed, show their problem, and undo br
     AttributeEditor& editor = *w.window.attributes();
     EXPECT((editor.problemShown(hem.cut).isEmpty()), "a working cut shows no problem");
 
-    editor.moveLayer(hem.line, true);
-    EXPECT((indexOf(w.doc(), hem.skirt, hem.line) == 2), "up moves the line after the cut");
+    editor.moveLayer(hem.line, 2);
+    EXPECT((indexOf(w.doc(), hem.skirt, hem.line) == 2), "dropped above the cut, the line is applied after it");
     EXPECT((!editor.problemShown(hem.cut).isEmpty()), "the cut, before its line now, says what is wrong under it");
     w.window.shelf()->undo()->trigger();
     EXPECT((indexOf(w.doc(), hem.skirt, hem.line) == 1 && editor.problemShown(hem.cut).isEmpty()), "undo puts it back");
 
-    editor.moveLayer(hem.line, false);
+    editor.moveLayer(hem.line, 0);
     EXPECT((indexOf(w.doc(), hem.skirt, hem.line) == 1), "nothing goes below the base shape");
+    editor.moveLayer(hem.rect, 2);
+    EXPECT((indexOf(w.doc(), hem.skirt, hem.rect) == 0), "and the base shape does not move");
 
     editor.removeLayer(hem.line);
     EXPECT((!w.doc().contains(hem.line)), "the bin removes the layer");
@@ -917,7 +939,37 @@ TEST_CASE("layers move up and down, are removed, show their problem, and undo br
     EXPECT((w.doc().contains(hem.line)), "undo brings the layer back");
 }
 
-TEST_CASE("the clock shows a panel as it was at a step; the table changes nothing meanwhile", "[qt]")
+TEST_CASE("a layer dragged by its name leaves a gap where it will land, and moves when let go", "[qt]")
+{
+    Window w;
+    const Hem hem;
+    w.window.open(hem.doc, "hem");
+    w.window.select(hem.skirt);
+    QApplication::processEvents();
+    AttributeEditor& editor = *w.window.attributes();
+    const auto row = [&](OpId layer) { return editor.findChild<QWidget*>(QString("layer%1").arg(layer.value)); };
+    const auto centre = [&](QWidget* r) { return r->mapToGlobal(QPoint(r->width() / 2, r->height() / 2)); };
+    REQUIRE((row(hem.line) && row(hem.cut)));
+    auto* name = row(hem.line)->findChild<QPushButton*>("layerName");
+    REQUIRE(name != nullptr);
+    const auto at = [&](QPoint global) { return QPointF(name->mapFromGlobal(global)); };
+    const QPoint start = centre(name), above = centre(row(hem.cut)) + QPoint(0, -row(hem.cut)->height());
+
+    send(name, QEvent::MouseButtonPress, at(start), Qt::LeftButton, Qt::LeftButton, {});
+    send(name, QEvent::MouseMove, at(start + QPoint(0, -20)), Qt::NoButton, Qt::LeftButton, {});
+    send(name, QEvent::MouseMove, at(above), Qt::NoButton, Qt::LeftButton, {});
+    EXPECT((row(hem.line)->graphicsEffect() != nullptr), "while dragging, its row stays behind as a dim gap");
+    for (const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(300); std::chrono::steady_clock::now() < until;) QApplication::processEvents();  // the rows slide
+    EXPECT((row(hem.line)->y() < row(hem.cut)->y()), "and the gap has moved above the cut already");
+
+    EXPECT((indexOf(w.doc(), hem.skirt, hem.line) == 1), "but nothing is changed yet");
+    send(name, QEvent::MouseButtonRelease, at(above), Qt::LeftButton, Qt::NoButton, {});
+    QApplication::processEvents();
+    EXPECT((indexOf(w.doc(), hem.skirt, hem.line) == 2), "letting go applies it");
+    EXPECT((editor.layersShown().front() == hem.line), "and the line is the top layer");
+}
+
+TEST_CASE("a step is looked back at; the table changes nothing meanwhile, and Escape shows all steps", "[qt]")
 {
     Window w;
     const Hem hem;
@@ -926,13 +978,20 @@ TEST_CASE("the clock shows a panel as it was at a step; the table changes nothin
     AttributeEditor& editor = *w.window.attributes();
 
     editor.viewStep(hem.line);
-    EXPECT((w.window.viewedStep() == hem.line), "the clock looks back to that step");
+    EXPECT((w.window.viewedStep() == hem.line), "Alt+click looks back to that step");
     const std::uint64_t version = w.window.session().editor().version();
     w.window.table()->gestured(session::MovePanel{hem.skirt, 10.0, 0.0, session::DragPhase::Begin});
     EXPECT((w.window.session().editor().version() == version), "while looking back, the table moves nothing");
 
     editor.viewStep(hem.line);
     EXPECT((!w.window.viewedStep().has_value()), "a second click shows all steps again");
+    editor.viewStep(hem.line);
+    QShortcut* leave = w.window.findChild<QShortcut*>();
+    REQUIRE(leave != nullptr);
+    EXPECT((leave->isEnabled()), "while looking back, Escape is taken");
+    emit leave->activated();
+    EXPECT((!w.window.viewedStep().has_value()), "and shows all steps");
+    EXPECT((!leave->isEnabled()), "then Escape is left to the others");
     editor.viewStep(hem.cut);
     EXPECT((!w.window.viewedStep().has_value()), "the last step is the panel as it is");
 }
@@ -1008,7 +1067,29 @@ TEST_CASE("a panel's seams are listed; each can be reversed or removed, and undo
     EXPECT((w.doc().contains(seam) && w.doc().get(seam).reversed == !was), "undo brings it back as it was");
 }
 
-TEST_CASE("a panel is made base only, given a mirrored instance, and baked", "[qt]")
+TEST_CASE("a panel is renamed, made base only and deleted in the Outliner", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    w.window.outliner()->rename(front, "  bodice ");
+    EXPECT((w.doc().get(front).name == "bodice"), "a name typed in the Outliner renames the panel, trimmed");
+    w.window.outliner()->rename(front, "   ");
+    EXPECT((w.doc().get(front).name == "bodice"), "an empty name is refused and the old one stays");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().get(front).name == "front"), "undo brings the old name back");
+
+    w.window.outliner()->setBaseOnly(front, true);
+    EXPECT((w.doc().get(front).construction), "ticked in the menu, the panel is a base only");
+    w.window.outliner()->setBaseOnly(front, false);
+    EXPECT((!w.doc().get(front).construction), "unticked, it is cut from cloth again");
+
+    const std::size_t before = w.doc().panels().size();
+    w.window.outliner()->remove(front);
+    EXPECT((w.doc().panels().size() == before - 1 && !w.window.selected()), "Delete removes the panel and the selection");
+}
+
+TEST_CASE("the shelf gives a mirrored instance and bakes the selected panel", "[qt]")
 {
     Window w;
     Document doc;
@@ -1017,14 +1098,9 @@ TEST_CASE("a panel is made base only, given a mirrored instance, and baked", "[q
     const OpId rect = doc.add(band, Rect{.width = waist / 2, .height = 4_cm}).id;
     w.window.open(doc, "band");
     w.window.select(band);
-    AttributeEditor& editor = *w.window.attributes();
+    EXPECT((w.window.shelf()->bake()->isEnabled()), "with a panel selected the shelf offers it");
 
-    editor.findChild<QCheckBox*>("baseOnly")->click();
-    EXPECT((w.doc().get(band).construction), "ticked, the panel is a base only");
-    editor.findChild<QCheckBox*>("baseOnly")->click();
-    EXPECT((!w.doc().get(band).construction), "unticked, it is cut from cloth again");
-
-    editor.findChild<QToolButton*>("mirroredInstancePanel")->click();
+    w.window.shelf()->mirroredInstance()->trigger();
     REQUIRE(w.window.selected().has_value());
     const PanelId mirrored = *w.window.selected();
     EXPECT((!(mirrored == band)), "the new panel is selected");
@@ -1033,7 +1109,7 @@ TEST_CASE("a panel is made base only, given a mirrored instance, and baked", "[q
     EXPECT((w.doc().get(mirrored).x > w.doc().get(band).x), "and stands to its right on the table");
 
     w.window.select(band);
-    editor.findChild<QToolButton*>("bakePanel")->click();
+    w.window.shelf()->bake()->trigger();
     const Field width = fields(w.doc().get(rect))[0];
     EXPECT((asNumber(width.value) && *asNumber(width.value) == 35.0), "the width formula is baked into its number");
     w.window.shelf()->undo()->trigger();
@@ -1101,7 +1177,7 @@ TEST_CASE("Add operation offers a shape for an empty panel, then changes; one ne
     editor.addOperation(session::Offer::Curve);
     const OpId curve = w.doc().operations(piece).back();
     EXPECT((std::holds_alternative<Curve>(w.doc().get(curve))), "a curve is added on top");
-    EXPECT((editor.openLayer() == curve), "and its layer is open");
+    EXPECT((editor.isOpen(curve)), "and its layer is open");
     EXPECT((w.window.helpLine().contains("Click an edge")), "its edge is chosen next on the table");
     w.window.shelf()->undo()->trigger();
     EXPECT((w.doc().operations(piece).size() == 1), "undo takes it away");
@@ -1269,7 +1345,7 @@ TEST_CASE("the selected panel's lengths are labelled on the table; a double-clic
                                     [&](const auto& l) { return l.second == rect.bottom(); });
     REQUIRE(label != w.table()->lengthLabels().end());
     send(w.table(), QEvent::MouseButtonDblClick, label->first.center(), Qt::LeftButton, Qt::LeftButton, {});
-    EXPECT((w.window.attributes()->openLayer() == OpId(rect)), "the layer that sets that length opens, to type it");
+    EXPECT((w.window.attributes()->isOpen(OpId(rect)) && w.window.attributes()->field(OpId(rect), FieldId{0}) != nullptr), "the layer that sets that length is open, to type it");
 
     w.window.select(std::nullopt);
     w.table()->grab();  // paints it
@@ -1421,4 +1497,19 @@ TEST_CASE("every sample meshes; random clicks, drags and keys on both views and 
         INFO(session::samples()[i].name << ": " << w.doc().panels().size() << " panels, " << w.window.session().editor().shapes().errors.size() << " problems");
         SUCCEED("survived the random input");
     }
+}
+
+TEST_CASE("the layers scroll on their own, apart from the rest of the Attribute Editor", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    AttributeEditor& editor = *w.window.attributes();
+    auto* list = editor.findChild<QScrollArea*>("layerScroll");
+    REQUIRE(list != nullptr);
+    const OpId rect = first<Rect>(w.doc(), front);
+    QWidget* row = editor.findChild<QWidget*>(QString("layer%1").arg(OpId(rect).value));
+    REQUIRE(row != nullptr);
+    EXPECT((list->widget()->isAncestorOf(row)), "the layer rows are inside the list's own scroll area");
+    EXPECT((list->minimumHeight() > 0), "which keeps some height of its own");
 }

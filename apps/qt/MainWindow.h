@@ -22,6 +22,7 @@
 
 class QDockWidget;
 class QLabel;
+class QShortcut;
 class QSplitter;
 class QTimer;
 
@@ -99,6 +100,7 @@ private:
     session::Session session_;
     Shelf* shelf_;
     Outliner* outliner_;
+    QShortcut* showAllSteps_;  // Escape, while an earlier step is shown
     ParametersPanel* parameters_;
     AttributeEditor* attributes_;
     ClothPanel* cloth_;

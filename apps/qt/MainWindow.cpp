@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenuBar>
+#include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTimer>
@@ -246,13 +247,24 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(parameters_, &ParametersPanel::removeRequested, this, [this](Param parameter) {
         if (session_.document().contains(parameter)) change([&](Document& doc) { doc.remove(parameter); }, {.ifItBreaks = session::IfItBreaks::Allow});
     });
-    connect(attributes_, &AttributeEditor::renamed, this, [this](PanelId panel, QString name) {
-        if (!name.trimmed().isEmpty()) change([&](Document& doc) { doc.rename(panel, name.trimmed().toStdString()); });
+    connect(outliner_, &Outliner::renamed, this, [this](PanelId panel, QString name) {
+        if (!session_.document().contains(panel)) return;
+        const std::string wanted = name.trimmed().toStdString();
+        if (wanted.empty()) {
+            say("A panel needs a name. Type one, or press Escape to keep the old one.", true);
+            refresh();  // shows the old name again
+        } else if (wanted != session_.document().get(panel).name) {
+            change([&](Document& doc) { doc.rename(panel, wanted); });
+        }
     });
     connect(attributes_, &AttributeEditor::layerSwitched, this, [this](OpId layer, bool on) {
         change([&](Document& doc) { doc.setEnabled(layer, on); }, {.ifItBreaks = session::IfItBreaks::Allow});
     });
     connect(attributes_, &AttributeEditor::layerOpened, this, [this] { refresh(); });
+    // Escape comes back from looking at an earlier step; it is only taken while looking back.
+    showAllSteps_ = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    showAllSteps_->setEnabled(false);
+    connect(showAllSteps_, &QShortcut::activated, attributes_, &AttributeEditor::showAllSteps);
     connect(attributes_, &AttributeEditor::seamReversed, this, [this](SeamId seam, bool reversed) {
         if (!session_.document().contains(seam)) return;
         Seam changed = session_.document().get(seam);
@@ -274,13 +286,12 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(attributes_, &AttributeEditor::instanceMirroredChanged, this, [this](OpId layer, bool mirrored) {
         change([&](Document& doc) { doc.set(OpRef<Instance>(layer), &Instance::mirrored, mirrored); });
     });
-    connect(attributes_, &AttributeEditor::layerMoved, this, [this](OpId layer, bool later) {
+    connect(attributes_, &AttributeEditor::layerMoved, this, [this](OpId layer, std::size_t to) {
         if (!session_.document().contains(layer)) return;
         const std::vector<OpId> made = session_.document().operations(session_.document().panelOf(layer));
         const auto index = static_cast<std::size_t>(std::find(made.begin(), made.end(), layer) - made.begin());
-        // The base shape stays first.
-        if (later ? index + 1 >= made.size() : index <= 1) return;
-        const std::size_t to = later ? index + 1 : index - 1;
+        // The base shape stays first, and nothing goes before it.
+        if (index == 0 || to == 0 || to >= made.size() || to == index) return;
         change([&](Document& doc) { doc.move(layer, to); }, {.ifItBreaks = session::IfItBreaks::Allow});
     });
     connect(attributes_, &AttributeEditor::layerRemoved, this, [this](OpId layer) {
@@ -300,7 +311,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         refresh();
     });
     connect(attributes_, &AttributeEditor::fieldTyped, this, [this](OpId layer, FieldId id, QString text) {
-        ValueField* field = attributes_->field(id);
+        ValueField* field = attributes_->field(layer, id);
         const Unit unit = fields(session_.document().get(layer))[id.index].unit;
         if (const std::optional<Expr> value = read(text, unit, field)) change([&](Document& doc) { doc.set(layer, id, *value); }, {}, field);
     });
@@ -332,22 +343,30 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
             else doc.place(panel, x, y);
         }, {.touches = session::Touches::PlacementOnly}, field);
     });
-    connect(attributes_, &AttributeEditor::copyRequested, this, [this](PanelId panel) { addBeside(panel, Follow::Copy); });
-    connect(attributes_, &AttributeEditor::instanceRequested, this, [this](PanelId panel) { addBeside(panel, Follow::Instance); });
-    connect(attributes_, &AttributeEditor::mirroredInstanceRequested, this, [this](PanelId panel) { addBeside(panel, Follow::MirroredInstance); });
-    connect(attributes_, &AttributeEditor::bakeRequested, this, [this](PanelId panel) {
+    connect(outliner_, &Outliner::copyRequested, this, [this](PanelId panel) { addBeside(panel, Follow::Copy); });
+    // The shelf acts on the selected panel.
+    connect(shelf_, &Shelf::instanceRequested, this, [this] {
+        if (const std::optional<PanelId> panel = drafting_.selection.panel) addBeside(*panel, Follow::Instance);
+    });
+    connect(shelf_, &Shelf::mirroredInstanceRequested, this, [this] {
+        if (const std::optional<PanelId> panel = drafting_.selection.panel) addBeside(*panel, Follow::MirroredInstance);
+    });
+    connect(shelf_, &Shelf::bakeRequested, this, [this] {
+        const std::optional<PanelId> panel = drafting_.selection.panel;
+        if (!panel) return;
         std::size_t baked = 0;
-        if (change([&](Document& doc) { baked = bake(doc, panel); }))
+        if (change([&](Document& doc) { baked = bake(doc, *panel); }))
             say(baked == 0 ? "Nothing to bake: the panel has no formulas." : QString("Baked %1 formula%2 into numbers.").arg(baked).arg(baked == 1 ? "" : "s"));
     });
     connect(attributes_, &AttributeEditor::placeFromTableRequested, this, [this](PanelId panel) {
         // No place of its own: the editor gives it one from the table again, keeping its anchor.
         change([&](Document& doc) { doc.arrange(panel, Arrangement{.anchor = doc.get(panel).arrangement.anchor}); }, {.touches = session::Touches::PlacementOnly});
     });
-    connect(attributes_, &AttributeEditor::baseOnlyChanged, this, [this](PanelId panel, bool baseOnly) {
-        change([&](Document& doc) { doc.setConstruction(panel, baseOnly); });
+    connect(outliner_, &Outliner::baseOnlyChanged, this, [this](PanelId panel, bool baseOnly) {
+        if (session_.document().contains(panel)) change([&](Document& doc) { doc.setConstruction(panel, baseOnly); });
     });
-    connect(attributes_, &AttributeEditor::deleteRequested, this, [this](PanelId panel) {
+    connect(outliner_, &Outliner::deleteRequested, this, [this](PanelId panel) {
+        if (!session_.document().contains(panel)) return;
         if (change([&](Document& doc) { doc.remove(panel); }, {.ifItBreaks = session::IfItBreaks::Allow})) select(std::nullopt);
     });
 
@@ -571,9 +590,11 @@ void MainWindow::refresh() {
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
     const QString body = session_.avatarPath().empty() ? "No body" : QFileInfo(QString::fromStdString(session_.avatarPath())).fileName();
     outliner_->show(doc, shapes, selected, body);
+    for (QAction* onPanel : {shelf_->instance(), shelf_->mirroredInstance(), shelf_->bake()}) onPanel->setEnabled(selected.has_value());
     parameters_->show(doc, shapes);
     // Looking back only at a step of the selected panel.
     if (viewUntil_ && (!selected || !doc.contains(*viewUntil_) || !(doc.panelOf(*viewUntil_) == *selected))) viewUntil_.reset();
+    showAllSteps_->setEnabled(viewUntil_.has_value());
     if (viewUntil_) past_ = evaluateUpTo(doc, *viewUntil_);
     attributes_->show(doc, shapes, selected, viewUntil_);
     table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners, drafting_.tool);
@@ -615,7 +636,7 @@ void MainWindow::on(const session::Gesture& gesture) {
     const bool placesInSpace = std::holds_alternative<session::MoveInSpace>(gesture) || std::holds_alternative<session::TurnInSpace>(gesture);
     if (viewUntil_ && !std::holds_alternative<session::SelectPanel>(gesture) && !placesInSpace) {
         table_->cancel();
-        say("Showing an earlier step: click Show all steps in the Attribute Editor to change the pattern again.", true);
+        say("Showing an earlier step: press Escape to show all steps and change the pattern again.", true);
         return;
     }
     const session::Outcome done = drafting_.handle(session_.editor(), gesture);
@@ -628,7 +649,7 @@ void MainWindow::on(const session::Gesture& gesture) {
         dock("Attribute Editor")->show();
         dock("Attribute Editor")->raise();
         attributes_->openLayer(done.typeLength->operation);
-        if (ValueField* field = attributes_->field(done.typeLength->field)) {
+        if (ValueField* field = attributes_->field(done.typeLength->operation, done.typeLength->field)) {
             field->setFocus();
             field->selectAll();
         }
