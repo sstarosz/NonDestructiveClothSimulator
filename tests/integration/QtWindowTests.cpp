@@ -12,8 +12,6 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
-#include <QProxyStyle>
-#include <QStyleFactory>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QWheelEvent>
@@ -1181,18 +1179,6 @@ struct Band {
     double value() { return *asNumber(w.doc().get(waist).value); }
 };
 
-// Counts how often a widget is restyled, on top of the style the window uses.
-class CountingStyle : public QProxyStyle {
-public:
-    CountingStyle() : QProxyStyle(QStyleFactory::create("Fusion")) {}
-    int polished = 0;
-    void polish(QWidget* widget) override {
-        ++polished;
-        QProxyStyle::polish(widget);
-    }
-    using QProxyStyle::polish;
-};
-
 } // namespace
 
 // On a desktop the window is active, and Qt gives a clicked widget focus
@@ -1234,20 +1220,20 @@ TEST_CASE("Escape puts back what was shown and closes the field, changing nothin
     EXPECT_NEAR(b.value(), 75.0, "the next press drags");
 }
 
-TEST_CASE("a field shown again with the same kind of value is not restyled", "[qt]")
+// A mark is only restyled when it changes; this checks that the marks still
+// follow the value. That less restyling happens is not measured here: a
+// custom QStyle cannot be put on a field while the window uses a style sheet.
+TEST_CASE("a field's refused mark stays until the value is shown again", "[qt]")
 {
     Band b;
     ValueField& field = b.field();
-    // Made after the application, which must exist before any style, and never
-    // deleted, like the application: the field and its window go before it.
-    CountingStyle& style = *new CountingStyle;
-    field.setStyle(&style);
-    style.polished = 0;
-    dragField(field, 50.0);  // every step of the drag shows the field again
-    EXPECT_NEAR(b.value(), 75.0, "the drag changed the number");
-    EXPECT((style.polished == 0), "a number that stays a number keeps its style");
     type(&field, "not a number");
-    EXPECT((field.property("refused").toBool() && style.polished > 0), "being marked refused restyles it");
+    EXPECT((field.property("refused").toBool()), "what does not read is marked");
+    field.clearFocus();
+    EXPECT((field.property("refused").toBool()), "and stays marked when the field is left");
+    dragField(field, 50.0);
+    EXPECT_NEAR(b.value(), 75.0, "a drag still changes the number");
+    EXPECT((!field.property("refused").toBool() && field.text() == "75 cm"), "and the value shown again clears the mark");
 }
 
 TEST_CASE("the body is hidden in 3D and taken out of the simulation together; the table's grid can be hidden", "[qt]")
