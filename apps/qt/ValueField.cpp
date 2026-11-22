@@ -1,5 +1,6 @@
 #include "ValueField.h"
 
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QStyle>
 #include <cmath>
@@ -10,7 +11,10 @@ namespace clothcad::ui {
 
 namespace {
 
+// Restyling is not free and show() runs on every change of the document, so
+// a mark that is already right is left alone. An unset mark styles as false.
 void mark(QLineEdit& field, const char* property, bool on) {
+    if (field.property(property).toBool() == on) return;
     field.setProperty(property, on);
     field.style()->unpolish(&field);
     field.style()->polish(&field);
@@ -28,6 +32,10 @@ double stepFor(Unit unit, double value) {
 } // namespace
 
 ValueField::ValueField(Unit unit, QWidget* parent) : QLineEdit(parent), unit_(unit) {
+    // A click must not give focus by itself: Qt gives it before the press
+    // reaches the field, and a focused field types instead of dragging. The
+    // field takes focus itself, on a click without a drag or on a formula.
+    setFocusPolicy(Qt::TabFocus);
     connect(this, &QLineEdit::editingFinished, this, [this] {
         if (text() != shown_) emit typed(text());
     });
@@ -57,10 +65,13 @@ void ValueField::show(const Expr& value, const Document& doc, const Result& shap
 void ValueField::showCursor() { setCursor(number_ && !hasFocus() ? Qt::SizeHorCursor : Qt::IBeamCursor); }
 
 void ValueField::mousePressEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton && number_ && !hasFocus()) {
-        drag_ = Drag{event->position().x(), *number_, dragStep_ ? *dragStep_ : stepFor(unit_, *number_)};
-        event->accept();
-        return;
+    if (event->button() == Qt::LeftButton && !hasFocus()) {
+        if (number_) {
+            drag_ = Drag{event->position().x(), *number_, dragStep_ ? *dragStep_ : stepFor(unit_, *number_)};
+            event->accept();
+            return;
+        }
+        setFocus(Qt::MouseFocusReason);  // a formula is only typed
     }
     QLineEdit::mousePressEvent(event);
 }
@@ -90,6 +101,30 @@ void ValueField::mouseReleaseEvent(QMouseEvent* event) {
         setFocus(Qt::MouseFocusReason);
         selectAll();
     }
+}
+
+// While typing, Enter takes what was typed and Escape puts back what was
+// shown; both close the field, so the next press drags again. What was typed
+// is reported once, as the field loses focus (editingFinished).
+void ValueField::keyPressEvent(QKeyEvent* event) {
+    if (hasFocus()) {
+        switch (event->key()) {
+        case Qt::Key_Return:
+        case Qt::Key_Enter:
+            clearFocus();
+            event->accept();
+            return;
+        case Qt::Key_Escape:
+            setText(shown_);
+            setModified(false);
+            mark(*this, "refused", false);
+            clearFocus();
+            event->accept();
+            return;
+        default: break;
+        }
+    }
+    QLineEdit::keyPressEvent(event);
 }
 
 void ValueField::focusInEvent(QFocusEvent* event) {
