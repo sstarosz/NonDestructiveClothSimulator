@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QProxyStyle>
+#include <QStyleFactory>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QWheelEvent>
@@ -1180,9 +1181,10 @@ struct Band {
     double value() { return *asNumber(w.doc().get(waist).value); }
 };
 
-// Counts how often a widget is restyled.
+// Counts how often a widget is restyled, on top of the style the window uses.
 class CountingStyle : public QProxyStyle {
 public:
+    CountingStyle() : QProxyStyle(QStyleFactory::create("Fusion")) {}
     int polished = 0;
     void polish(QWidget* widget) override {
         ++polished;
@@ -1234,9 +1236,11 @@ TEST_CASE("Escape puts back what was shown and closes the field, changing nothin
 
 TEST_CASE("a field shown again with the same kind of value is not restyled", "[qt]")
 {
-    CountingStyle style;  // made first, so it outlives the field that uses it
     Band b;
     ValueField& field = b.field();
+    // Made after the application, which must exist before any style, and never
+    // deleted, like the application: the field and its window go before it.
+    CountingStyle& style = *new CountingStyle;
     field.setStyle(&style);
     style.polished = 0;
     dragField(field, 50.0);  // every step of the drag shows the field again
