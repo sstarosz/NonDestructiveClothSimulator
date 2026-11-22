@@ -44,6 +44,7 @@ void remapIn(Cut& op, const Mapping& m) { remap(op.along, m); }
 void remapIn(Mirror& op, const Mapping& m) { remap(op.across, m); }
 void remapIn(AdjustPoint& op, const Mapping& m) { remap(op.corner, m); }
 void remapIn(AddPoint& op, const Mapping& m) { remap(op.at.edge, m); }
+void remapIn(Scale&, const Mapping&) {}
 
 } // namespace
 

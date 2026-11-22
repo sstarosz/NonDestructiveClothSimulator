@@ -1,9 +1,12 @@
 #pragma once
 // The 2D table: every panel's outline where the table has it, seams in
 // blue, the selected panel in amber, mirror axes in pink. With the Select
-// tool a panel is chosen and dragged, its corners and curve handles are
-// dragged (Shift adds corners, Shift-drag selects corners in a box), the
-// knob above it turns it, and a double-click on an edge types its length.
+// tool (Q) a panel is chosen and dragged, its corners and curve handles are
+// dragged (Shift adds corners, Shift-drag selects corners in a box), and a
+// double-click on an edge types its length. Move (W), Rotate (E) and Scale
+// (R) do the same and show their gizmo on the selected panel
+// (session/TableGizmo): its arrows move it, its ring turns it about its
+// middle, its handles scale it.
 // The drawing tools work here too: Rectangle and Circle are dragged out,
 // Ring is a click, Point, Curve, Mirror and Sew click edges, Line clicks
 // two points on one outline, Cut and Split click an internal line.
@@ -11,7 +14,7 @@
 // half done. It only reports what the user did: the
 // window hands each gesture to session::Drafting.
 //
-//   table->show(doc, shapes, selected, corners);
+//   table->show(doc, shapes, selected, corners, drafting.tool);
 //   connect(table, &TableView::gestured, [&](const session::Gesture& g) { ... });
 
 #include <QWidget>
@@ -28,6 +31,7 @@ class QPainter;
 #include "clothcad/core/Fields.h"
 #include "clothcad/session/Drafting.h"
 #include "clothcad/session/Lengths.h"
+#include "clothcad/session/TableGizmo.h"
 #include "clothcad/sim/Mesh.h"
 
 namespace clothcad::ui {
@@ -36,8 +40,8 @@ class TableView : public QWidget {
     Q_OBJECT
 public:
     explicit TableView(QWidget* parent = nullptr);
-    void show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners);
-    void setTool(Tool tool);
+    // What to show, and with which tool: another tool than before drops what was half done.
+    void show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners, Tool tool);
     // The cloth mesh to draw over the panels, or none. The table keeps a share of it.
     void setMesh(std::shared_ptr<const sim::ClothMesh> mesh);
     bool meshShown() const { return mesh_ != nullptr; }
@@ -67,8 +71,9 @@ public:
     QPointF toScreen(Vec2 tablePoint) const;
     Vec2 toTable(QPointF screen) const;
     double scale() const { return scale_; }
-    // Where the selected panel's turning knob is, on screen; for tests.
-    std::optional<QPointF> knob() const;
+    // The selected panel's gizmo as it stands now, in table cm; empty with
+    // Select, a drawing tool, or nothing selected. For tests.
+    std::optional<session::TableGizmo> gizmo() const;
 
 signals:
     void gestured(const clothcad::session::Gesture& gesture);
@@ -110,12 +115,13 @@ private:
 
     // What the pointer would take hold of on the selected panel.
     struct Grab {
-        enum class Kind { Panel, Corner, Handle, Rotate, Box } kind;
+        enum class Kind { Panel, Corner, Handle, Gizmo, Box } kind;
         PanelId panel;
         CornerRef corner{};
         EdgeRef edge{};
         bool endHandle = false;
         Vec2 thingWasAt{};  // where the panel's place, the corner or the handle was
+        session::TableHandle handle = session::TableHandle::Middle;  // the gizmo's handle taken hold of
     };
     struct Drag {
         Grab grab;
@@ -123,6 +129,7 @@ private:
         QPointF pressedOnScreen;
         double angleWas = 0;
         bool moved = false;
+        std::optional<session::TableGizmo> gizmo;  // the gizmo as it stood when it was taken hold of
     };
 
     // What a drawing tool would act on, under the pointer.
@@ -142,7 +149,10 @@ private:
     std::optional<Reference> choiceAt(QPointF screen) const;
     void paintChoice(QPainter& painter) const;
     void paintTool(QPainter& painter) const;
-    // The handle, knob or corner of the selected panel under a screen point;
+    // Select, Move, Rotate or Scale: the tools that select and drag on the table.
+    bool selecting() const;
+    void paintGizmo(QPainter& painter) const;
+    // The gizmo's handle, a curve handle or a corner of the selected panel under a screen point;
     // `locked` says why when it is one that cannot be dragged.
     std::optional<Grab> grabAt(QPointF screen, std::string& locked) const;
     std::optional<EdgeRef> edgeAt(QPointF screen) const;
@@ -167,6 +177,7 @@ private:
 
     std::optional<Drag> drag_;
     std::optional<QPointF> offered_;  // the grab the pointer is over, to ring it
+    std::optional<session::TableHandle> gizmoOffered_;  // the gizmo's handle the pointer is over, to light it
     QString readout_;                 // what a drag is doing: "+1.5, -2.0 cm", "30.0°"
     QPointF pointer_;
 

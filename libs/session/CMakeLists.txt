@@ -12,6 +12,7 @@ clothcad_library(session
         src/Samples.cpp
         src/Session.cpp
         src/Simulation.cpp
+        src/TableGizmo.cpp
     DEPENDS clothcad::core clothcad::sim Threads::Threads
 )
 if(CLOTHCAD_BUILD_TESTS)

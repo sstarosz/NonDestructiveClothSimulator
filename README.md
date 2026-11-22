@@ -11,7 +11,9 @@ the body follows too.
 - **Patterns in 2D**: rectangles, circles, rings, points added on any edge
   (the Point tool) to shape a shoulder, a waist or an armhole, free curves, internal
   lines, cuts and splits, mirrors that keep both halves in step, instances
-  and mirrored instances, moving single corners or groups of them.
+  and mirrored instances, moving single corners or groups of them, and
+  scaling a panel along its own x and y (a Scale layer, made by the scale
+  gizmo).
 - **Parameters and formulas**: `waist / 4 + ease`, with limits per field;
   an edit that would break something is refused and says why.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
@@ -21,9 +23,16 @@ the body follows too.
   `assets/`; Body > Avatar from OBJ… loads another),
   meshed and simulated: gravity, seams drawing closed,
   cloth against body, floor and cloth.
-  The selected panel has a move gizmo in the 3D view: drag an arrow to move
-  it along x, y or z only, or the centre square to move it across the view
-  (Ctrl: whole centimetres).
+- **Gizmos as in Maya**, in the 3D view and on the table alike: Q selects
+  only, W moves (an arrow per axis, a square per plane, the middle across
+  the view), E turns (a ring per axis, one about the line of sight, and
+  between them a ball that turns it freely, as Maya's trackball; on the
+  table one ring), R scales along the panel's own x and y, or evenly by
+  the square between them or the middle; its z is grey, since a panel has no
+  thickness. In 3D they are drawn in flat colours, in front of everything.
+  Ctrl: whole centimetres, steps of 15°, steps of 10 %.
+  Moving and turning only place a panel; scaling changes its shape, as a
+  Scale layer that can be edited, switched off or undone like any other.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Files**: save and open (`.clothcad`, plain text), undo.
@@ -153,8 +162,8 @@ How it is kept fast:
 | --- | --- | --- |
 | `libs/core/` | The document (parameters, panels, operations, seams), formulas, evaluation to 2D outlines, files | nothing |
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
-| `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread | `core`, `sim` |
-| `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move `Gizmo`. Built when the Vulkan SDK is found | `session`, Vulkan headers |
+| `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use | `core`, `sim` |
+| `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers) and Cloth, 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
 | `examples/` | Six small garments as programs, the sixth a T-shirt body | `core` |
 | `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` and read and write no files (bodies are made in memory); tests on the project's avatar are in `tests/integration/AvatarTests.cpp` | everything |
@@ -194,6 +203,20 @@ holds and hands it what the user did.
 - Moving a draped panel's place carries its drape rigidly; a change of wrap
   is not applied to cloth that is already draped (press Reset for that).
 - Undo and redo bring back the drape of the last 64 states.
+- The move and rotate gizmos work along the axes of space (or of the table),
+  not the panel's own; only the scale gizmo follows the panel's own axes.
+  In 3D the gizmo stands at the panel's anchor, which can be away from where
+  draped cloth hangs. The scale gizmo's z handle does nothing; seen from the
+  front it points at the eye and is too short to show.
+- A Scale layer scales about the middle of the outline's box as it is at
+  that layer. On a symmetric panel it scales the drawn half, before the
+  mirror: the whole stays symmetric, but its middle moves on the table. An
+  arc stretched more one way than the other stays a circular arc between its
+  moved ends, and a whole circle can only be scaled evenly. A Scale set by a
+  formula is not dragged (the gizmo says so); type it in the Attribute
+  Editor.
+- Q, W, E and R replace the Rectangle tool's old key R; Rectangle is chosen
+  from the shelf.
 - A point added on a sewn edge splits it: the seam then sews only the part
   before the point, and the part after it must be sewn on its own.
 - The body is always an avatar read from an OBJ file. Without the avatar

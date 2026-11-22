@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
 #include <QKeyEvent>
@@ -17,6 +18,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <numbers>
 #include <random>
 #include <thread>
 
@@ -36,6 +38,7 @@
 #include "clothcad/core/File.h"
 #include "clothcad/core/Text.h"
 #include "clothcad/session/Samples.h"
+#include "clothcad/sim/Layout.h"
 
 using namespace clothcad;
 using namespace clothcad::ui;
@@ -65,12 +68,15 @@ struct Window {
         window.show();
         waitForTheBody();
     }
-    // An avatar is there at once; working out how to collide with it takes a moment.
+    // An avatar is there at once; working out how to collide with it takes a
+    // moment, and longer in a build that is not optimised.
     void waitForTheBody() {
-        for (int i = 0; i < 1000 && !window.session().bodyReady(); ++i) {
+        const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        while (!window.session().bodyReady() && std::chrono::steady_clock::now() < limit) {
             window.tick();
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
+        REQUIRE(window.session().bodyReady());
         window.tick();
     }
     const Document& doc() const { return window.session().document(); }
@@ -78,13 +84,11 @@ struct Window {
         for (PanelId p : doc().panels())
             if (doc().get(p).name == name) return p;
         FAIL("no panel " << name);
-        return {};
     }
     Param parameter(const std::string& name) const {
         for (Param p : doc().parameters())
             if (doc().get(p).name == name) return p;
         FAIL("no parameter " << name);
-        return {};
     }
 };
 
@@ -339,27 +343,6 @@ TEST_CASE("Shift-drag selects corners in a box; dragging one moves them together
     EXPECT((w.window.selectedCorners().size() == 3), "Shift-click adds a corner");
 }
 
-TEST_CASE("the knob above a panel turns it about its middle", "[qt]")
-{
-    Table w;
-    const PanelId plain = w.panel("plain");
-    w.window.select(plain);
-    const Vec2 middle = w.middle(plain);
-    REQUIRE(w.table()->knob());
-    const QPointF knob = *w.table()->knob(), pivot = w.table()->toScreen(middle);
-    // A quarter turn clockwise on screen: from above the middle to its right.
-    const double reach = std::hypot(knob.x() - pivot.x(), knob.y() - pivot.y());
-    drag(w.table(), knob, pivot + QPointF(reach, 0), Qt::ControlModifier);
-    EXPECT((std::abs(w.doc().get(plain).angle + 90.0) < 1e-6), "the panel turns by the angle swept, in steps of 15° with Ctrl");
-    const Vec2 turnedMiddle = [&] {
-        const std::optional<Bounds> box = bounds(w.window.session().editor().shapes()[plain]);
-        const Vec2 own = turned(Vec2{(box->min.x + box->max.x) / 2, (box->min.y + box->max.y) / 2}, w.doc().get(plain).angle);
-        return Vec2{w.doc().get(plain).x + own.x, w.doc().get(plain).y + own.y};
-    }();
-    EXPECT((std::abs(turnedMiddle.x - middle.x) < 1e-6 && std::abs(turnedMiddle.y - middle.y) < 1e-6), "its middle stays where it was");
-    EXPECT((w.width(plain) == 30.0), "turning is not shape");
-}
-
 TEST_CASE("a double-click on an edge opens its length for typing", "[qt]")
 {
     Table w;
@@ -391,6 +374,85 @@ template <class T> bool lastIs(const Document& doc, PanelId panel) {
 }
 
 } // namespace
+
+TEST_CASE("Q, W, E and R choose Select, Move, Rotate and Scale; only the last three show a gizmo, in both views", "[qt]")
+{
+    Table w;
+    w.window.select(w.panel("plain"));
+    for (const auto& [tool, key] : {std::pair{Tool::Select, "Q"}, std::pair{Tool::Move, "W"}, std::pair{Tool::Rotate, "E"}, std::pair{Tool::Scale, "R"}})
+        EXPECT((w.window.shelf()->action(tool)->shortcut() == QKeySequence(key)), std::string(nameOf(tool)) + " is on " + key + ", as in Maya");
+    EXPECT((w.window.shelf()->action(Tool::Rectangle)->shortcut().isEmpty()), "Rectangle has no key: R scales");
+    w.window.tick();
+    EXPECT((!w.table()->gizmo() && !w.window.space()->gizmo()), "Select shows no gizmo");
+
+    // Keys typed in the 3D view reach the shelf, whichever surface it draws on.
+    SpaceView& space = *w.window.space();
+    space.key(QKeyCombination(Qt::Key_E));
+    w.window.tick();
+    EXPECT((w.window.shelf()->tool() == Tool::Rotate), "E in the 3D view chooses Rotate");
+    EXPECT((w.table()->gizmo() && w.table()->gizmo()->mode == session::GizmoMode::Rotate), "the table shows the rotate gizmo");
+    EXPECT((space.gizmo() && space.gizmo()->mode == session::GizmoMode::Rotate), "and so does the 3D view");
+    space.key(QKeyCombination(Qt::Key_R));
+    EXPECT((w.window.shelf()->tool() == Tool::Scale && space.gizmo()->mode == session::GizmoMode::Scale), "R: Scale");
+    space.key(QKeyCombination(Qt::Key_W));
+    EXPECT((w.window.shelf()->tool() == Tool::Move && w.table()->gizmo()->mode == session::GizmoMode::Move), "W: Move");
+    space.key(QKeyCombination(Qt::Key_Q));
+    EXPECT((w.window.shelf()->tool() == Tool::Select && !space.gizmo() && !w.table()->gizmo()), "Q: back to Select, no gizmo");
+}
+
+TEST_CASE("on the table the move gizmo's arrow moves a panel along x only, its ring turns it, its handle scales it", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+
+    choose(w, Tool::Move);
+    REQUIRE(table->gizmo());
+    const Panel was = w.doc().get(plain);
+    const QPointF onArrow = table->toScreen(session::handleEnd(*table->gizmo(), session::TableHandle::AlongX)) - QPointF(25.0, 0.0);
+    drag(table, onArrow, onArrow + QPointF(40.0, -30.0));
+    EXPECT((std::abs(w.doc().get(plain).x - (was.x + 40.0 / table->scale())) < 0.06), "the x arrow moves the panel along x");
+    EXPECT((w.doc().get(plain).y == was.y), "and not along y");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().get(plain).x == was.x), "the drag is one step to undo");
+
+    // A quarter turn, from the ring's right to its top, in steps of 15° with Ctrl.
+    choose(w, Tool::Rotate);
+    REQUIRE(table->gizmo());
+    const Vec2 middle = w.middle(plain);
+    const QPointF pivot = table->toScreen(middle);
+    drag(table, pivot + QPointF(session::tableRingPixels, 0.0), pivot + QPointF(0.0, -session::tableRingPixels), Qt::ControlModifier);
+    EXPECT((std::abs(w.doc().get(plain).angle - 90.0) < 1e-6), "the ring turns the panel by the angle swept");
+    const Vec2 turnedMiddle = [&] {
+        const std::optional<Bounds> box = bounds(w.window.session().editor().shapes()[plain]);
+        const Vec2 own = turned(Vec2{(box->min.x + box->max.x) / 2, (box->min.y + box->max.y) / 2}, w.doc().get(plain).angle);
+        return Vec2{w.doc().get(plain).x + own.x, w.doc().get(plain).y + own.y};
+    }();
+    EXPECT((std::abs(turnedMiddle.x - middle.x) < 1e-6 && std::abs(turnedMiddle.y - middle.y) < 1e-6), "about its middle, which stays where it was");
+    EXPECT((w.width(plain) == 30.0), "turning is not shape");
+
+    // Turned a quarter, the panel's own x points up the table: so does the scale gizmo's x handle.
+    choose(w, Tool::Scale);
+    REQUIRE(table->gizmo());
+    const QPointF centre = table->toScreen(table->gizmo()->centre);
+    const QPointF end = table->toScreen(session::handleEnd(*table->gizmo(), session::TableHandle::AlongX));
+    EXPECT((std::abs(end.x() - centre.x()) < 1e-6 && end.y() < centre.y()), "the x handle points up the screen, along the panel's own x");
+    const QPointF unit = (end - centre) / session::tableArrowPixels;
+    const std::size_t layers = w.doc().operations(plain).size();
+    drag(table, centre + unit * 60.0, centre + unit * 90.0);
+    REQUIRE(w.doc().operations(plain).size() == layers + 1);
+    const Scale* scale = std::get_if<Scale>(&w.doc().get(w.doc().operations(plain).back()));
+    REQUIRE(scale != nullptr);
+    EXPECT((asNumber(scale->x) == 1.5 && asNumber(scale->y) == 1.0), "half as far again from the middle: a Scale layer of 150 % along x");
+    EXPECT((std::abs(w.width(plain) - 45.0) < 1e-6), "the panel is half as wide again");
+    const std::optional<Bounds> scaledBox = bounds(w.window.session().editor().shapes()[plain]);
+    const Vec2 scaledMiddle = turned(Vec2{(scaledBox->min.x + scaledBox->max.x) / 2, (scaledBox->min.y + scaledBox->max.y) / 2}, w.doc().get(plain).angle);
+    EXPECT((std::abs(w.doc().get(plain).x + scaledMiddle.x - middle.x) < 1e-6 && std::abs(w.doc().get(plain).y + scaledMiddle.y - middle.y) < 1e-6),
+           "scaled about its middle, which stays where it was");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().operations(plain).size() == layers && w.width(plain) == 30.0), "undo takes the layer away");
+}
 
 TEST_CASE("Rectangle and Circle are dragged out and Ring is a click; each new panel is selected", "[qt]")
 {
@@ -628,6 +690,8 @@ TEST_CASE("a click in the 3D view selects the panel under it; its gizmo carries 
     click(space, onView(space, *middle));
     w.window.tick();
     EXPECT((w.window.selected() == front), "clicking the panel in 3D selects it");
+    EXPECT((!space.gizmo().has_value()), "with Select, the selected panel shows no gizmo");
+    w.window.shelf()->action(Tool::Move)->trigger();
     const std::optional<render::Gizmo> gizmo = space.gizmo();
     REQUIRE(gizmo.has_value());
 
@@ -686,6 +750,84 @@ void dragBy(Window& w, QPointF from, QPointF by) {
 
 } // namespace
 
+TEST_CASE("in 3D the rotate gizmo turns the selected panel in space; the scale gizmo scales its shape", "[qt]")
+{
+    Window w;
+    SpaceView& space = *w.window.space();
+    const auto [front, middle] = frontPanel(w);
+    w.window.select(front);
+    w.window.shelf()->action(Tool::Rotate)->trigger();
+    w.window.tick();
+    REQUIRE((space.gizmo() && space.gizmo()->mode == session::GizmoMode::Rotate));
+    const double pixel = space.gizmo()->pixel;
+    const Arrangement before = w.doc().get(front).arrangement;
+
+    // The outer ring, from its right a quarter of the way round clockwise, in steps of 15° with Ctrl.
+    const auto onRing = [&](double degrees) {
+        const double radians = degrees * std::numbers::pi / 180.0;
+        return render::PicturePoint{middle.x + render::gizmoViewRingPixels * pixel * std::cos(radians), middle.y - render::gizmoViewRingPixels * pixel * std::sin(radians)};
+    };
+    REQUIRE(render::handleAt(*space.gizmo(), space.camera(), space.pictureSize(), onRing(0.0)) == render::GizmoHandle::AboutView);
+    space.press(onView(space, onRing(0.0)), Qt::LeftButton, {});
+    for (int step = 1; step <= 6; ++step) {
+        space.moveTo(onView(space, onRing(-15.0 * step)), Qt::LeftButton, Qt::ControlModifier);
+        w.window.tick();
+    }
+    space.release();
+    w.window.tick();
+    const Arrangement after = w.doc().get(front).arrangement;
+    // The line of sight through the panel's anchor, from it to the eye.
+    const sim::Vec3 sight = sim::normalized(space.camera().eye() - sim::Vec3{before.x, before.y, before.z});
+    const sim::Vec3 expected = sim::inSpace(sim::turnedAbout(before, sight, -90.0), {1.0, 0.0, 0.0});
+    EXPECT((sim::length(sim::inSpace(after, {1.0, 0.0, 0.0}) - expected) < 1e-6), "the panel turns a quarter about the line of sight");
+    EXPECT((after.x == before.x && after.y == before.y && after.z == before.z), "about its anchor, which stays where it is");
+    w.window.shelf()->undo()->trigger();
+    w.window.tick();
+    EXPECT((w.doc().get(front).arrangement == before), "the whole drag is one step to undo");
+
+    // The ball between the rings: dragged to the right, the panel turns about the screen's up, freely.
+    const render::PicturePoint ball{middle.x + 40.0 * pixel, middle.y - 40.0 * pixel};
+    REQUIRE(render::handleAt(*space.gizmo(), space.camera(), space.pictureSize(), ball) == render::GizmoHandle::Free);
+    space.press(onView(space, ball), Qt::LeftButton, {});
+    for (int step = 1; step <= 5; ++step) {
+        space.moveTo(onView(space, {ball.x + 12.0 * pixel * step, ball.y}), Qt::LeftButton, {});
+        w.window.tick();
+    }
+    space.release();
+    w.window.tick();
+    const Arrangement rolled = w.doc().get(front).arrangement;
+    EXPECT((std::abs(rolled.turn - before.turn) > 20.0), "dragged 60 pixels to the right, the panel turns about the vertical, freely");
+    EXPECT((rolled.x == before.x && rolled.y == before.y && rolled.z == before.z), "about its anchor");
+    w.window.shelf()->undo()->trigger();
+    w.window.tick();
+
+    // The scale gizmo's x handle, along the panel's own x, pulled out half as far again.
+    w.window.shelf()->action(Tool::Scale)->trigger();
+    w.window.tick();
+    REQUIRE((space.gizmo() && space.gizmo()->mode == session::GizmoMode::Scale));
+    const render::Gizmo scale = *space.gizmo();
+    const render::PicturePoint tip = *render::pictureOf(space.camera(), space.pictureSize(), scale.centre + scale.ownX);
+    const double dx = tip.x - middle.x, dy = tip.y - middle.y, length = std::hypot(dx, dy);
+    const auto out = [&](double pixels) { return render::PicturePoint{middle.x + dx / length * pixels * pixel, middle.y + dy / length * pixels * pixel}; };
+    REQUIRE(render::handleAt(scale, space.camera(), space.pictureSize(), out(40.0)) == render::GizmoHandle::AlongX);
+    const std::size_t layers = w.doc().operations(front).size();
+    space.press(onView(space, out(40.0)), Qt::LeftButton, {});
+    for (int step = 1; step <= 4; ++step) {
+        space.moveTo(onView(space, out(40.0 + 5.0 * step)), Qt::LeftButton, {});
+        w.window.tick();
+    }
+    space.release();
+    w.window.tick();
+    const std::vector<OpId> operations = w.doc().operations(front);
+    REQUIRE(operations.size() == layers + 1);
+    const Scale* added = nullptr;
+    for (OpId op : operations)
+        if (const Scale* s = std::get_if<Scale>(&w.doc().get(op))) added = s;
+    REQUIRE(added != nullptr);
+    EXPECT((std::abs(*asNumber(added->x) - 1.5) < 0.03 && asNumber(added->y) == 1.0), "a Scale layer of about 150 % along the panel's own x");
+    EXPECT((w.doc().get(front).arrangement.x == before.x), "scaling is shape: the panel's place stays");
+}
+
 TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is pulled instead", "[qt]")
 {
     Window w;
@@ -701,7 +843,12 @@ TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is p
     dragBy(w, onPanel, {40.0, 0.0});
     space.release();
     w.window.tick();
-    EXPECT((w.doc().get(front).arrangement.x != before.x), "dragging the selected panel carries it");
+    EXPECT((w.doc().get(front).arrangement == before), "with Select, dragging the panel only selects it");
+    w.window.shelf()->action(Tool::Move)->trigger();
+    dragBy(w, onPanel, {40.0, 0.0});
+    space.release();
+    w.window.tick();
+    EXPECT((w.doc().get(front).arrangement.x != before.x), "with Move, dragging the selected panel carries it");
     EXPECT((w.window.selected() == front), "and it stays selected");
 
     // Drape it, then drag the cloth: the cloth is held, the document stays.
@@ -1087,7 +1234,10 @@ TEST_CASE("an empty table says how to start; the grid's step is written in its c
 TEST_CASE("every sample saves and opens unchanged; a file that cannot be read says why", "[qt]")
 {
     Window w;
-    QTemporaryDir folder;
+    // A folder of its own to write in, beside the program: a place that is
+    // certainly writable (some machines keep programs from writing in the
+    // system's temp folder), and gone again when the test is done.
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-samples-XXXXXX");
     REQUIRE(folder.isValid());
     const QString path = folder.filePath("sample.clothcad");
     for (std::size_t i = 0; i < session::samples().size(); ++i) {
@@ -1137,7 +1287,8 @@ TEST_CASE("every sample meshes; random clicks, drags and keys on both views and 
     const int rounds = qEnvironmentVariableIsSet("FUZZ") ? qEnvironmentVariableIntValue("FUZZ") : 60;
     const std::vector<QAction*> tools = [&] {
         std::vector<QAction*> found;
-        for (const Tool tool : {Tool::Select, Tool::Rectangle, Tool::Circle, Tool::Ring, Tool::Point, Tool::Curve, Tool::Line, Tool::Mirror, Tool::Cut, Tool::Split, Tool::Sew})
+        for (const Tool tool : {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale, Tool::Rectangle, Tool::Circle, Tool::Ring, Tool::Point, Tool::Curve,
+                                Tool::Line, Tool::Mirror, Tool::Cut, Tool::Split, Tool::Sew})
             found.push_back(w.window.shelf()->action(tool));
         return found;
     }();

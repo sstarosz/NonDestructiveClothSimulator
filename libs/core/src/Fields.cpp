@@ -68,6 +68,11 @@ template <class Visit> std::string_view describe(AddPoint& op, Visit visit) {
     visit("Position", op.at.along, Limits::strictlyBetween(0.0, 1.0), Unit::Fraction);
     return "Add point";
 }
+template <class Visit> std::string_view describe(Scale& op, Visit visit) {
+    visit("Scale x", op.x, Limits::moreThan(0.0), Unit::Fraction);
+    visit("Scale y", op.y, Limits::moreThan(0.0), Unit::Fraction);
+    return "Scale";
+}
 
 // One overload per operation type again: each reference it holds, in the
 // order the window shows them. `visit(label, reference)` is called per slot.
@@ -87,6 +92,7 @@ template <class Visit> void describeReferences(Cut& op, Visit visit) { visit("Al
 template <class Visit> void describeReferences(Mirror& op, Visit visit) { visit("Across edge", op.across); }
 template <class Visit> void describeReferences(AdjustPoint& op, Visit visit) { visit("Corner", op.corner); }
 template <class Visit> void describeReferences(AddPoint& op, Visit visit) { visit("Edge", op.at.edge); }
+template <class Visit> void describeReferences(Scale&, Visit) {}
 
 // What each operation type calls the edges and corners it creates, in the
 // order of its Edge and Corner enums.

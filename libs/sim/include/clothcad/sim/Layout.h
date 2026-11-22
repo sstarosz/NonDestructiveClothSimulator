@@ -67,6 +67,20 @@ struct Motion {
     Vec3 turned(Vec3 direction) const;      // how a direction (a speed) turns
 };
 
+// Which way a direction of the panel's own flat coordinates (x and y as on
+// the table, z out of its front) points in space once it is arranged, by its
+// turn, tilt and roll. Its wrap is not followed: this is the panel at its anchor.
+Vec3 inSpace(const Arrangement& arrangement, Vec3 own);
+
+// The arrangement turned `degrees` about `axis` (a direction in space; the
+// turn is counter-clockwise looking down the axis at its tip), about its
+// anchor: where the anchor stands stays. The turn, tilt and roll are worked
+// out again to give that orientation; at a tilt of exactly ±90° the roll
+// becomes part of the turn.
+//
+//   doc.arrange(panel, sim::turnedAbout(was, {0, 1, 0}, 30.0));  // as a turn of 30°
+Arrangement turnedAbout(const Arrangement& arrangement, Vec3 axis, double degrees);
+
 // A panel and how it was moved.
 struct Moved {
     PanelId panel;

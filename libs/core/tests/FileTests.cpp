@@ -30,6 +30,7 @@ TEST_CASE("documents round-trip through text")
     OpRef<LineBetween> line = doc.add(half, LineBetween{.from = {rect.left(), 0.5}, .to = {rect.right(), 0.25}});
     OpRef<Cut> cut = doc.add(half, Cut{.along = line.line(), .keep = Cut::Side::Right});
     OpRef<Mirror> fold = doc.add(half, Mirror{.across = cut.farPart(rect.left())});
+    const OpRef<Scale> scale = doc.add(half, Scale{.x = waist / 80, .y = 0.9});
     doc.setEnabled(curve, false);
     doc.arrange(half, Arrangement{.placed = true, .x = 1, .y = 100, .z = 25.5, .turn = 90, .tilt = -5, .roll = 180, .wrap = 60, .anchor = Vec2{7.5, 58.25}});
     PanelId rest = doc.add(Panel{.name = "rest", .construction = true});
@@ -50,6 +51,8 @@ TEST_CASE("documents round-trip through text")
     EXPECT((before.errors.size() == after.errors.size() && before.seams.size() == after.seams.size()), "same problems, same seams");
     EXPECT_NEAR((after[half].length(rect.bottom())), (before[half].length(rect.bottom())), "same shapes");
     EXPECT((again.get(point).at.edge == rect.bottom() && toText(again).find("AddPoint") != std::string::npos), "an added point survives");
+    EXPECT((asNumber(again.get(scale).y) == 0.9 && !asNumber(again.get(scale).x) && toText(again).find(" Scale ") != std::string::npos),
+           "a scale survives, its formula too");
     EXPECT((again.get(waist).name == "waist \"low\"" && again.get(half).angle == 30.0 && !again.enabled(curve)), "names, placement and switched-off steps survive");
     EXPECT((again.get(half).arrangement == doc.get(half).arrangement && !again.get(rest).arrangement.placed), "arrangement in space survives, with its anchor");
     {

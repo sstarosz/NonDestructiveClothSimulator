@@ -97,6 +97,24 @@ TEST_CASE("the back of a surface is lit too, a little darker")
     EXPECT((seen.red > 0.7f && seen.red < 0.95f), "lit from behind: 0.28 + 0.72 * 0.8");
 }
 
+TEST_CASE("a surface that is not lit keeps its colour flat, in the overlay too, whichever way it faces")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Scene scene = facing();
+    Surface flat = square(60.0f, 0.0f, {0.3f, 0.6f, 0.9f});
+    for (Point& n : flat.normals) n = {1.0f, 0.0f, 0.0f};  // side on to the light: lit, it would be dark
+    flat.lit = false;
+    scene.surfaces.push_back(flat);
+    Surface gizmo = square(10.0f, -50.0f, {1.0f, 0.2f, 0.2f});  // behind the square, but in the overlay
+    for (Point& n : gizmo.normals) n = {0.0f, 1.0f, 0.0f};
+    gizmo.lit = false;
+    scene.overlay.push_back(gizmo);
+    const auto picture = renderer()->draw(scene, 160, 120);
+    REQUIRE(picture);
+    EXPECT((near(picture->at(80 + 10, 60), {0.3f, 0.6f, 0.9f})), "the surface is its colour exactly, without shade");
+    EXPECT((near(picture->at(80, 60), {1.0f, 0.2f, 0.2f})), "and so is the overlay, in front of it");
+}
+
 TEST_CASE("lines are drawn over the background and pictures may change size")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());

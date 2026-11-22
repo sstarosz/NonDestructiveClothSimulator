@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "clothcad/core/Drawing.h"
 #include "clothcad/core/Fields.h"
 #include "internal/ExprNode.h"
 #include "internal/Outline.h"
@@ -491,6 +492,44 @@ private:
         const outline::Problem problem = outline::addPoint(changed, point.at.edge, value[0], names.corner(), names.after(point.at.edge));
         if (problem) error(op, *problem);
         else pattern = std::move(changed);
+    }
+
+    void apply(const Scale&, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
+        if (!modifies(first, "a scale", op, pattern)) return;
+        const double x = value[0], y = value[1];
+        const bool evenly = std::abs(x - y) < 1e-12;
+        if (!evenly)
+            for (const Edge& e : pattern.edges)
+                if (e.arc && (e.start == e.end || std::abs(e.arc->sweep) > 360.0 - 1e-6)) {
+                    error(op, "a whole circle can only be scaled evenly: give x and y the same scale, or change its radius instead");
+                    return;
+                }
+        const std::optional<Bounds> box = bounds(pattern);
+        if (!box) return;
+        const Vec2 middle{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0};
+        const auto scaled = [&](Vec2 p) { return Vec2{middle.x + (p.x - middle.x) * x, middle.y + (p.y - middle.y) * y}; };
+        Pattern changed = pattern;
+        for (Vertex& v : changed.vertices) v.position = scaled(v.position);
+        for (Edge& e : changed.edges) {
+            if (e.cubic) e.cubic = CubicCurve{scaled(e.cubic->control1), scaled(e.cubic->control2)};
+            if (!e.arc) continue;
+            if (evenly) {
+                e.arc->center = scaled(e.arc->center);
+                e.arc->radius *= x;
+                continue;
+            }
+            // Stretched one way more than the other, an arc stays a circular
+            // arc through the same angle, between its moved ends.
+            const std::optional<Arc> arc = outline::arcFromSweep(changed.vertices[e.start].position, changed.vertices[e.end].position, e.arc->sweep);
+            if (!arc) {
+                error(op, "a curved edge would have no length at this scale");
+                return;
+            }
+            e.arc = arc;
+        }
+        for (InternalLine& line : changed.lines) line.start = scaled(line.start), line.end = scaled(line.end);
+        for (SymmetryAxis& axis : changed.axes) axis.start = scaled(axis.start), axis.end = scaled(axis.end);
+        pattern = std::move(changed);
     }
 
     const Document& doc_;

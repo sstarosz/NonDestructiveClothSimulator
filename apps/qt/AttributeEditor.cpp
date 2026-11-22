@@ -33,6 +33,7 @@ Icon iconOf(const OpData& op) {
         else if constexpr (std::is_same_v<T, Cut>) return Icon::Cut;
         else if constexpr (std::is_same_v<T, Mirror>) return Icon::Mirror;
         else if constexpr (std::is_same_v<T, AddPoint>) return Icon::Point;
+        else if constexpr (std::is_same_v<T, Scale>) return Icon::Scale;
         else return Icon::Select;  // AdjustPoint: a corner moved
     }, op);
 }

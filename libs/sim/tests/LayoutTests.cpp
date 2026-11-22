@@ -124,3 +124,37 @@ TEST_CASE("panels are arranged in space")
     for (std::size_t i = 1; i < bottom->points.size(); ++i) arc += length(placed[0][bottom->points[i]] - placed[0][bottom->points[i - 1]]);
     EXPECT((arc > 39.0 && arc <= 40.0 + 1e-9), "and its bottom edge is still 40 cm long");
 }
+
+TEST_CASE("an arrangement turned about any axis keeps its anchor and turns every point of the panel")
+{
+    const auto near = [](Vec3 a, Vec3 b) { return length(a - b) < 1e-9; };
+    const Arrangement was{.placed = true, .x = 10, .y = 120, .z = 20, .turn = 30, .tilt = 15, .roll = -40};
+    EXPECT(near(inSpace(Arrangement{}, {1, 0, 0}), {1, 0, 0}), "unarranged, the panel's own x is x in space");
+    EXPECT(near(inSpace(Arrangement{.turn = 90}, {1, 0, 0}), {0, 0, -1}), "a quarter turn points it along -z");
+
+    const Arrangement upright = turnedAbout(Arrangement{.placed = true}, {0, 1, 0}, 25.0);
+    EXPECT_NEAR((upright.turn), (25.0), "about y, an upright panel turns");
+    EXPECT_NEAR((upright.tilt + std::abs(upright.roll)), (0.0), "and neither tilts nor rolls");
+    EXPECT_NEAR((turnedAbout(Arrangement{.placed = true}, {0, 0, 1}, -20.0).roll), (-20.0), "about z, a panel facing +z rolls");
+
+    for (const Vec3 axis : {Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{0, 0, 1}, Vec3{1, 2, -0.5}}) {
+        const Arrangement now = turnedAbout(was, axis, 37.0);
+        EXPECT((now.x == was.x && now.y == was.y && now.z == was.z && now.anchor == was.anchor), "the anchor stays where it stands");
+        // Every direction of the panel turns by the same turn about the axis.
+        const Vec3 k = normalized(axis);
+        const double c = std::cos(37.0 * pi / 180.0), s = std::sin(37.0 * pi / 180.0);
+        for (const Vec3 own : {Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{0, 0, 1}}) {
+            const Vec3 v = inSpace(was, own);
+            const Vec3 expected = v * c + cross(k, v) * s + k * (dot(k, v) * (1.0 - c));
+            EXPECT(near(inSpace(now, own), expected), "the panel's own axes are turned by 37° about the axis");
+        }
+    }
+    // Tilted to lie flat, turn and roll are one motion; the orientation is still right.
+    const Arrangement lying{.placed = true, .turn = 20};
+    const Arrangement flat = turnedAbout(lying, inSpace(lying, {1, 0, 0}), 90.0);
+    EXPECT_NEAR((flat.tilt), (90.0), "about its own x by a quarter turn, the panel lies flat");
+    for (const Vec3 own : {Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{0, 0, 1}}) {
+        const Vec3 k = inSpace(lying, {1, 0, 0}), v = inSpace(lying, own);
+        EXPECT(near(inSpace(flat, own), v * 0.0 + cross(k, v) + k * dot(k, v)), "and each of its own axes points where the quarter turn takes it");
+    }
+}

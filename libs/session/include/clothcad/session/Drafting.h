@@ -1,10 +1,10 @@
 #pragma once
-// What a person does on the table, and what it changes in the document: the
-// rules every window shares. A window's table only reports a gesture (a
-// corner dragged, an edge clicked with the Point tool); Drafting decides,
-// through the editor, so that every change can be undone and one that would
-// break the pattern is refused. It also keeps what is selected and the drags
-// in progress.
+// What a person does on the table and in the 3D view, and what it changes in
+// the document: the rules every window shares. A view only reports a gesture
+// (a corner dragged, an edge clicked with the Point tool, a panel turned by
+// the gizmo in 3D); Drafting decides, through the editor, so that every
+// change can be undone and one that would break the pattern is refused. It
+// also keeps the tool in use, what is selected and the drags in progress.
 //
 //   Drafting drafting;
 //   const Outcome done = drafting.handle(editor, MoveCorner{panel, corner, 2.0, 0.0, DragPhase::Begin});
@@ -13,6 +13,7 @@
 // On a symmetric panel (a mirror applied last), what is done on the mirrored
 // side is done on the drawn side, the mirrored way.
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <variant>
@@ -22,6 +23,8 @@
 #include "clothcad/core/Drawing.h"
 #include "clothcad/core/Fields.h"
 #include "clothcad/session/Editor.h"
+#include "clothcad/session/Tools.h"
+#include "clothcad/sim/Vec3.h"
 
 namespace clothcad::session {
 
@@ -50,10 +53,19 @@ struct MoveHandle {
     double dx, dy;   // how far it has been dragged since the drag began, on the table
     DragPhase phase;
 };
-// A panel turned by its knob: `angle` is where it now points, in degrees.
+// A panel turned by the rotate gizmo: `angle` is where it now points, in degrees.
 struct RotatePanel {
     PanelId panel;
     double angle;
+    DragPhase phase;
+};
+// A panel scaled by the scale gizmo, along its own x and y: how many times as
+// big as when the drag began (1 is as it was). It is a Scale layer at the end
+// of the panel: the last one, if it is already there and holds plain
+// numbers; else a new one.
+struct ScalePanel {
+    PanelId panel;
+    double x, y;
     DragPhase phase;
 };
 // A click or a box dragged over corners of one panel. With `add` they join the
@@ -102,6 +114,22 @@ struct MirrorAcross {
 struct SewEdges {
     SeamSide a, b;
 };
+// The selected panel carried through space by the move gizmo in 3D, or by
+// itself: how far, in cm, since the drag began. It only places the panel.
+struct MoveInSpace {
+    PanelId panel;
+    sim::Vec3 by;
+    DragPhase phase;
+};
+// The selected panel turned in space by the rotate gizmo: about which axis,
+// how many degrees since the drag began (counter-clockwise looking down the
+// axis), about its anchor. It only places the panel.
+struct TurnInSpace {
+    PanelId panel;
+    sim::Vec3 axis;
+    double degrees;
+    DragPhase phase;
+};
 // A double-click on an edge's length: the user wants to type it.
 struct EditLength {
     PanelId panel;
@@ -109,14 +137,15 @@ struct EditLength {
 };
 
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
-                             DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, RotatePanel, SelectCorners, SewEdges, AddPointOn>;
+                             DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
+                             ScalePanel, MoveInSpace, TurnInSpace>;
 
 // What a gesture came to, beyond the document: words for the help line, and
 // what the window should do next.
 struct Outcome {
     std::string notice{};       // empty: nothing to say
     bool refused = false;       // the notice says why nothing changed
-    bool toolDone = false;      // the tool has done its work: back to Select
+    bool toolDone = false;      // the tool has done its work: Drafting is back to Select
     struct LengthField {        // EditLength: the field that is this edge's length
         OpId operation;
         FieldId field;
@@ -138,6 +167,9 @@ public:
         std::vector<CornerRef> corners;  // of that panel
     };
     Selection selection;
+    // The tool in use. Windows set it; a drawing tool that has done its work
+    // goes back to Select by itself.
+    Tool tool = Tool::Select;
 
     // "panel1", "panel2" ...: the first panel name that is free.
     static std::string freeName(const Document& doc, const std::string& base);
@@ -148,6 +180,7 @@ private:
     Outcome on(Editor&, const MoveCorner&);
     Outcome on(Editor&, const MoveHandle&);
     Outcome on(Editor&, const RotatePanel&);
+    Outcome on(Editor&, const ScalePanel&);
     Outcome on(Editor&, const SelectCorners&);
     Outcome on(Editor&, const DrawRect&);
     Outcome on(Editor&, const DrawCircle&);
@@ -160,6 +193,10 @@ private:
     Outcome on(Editor&, const MirrorAcross&);
     Outcome on(Editor&, const SewEdges&);
     Outcome on(Editor&, const EditLength&);
+    Outcome on(Editor&, const MoveInSpace&);
+    Outcome on(Editor&, const TurnInSpace&);
+    // A drag in space: the arrangement `now` works out from the one the panel had when the drag began.
+    Outcome arrangeByDrag(Editor&, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now);
 
     // The operation a drag writes to, and its values when the drag began.
     struct Dragging {
@@ -173,12 +210,21 @@ private:
         OpId operation;    // the adjustment it is written to
     };
     std::vector<CornerDrag> cornerDrags_;  // while a group of corners is dragged
-    // A panel being turned by its knob turns about the table position of its box's centre.
+    // A panel being scaled by the gizmo. The layer is only added with the first
+    // change that is accepted, so a refused drag leaves nothing behind.
+    struct Scaling {
+        std::optional<OpId> layer;  // empty until the drag has added its own
+        double baseX, baseY;
+        bool stepOpen;              // whether an accepted change has opened the undo step
+    };
+    std::optional<Scaling> scaling_;
+    // A panel being turned by the gizmo turns about the table position of its box's centre.
     struct Turning {
         Vec2 centre;  // in its own coordinates
         Vec2 pivot;   // where that is on the table
     };
     std::optional<Turning> turning_;
+    std::optional<Arrangement> arrangedFrom_;  // a panel's arrangement when a drag in space began
 };
 
 } // namespace clothcad::session

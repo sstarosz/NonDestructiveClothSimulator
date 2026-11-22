@@ -7,6 +7,7 @@
 
 #include "Expect.h"
 #include "clothcad/session/Drafting.h"
+#include "clothcad/session/Locks.h"
 
 using namespace clothcad;
 using namespace clothcad::session;
@@ -173,4 +174,155 @@ TEST_CASE("two edges are sewn once; a locked corner and a length that is no sett
     drag(drafting, editor, MoveCorner{back, backRect.bottomRight(), 0, 0, DragPhase::Begin}, 2.0, 0.0);
     const Outcome moved = drafting.handle(editor, EditLength{back, backRect.bottom()});
     EXPECT((!moved.typeLength && !moved.notice.empty()), "once a corner was dragged the length follows the corners, and it says so");
+}
+
+TEST_CASE("the scale gizmo adds a Scale layer, then keeps changing it, one undo step a drag")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box", .x = 10, .y = 10});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    const auto scaleBy = [&](double x, double y) {
+        drafting.handle(editor, ScalePanel{box, 1.0, 1.0, DragPhase::Begin});
+        drafting.handle(editor, ScalePanel{box, x, y, DragPhase::Continue});
+        return drafting.handle(editor, ScalePanel{box, x, y, DragPhase::End});
+    };
+    scaleBy(1.5, 1.0);
+    EXPECT((count<Scale>(editor.document(), box) == 1), "the first drag adds a Scale at the end");
+    EXPECT_NEAR((editor.shapes()[box].length(rect.bottom())), (30.0), "half as wide again");
+    EXPECT_NEAR((editor.shapes()[box].position(rect.bottomLeft()).x), (-5.0), "about the middle of its box");
+    scaleBy(1.0, 2.0);
+    EXPECT((count<Scale>(editor.document(), box) == 1), "a second drag changes the same Scale");
+    EXPECT((asNumber(last<Scale>(editor.document(), box).x) == 1.5 && asNumber(last<Scale>(editor.document(), box).y) == 2.0), "on top of what it had");
+    EXPECT((editor.undo() && asNumber(last<Scale>(editor.document(), box).y) == 1.0), "one undo takes back the second drag");
+    EXPECT((editor.undo() && count<Scale>(editor.document(), box) == 0), "and one more the first, with its layer");
+    EXPECT((editor.document().get(box).x == 10.0), "scaling is shape, not placement: the panel's place stays");
+
+    // A Scale that a formula drives is not dragged.
+    Document driven = doc;
+    const Param wide = driven.add(Parameter{.name = "wide", .value = 1.2, .unit = Unit::Fraction});
+    driven.add(box, Scale{.x = wide, .y = 1.0});
+    Editor locked(driven);
+    const Outcome refused = drafting.handle(locked, ScalePanel{box, 2.0, 2.0, DragPhase::Begin});
+    EXPECT((refused.refused && refused.notice.find("formula") != std::string::npos), "it says a formula sets it");
+
+    // A change that would break the outline is refused, and says why.
+    Document round;
+    const PanelId circle = round.add(Panel{.name = "circle"});
+    round.add(circle, Circle{.radius = 10_cm});
+    Editor circleEditor(round);
+    drafting.handle(circleEditor, ScalePanel{circle, 1.0, 1.0, DragPhase::Begin});
+    const Outcome oval = drafting.handle(circleEditor, ScalePanel{circle, 1.5, 1.0, DragPhase::Continue});
+    EXPECT((oval.refused && oval.notice.find("evenly") != std::string::npos), "a whole circle is not stretched one way only");
+    EXPECT((count<Scale>(circleEditor.document(), circle) == 0), "a refused first change leaves no empty Scale layer behind");
+    drafting.handle(circleEditor, ScalePanel{circle, 1.5, 1.5, DragPhase::End});
+    EXPECT((asNumber(last<Scale>(circleEditor.document(), circle).x) == 1.5), "but it is scaled evenly");
+}
+
+TEST_CASE("a switched-off Scale is not the one the gizmo changes")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    const OpRef<Scale> off = doc.add(box, Scale{.x = 1.5, .y = 1.5});
+    doc.setEnabled(off.id, false);
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, ScalePanel{box, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(editor, ScalePanel{box, 2.0, 2.0, DragPhase::End});
+    EXPECT((count<Scale>(editor.document(), box) == 2), "a new Scale is added instead");
+    EXPECT((asNumber(editor.document().get(off).x) == 1.5), "the switched-off one is left as it was");
+}
+
+TEST_CASE("a refused scale change does not take the next accepted one into an earlier undo step")
+{
+    Document doc;
+    const PanelId circle = doc.add(Panel{.name = "circle"});
+    doc.add(circle, Circle{.radius = 10_cm});
+    const OpRef<Scale> layer = doc.add(circle, Scale{.x = 1.2, .y = 1.2});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, DrawRect{50.0, 50.0, 5.0, 5.0});  // an earlier step, which must stay
+    drafting.handle(editor, ScalePanel{circle, 1.0, 1.0, DragPhase::Begin});
+    EXPECT((drafting.handle(editor, ScalePanel{circle, 1.5, 1.0, DragPhase::Continue}).refused), "stretching one way is refused");
+    drafting.handle(editor, ScalePanel{circle, 1.5, 1.5, DragPhase::End});
+    EXPECT_NEAR((*asNumber(editor.document().get(layer).x)), (1.8), "then the even change is accepted");
+    EXPECT((editor.undo() && editor.document().panels().size() == 2 && asNumber(editor.document().get(layer).x) == 1.2), "one undo takes back only the drag");
+}
+
+TEST_CASE("a handle dragged under a later Scale follows the pointer")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, BendEdge{box, rect.bottom()});
+    const OpRef<Bezier> curve = *curveOf(editor.document(), box, rect.bottom());
+    const double before = *asNumber(editor.document().get(curve).startHandle.x);
+    EXPECT((editor.change([&](Document& d) { d.add(box, Scale{.x = 2.0, .y = 1.0}); }).has_value()), "a Scale after the curve");
+    drag(drafting, editor, MoveHandle{box, rect.bottom(), false, 0, 0, DragPhase::Begin}, 4.0, 0.0);
+    EXPECT_NEAR((*asNumber(editor.document().get(curve).startHandle.x) - before), (2.0), "4 cm of drag moves a handle that is drawn twice as wide by 2 cm of offset");
+}
+
+TEST_CASE("a symmetric panel is scaled before its mirror, and stays symmetric")
+{
+    Half half;
+    Editor editor(half.doc);
+    Drafting drafting;
+    drafting.handle(editor, ScalePanel{half.panel, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(editor, ScalePanel{half.panel, 2.0, 1.0, DragPhase::End});
+    const Pattern& shape = editor.shapes()[half.panel];
+    EXPECT((editor.shapes().ok()), "nothing breaks");
+    EXPECT_NEAR((shape.length(half.rect.bottom()) + shape.length(half.fold.image(half.rect.bottom()))), (40.0), "both halves are twice as wide");
+    EXPECT_NEAR((shape.length(half.rect.bottom())), (shape.length(half.fold.image(half.rect.bottom()))), "and the same width");
+    drafting.handle(editor, ScalePanel{half.panel, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(editor, ScalePanel{half.panel, 1.0, 0.5, DragPhase::End});
+    EXPECT((count<Scale>(editor.document(), half.panel) == 1), "the mirror applied last is looked past: the same Scale changes");
+}
+
+TEST_CASE("a panel carried and turned in space is placed, not reshaped, one undo step a drag")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    doc.arrange(box, Arrangement{.placed = true, .x = 5, .y = 100, .z = 20, .turn = 30});
+    Editor editor(doc);
+    Drafting drafting;
+    const Arrangement was = editor.document().get(box).arrangement;
+    const std::uint64_t shapes = editor.shapesVersion();
+
+    drafting.handle(editor, MoveInSpace{box, {0, 0, 0}, DragPhase::Begin});
+    drafting.handle(editor, MoveInSpace{box, {3, -2, 1}, DragPhase::Continue});
+    drafting.handle(editor, MoveInSpace{box, {4, -2, 1}, DragPhase::End});
+    const Arrangement moved = editor.document().get(box).arrangement;
+    EXPECT((moved.x == 9.0 && moved.y == 98.0 && moved.z == 21.0 && moved.turn == 30.0), "carried by how far it was dragged since the drag began");
+    EXPECT((editor.shapesVersion() == shapes && std::abs(editor.shapes()[box].length(rect.bottom()) - 20.0) < 1e-9), "placing is not shape");
+    EXPECT((editor.undo() && editor.document().get(box).arrangement == was), "the whole drag is one undo step");
+
+    drafting.handle(editor, TurnInSpace{box, {0, 1, 0}, 0.0, DragPhase::Begin});
+    drafting.handle(editor, TurnInSpace{box, {0, 1, 0}, 20.0, DragPhase::Continue});
+    drafting.handle(editor, TurnInSpace{box, {0, 1, 0}, 15.0, DragPhase::End});
+    const Arrangement turned = editor.document().get(box).arrangement;
+    EXPECT((std::abs(turned.turn - 45.0) < 1e-9 && turned.x == was.x && turned.z == was.z), "turned about y by the angle since the drag began, about its anchor");
+    EXPECT((editor.undo() && editor.document().get(box).arrangement == was), "one undo step too");
+    EXPECT((!editor.canUndo()), "and nothing else was changed");
+}
+
+TEST_CASE("Drafting keeps the tool in use; a drawing tool that has done its work goes back to Select")
+{
+    Document doc;
+    Editor editor(doc);
+    Drafting drafting;
+    EXPECT((drafting.tool == Tool::Select), "it starts with Select");
+    EXPECT((!gizmoOf(Tool::Select) && gizmoOf(Tool::Move) == GizmoMode::Move && gizmoOf(Tool::Rotate) == GizmoMode::Rotate &&
+            gizmoOf(Tool::Scale) == GizmoMode::Scale && !gizmoOf(Tool::Rectangle)),
+           "W, E and R show their gizmo; Select and the drawing tools none");
+    drafting.tool = Tool::Rectangle;
+    drafting.handle(editor, DrawRect{0, 0, 20, 10});
+    EXPECT((drafting.tool == Tool::Select && drafting.selection.panel.has_value()), "a rectangle drawn, the new panel is selected with Select");
+    drafting.tool = Tool::Rotate;
+    drafting.handle(editor, SelectPanel{std::nullopt});
+    EXPECT((drafting.tool == Tool::Rotate), "selecting keeps the tool");
 }
