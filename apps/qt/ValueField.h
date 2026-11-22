@@ -3,6 +3,8 @@
 // "66.7 %"; a formula shows as "= chest / 4" in teal, with its value as the
 // tooltip. A number is dragged left or right to change it (Shift: faster,
 // Alt: finer); a click opens it for typing, as does any click on a formula.
+// Enter takes what was typed and Escape puts the value back; both close the
+// field, so the next press drags again.
 // What is typed is reported as text: whoever owns the document reads it
 // (parseValue) and says if it was not taken. A drag is reported as numbers,
 // in the field's unit, from its beginning to its end.
@@ -44,6 +46,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
 

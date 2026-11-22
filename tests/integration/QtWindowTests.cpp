@@ -1144,6 +1144,98 @@ TEST_CASE("a number is dragged sideways to change it, as one undo step; a formul
     EXPECT((!asNumber(w.doc().get(hip).value).has_value()), "a formula stays a formula: it is typed, not dragged");
 }
 
+namespace {
+
+// Presses one key on a widget, with the text it types.
+void press(QWidget& widget, Qt::Key key, const QString& text = {}) {
+    QKeyEvent down(QEvent::KeyPress, key, Qt::NoModifier, text);
+    QApplication::sendEvent(&widget, &down);
+    QKeyEvent up(QEvent::KeyRelease, key, Qt::NoModifier, text);
+    QApplication::sendEvent(&widget, &up);
+}
+
+// Clicks a field open (everything selected, so typing replaces it) and types keys.
+void typeKeys(ValueField& field, const QString& keys) {
+    dragField(field, 0.0);
+    REQUIRE(field.hasFocus());
+    for (QChar key : keys) press(field, static_cast<Qt::Key>(key.unicode()), QString(key));
+}
+
+// The band with a waist, in an active window, as on a desktop.
+struct Band {
+    Window w;
+    Param waist;
+    Band() {
+        Document doc;
+        waist = doc.add(Parameter{.name = "waist", .value = 70_cm});
+        const PanelId band = doc.add(Panel{.name = "band"});
+        doc.add(band, Rect{.width = waist / 2, .height = 4_cm});
+        w.window.open(doc, "band");
+        w.window.activateWindow();
+        QApplication::processEvents();
+        REQUIRE(w.window.isActiveWindow());
+    }
+    ValueField& field() { return *w.window.parameters()->field(waist); }
+    double value() { return *asNumber(w.doc().get(waist).value); }
+};
+
+} // namespace
+
+// On a desktop the window is active, and Qt gives a clicked widget focus
+// before the press reaches it; a field that took that focus typed instead of
+// dragging. Off-screen the window is not active unless asked, which hid this.
+TEST_CASE("a number is dragged in an active window too; a click without a drag opens it for typing", "[qt]")
+{
+    Band b;
+    dragField(b.field(), 50.0);
+    EXPECT_NEAR(b.value(), 75.0, "the press starts a drag, not typing");
+    EXPECT((!b.field().hasFocus()), "and the field is not open for typing after it");
+
+    dragField(b.field(), 0.0);
+    EXPECT((b.field().hasFocus() && b.field().selectedText() == b.field().text()), "a click without a drag opens the number for typing, all selected");
+    EXPECT_NEAR(b.value(), 75.0, "and changes nothing");
+}
+
+TEST_CASE("Enter takes a typed number and closes the field, so the next press drags again", "[qt]")
+{
+    Band b;
+    typeKeys(b.field(), "80");
+    press(b.field(), Qt::Key_Return);
+    EXPECT_NEAR(b.value(), 80.0, "Enter takes what was typed");
+    EXPECT((!b.field().hasFocus()), "and closes the field");
+    EXPECT((b.field().text() == "80 cm"), "which shows the number with its unit");
+    dragField(b.field(), 50.0);
+    EXPECT_NEAR(b.value(), 85.0, "the next press drags");
+}
+
+TEST_CASE("Escape puts back what was shown and closes the field, changing nothing", "[qt]")
+{
+    Band b;
+    typeKeys(b.field(), "90");
+    press(b.field(), Qt::Key_Escape);
+    EXPECT_NEAR(b.value(), 70.0, "what was typed is not taken");
+    EXPECT((b.field().text() == "70 cm" && !b.field().hasFocus()), "the value is shown again and the field is closed");
+    EXPECT((!b.field().property("refused").toBool()), "nothing is marked as refused");
+    dragField(b.field(), 50.0);
+    EXPECT_NEAR(b.value(), 75.0, "the next press drags");
+}
+
+// A mark is only restyled when it changes; this checks that the marks still
+// follow the value. That less restyling happens is not measured here: a
+// custom QStyle cannot be put on a field while the window uses a style sheet.
+TEST_CASE("a field's refused mark stays until the value is shown again", "[qt]")
+{
+    Band b;
+    ValueField& field = b.field();
+    type(&field, "not a number");
+    EXPECT((field.property("refused").toBool()), "what does not read is marked");
+    field.clearFocus();
+    EXPECT((field.property("refused").toBool()), "and stays marked when the field is left");
+    dragField(field, 50.0);
+    EXPECT_NEAR(b.value(), 75.0, "a drag still changes the number");
+    EXPECT((!field.property("refused").toBool() && field.text() == "75 cm"), "and the value shown again clears the mark");
+}
+
 TEST_CASE("the body is hidden in 3D and taken out of the simulation together; the table's grid can be hidden", "[qt]")
 {
     Window w;
