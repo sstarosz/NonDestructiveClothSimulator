@@ -35,7 +35,7 @@ These came up again and again and outrank convenience:
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
 | `libs/session/` | One document being edited and all worked out from it: `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table or in the 3D view changes, and the tool in use, from `Tools`), `TableGizmo` (the table's gizmo), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples` | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan through Vulkan-Hpp (`vk::raii`, loaded at run time, no VMA): `Scene` is plain data, `Renderer` draws it into a picture (tests) or a window's `Swapchain`; `sceneOf` turns a session into a scene; `Picking` finds what is under the mouse, `Gizmo` is the move, rotate and scale gizmo. Its tests skip where there is no Vulkan | `session`, Vulkan headers |
-| `apps/qt/` | The window (`clothcad`, Qt 6 Widgets): `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `ClothPanel`, `TableView`, `SpaceView` only show and report | `session`, `render`, Qt 6 Widgets |
+| `apps/qt/` | The window (`clothcad`, Qt 6 Widgets): `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `TableView`, `SpaceView` only show and report | `session`, `render`, Qt 6 Widgets |
 | `examples/` | Six garments as small programs; they also run as tests | `core` |
 | `tests/integration/` | The whole window, driven through its widgets without a screen (`QtWindowTests`) | anything |
 | `tests/benchmarks/` | Frame and step times against baselines (`Perf.h`) | anything |
@@ -206,3 +206,26 @@ the budgets are in `README.md` ("Performance").
   `vcpkg.json` and are found with `find_package`.
 - If a request conflicts with the rules above (a string lookup, a cache in
   `core`, computing in `app`), say so and offer the way that keeps them.
+
+## Follow-ups: limits and improvements become issues
+
+Do not leave a limit, a doubt or a worthwhile improvement only in the chat or
+in a code comment. When a change shows one that is not part of the request
+(a cleanup around the code you touched, something you could not check, a
+limit of what you built), keep the change small and note it for later:
+
+1. Write it in `scratch/<topic>-issues.md` (for example
+   `scratch/cloth-tab-issues.md`). One `## Title` section per issue, sections
+   separated by `---`, with a `**Labels:** a, b` line (labels the repo has:
+   see `gh label list`; unknown ones are left out), then **What**, **Why** or
+   **Idea**, and **Done when** (a test or a check that tells it is finished).
+   Start the file with a few lines on where the issues were found.
+2. Say which cleanups you did not do, and why, in your report, and point to
+   the file.
+3. Check what would be made with
+   `python scratch/make_issues.py scratch/<topic>-issues.md`. Only the owner
+   decides to create them: add `--create` when asked to.
+4. A limit users must know is also written in `README.md` ("Known limits")
+   or `ROADMAP.md`; the issue is for the work to remove it.
+5. A cleanup that is small, inside the code you already changed and covered
+   by tests is done now, not noted.

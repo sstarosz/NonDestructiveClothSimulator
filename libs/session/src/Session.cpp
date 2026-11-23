@@ -23,8 +23,6 @@ void Session::open(Document document) {
     editor_.replace(std::move(document));
 }
 
-void Session::setParticleDistance(double cm) { particleDistance_ = std::max(cm, 0.05); }
-
 // ---- The body --------------------------------------------------------------------
 
 void Session::useAvatar(sim::Surface surface, std::string path) {
@@ -77,7 +75,7 @@ void Session::setThreading(Threading threading) {
 // ---- The mesh ------------------------------------------------------------------------
 
 // The mesh follows the outlines: it is made again only when they were
-// evaluated again or the particle distance changed. Where a panel is, on the
+// evaluated again. Where a panel is, on the
 // table or in space, does not change its mesh. On its own thread a mesh takes
 // 8 to 50 ms to make, which a frame cannot wait for while a corner is dragged:
 // the last one made is shown until the next is done, and the next is always
@@ -90,20 +88,18 @@ bool Session::remesh(bool now) {
     if (!fits(*mesh_)) {
         if (meshing_.mesh.valid()) changed |= takeMeshIfMade(true);
         if (!fits(*mesh_)) {
-            mesh_ = std::make_shared<const sim::ClothMesh>(sim::meshOf(document(), editor_.shapes(), {.particleDistance = particleDistance_}));
+            mesh_ = std::make_shared<const sim::ClothMesh>(sim::meshOf(document(), editor_.shapes()));
             meshedShapes_ = editor_.shapesVersion();
-            meshedDistance_ = particleDistance_;
             ++meshesMade_;
             changed = true;
         }
     }
-    if (!meshing_.mesh.valid() && (meshedShapes_ != editor_.shapesVersion() || meshedDistance_ != particleDistance_)) {
+    if (!meshing_.mesh.valid() && meshedShapes_ != editor_.shapesVersion()) {
         // The work has its own copies; nothing is shared with it but the outlines, which never change.
         meshing_.shapes = editor_.shapesVersion();
-        meshing_.distance = particleDistance_;
         meshing_.mesh = std::async(wait ? std::launch::deferred : std::launch::async,
-                                   [doc = document(), shapes = editor_.sharedShapes(), distance = particleDistance_] {
-                                       return std::make_shared<const sim::ClothMesh>(sim::meshOf(doc, *shapes, {.particleDistance = distance}));
+                                   [doc = document(), shapes = editor_.sharedShapes()] {
+                                       return std::make_shared<const sim::ClothMesh>(sim::meshOf(doc, *shapes));
                                    });
         changed |= takeMeshIfMade(wait);
     }
@@ -118,7 +114,6 @@ bool Session::takeMeshIfMade(bool wait) {
     if (!fits(*made)) return false;
     mesh_ = std::move(made);
     meshedShapes_ = meshing_.shapes;
-    meshedDistance_ = meshing_.distance;
     ++meshesMade_;
     return true;
 }

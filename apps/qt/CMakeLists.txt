@@ -14,7 +14,6 @@ endif()
 
 add_library(clothcad_qt_ui STATIC
     AttributeEditor.cpp
-    ClothPanel.cpp
     Icons.cpp
     MainWindow.cpp
     Outliner.cpp

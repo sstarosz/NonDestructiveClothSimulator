@@ -17,7 +17,6 @@
 #include <QToolBar>
 
 #include "AttributeEditor.h"
-#include "ClothPanel.h"
 #include "Outliner.h"
 #include "ParametersPanel.h"
 #include "SpaceView.h"
@@ -84,18 +83,16 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     outliner_ = new Outliner(this);
     parameters_ = new ParametersPanel(this);
     attributes_ = new AttributeEditor(this);
-    cloth_ = new ClothPanel(this);
     QDockWidget* outlinerDock = makeDock("Outliner", outliner_, this);
     QDockWidget* parametersDock = makeDock("Parameters", parameters_, this);
     QDockWidget* attributesDock = makeDock("Attribute Editor", attributes_, this);
-    QDockWidget* clothDock = makeDock("Cloth", cloth_, this);
     addDockWidget(Qt::LeftDockWidgetArea, outlinerDock);
     splitDockWidget(outlinerDock, parametersDock, Qt::Vertical);
     addDockWidget(Qt::RightDockWidgetArea, attributesDock);
-    tabifyDockWidget(attributesDock, clothDock);
-    attributesDock->raise();
+    // Docks stacked as tabs show their tabs on top, as Maya's do.
+    setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
     resizeDocks({outlinerDock, attributesDock}, {240, 300}, Qt::Horizontal);
-    docks_ = {outlinerDock, parametersDock, attributesDock, clothDock};
+    docks_ = {outlinerDock, parametersDock, attributesDock};
 
     help_ = new QLabel(this);
     frameTime_ = new QLabel(this);
@@ -373,17 +370,22 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         if (change([&](Document& doc) { doc.remove(panel); }, {.ifItBreaks = session::IfItBreaks::Allow})) select(std::nullopt);
     });
 
-    connect(cloth_, &ClothPanel::distanceTyped, this, [this](QString text) {
-        const std::optional<Expr> value = read(text, Unit::Length, cloth_->distance());
+    connect(attributes_, &AttributeEditor::particleDistanceTyped, this, [this](PanelId panel, QString text) {
+        if (!session_.document().contains(panel)) return;
+        const std::optional<Expr> value = read(text, Unit::Length, attributes_->particleDistance());
         const std::optional<double> number = value ? asNumber(*value) : std::nullopt;
-        if (number && *number >= 0.5 && *number <= 5.0) session_.setParticleDistance(*number);
-        else if (value) cloth_->distance()->refuse("Between 0.5 cm and 5 cm.");
+        if (number && *number >= finestParticleDistance && *number <= coarsestParticleDistance)
+            change([&](Document& doc) { doc.setParticleDistance(panel, *number); }, {}, attributes_->particleDistance());
+        else if (value)
+            attributes_->particleDistance()->refuse("Between " + QString::fromStdString(formatValue(finestParticleDistance, Unit::Length)) + " and " +
+                                                    QString::fromStdString(formatValue(coarsestParticleDistance, Unit::Length)) + ".");
     });
-    connect(cloth_, &ClothPanel::ownThreadChanged, this, [this](bool on) {
-        session_.setThreading(on ? session::Threading::OwnThread : session::Threading::OneStepPerAdvance);
-        shelf_->simulate()->setChecked(false);
+    connect(attributes_, &AttributeEditor::particleDistanceDragged, this, [this](PanelId panel, double value, session::DragPhase phase) {
+        if (!session_.document().contains(panel)) return;
+        const double distance = std::clamp(value, finestParticleDistance, coarsestParticleDistance);
+        changeByDrag(phase, [&](Document& doc) { doc.setParticleDistance(panel, distance); });
     });
-    connect(cloth_, &ClothPanel::bodyShownChanged, this, &MainWindow::showBody);
+    connect(outliner_, &Outliner::bodyShownChanged, this, &MainWindow::showBody);
 
     buildMenus();
     timer_ = new QTimer(this);
@@ -519,7 +521,18 @@ void MainWindow::showBody(bool shown) {
     bodyShown_ = shown;
     session_.setBodyPresent(shown);
     if (bodyAction_) bodyAction_->setChecked(shown);
+    outliner_->showBody(bodyNow());
     tick();
+}
+
+void MainWindow::setThreading(session::Threading threading) {
+    session_.setThreading(threading);
+    shelf_->simulate()->setChecked(false);
+}
+
+Outliner::Body MainWindow::bodyNow() const {
+    const std::string& path = session_.avatarPath();
+    return {.name = path.empty() ? QString() : QFileInfo(QString::fromStdString(path)).fileName(), .shown = bodyShown_, .ready = session_.bodyReady()};
 }
 
 void MainWindow::startPicking(OpId layer, ReferenceId reference) {
@@ -549,8 +562,26 @@ void MainWindow::tick() {
     if (session_.editor().version() != shownVersion_) refresh();
     if (space_->isVisible()) space_->show(session_, drafting_.selection.panel, drafting_.tool, meshShown, bodyShown_);
     space_->showTime(session_.clothShown() ? std::optional<double>(session_.cloth().time) : std::nullopt, session_.clothShown() && session_.cloth().sewing);
-    cloth_->show(session_, session_.threading() == session::Threading::OwnThread, bodyShown_);
+    outliner_->showBody(bodyNow());
+    showMeshCounts();
     (void)took;
+}
+
+// What the selected panel's cloth came to. Worked out again only when a new
+// mesh was made or another panel was chosen, not every frame.
+void MainWindow::showMeshCounts() {
+    const std::optional<PanelId> panel = drafting_.selection.panel;
+    if (session_.meshesMade() == countedMesh_ && panel == countedPanel_) return;
+    countedMesh_ = session_.meshesMade();
+    countedPanel_ = panel;
+    std::optional<AttributeEditor::MeshCounts> counts;
+    const sim::ClothMesh& mesh = *session_.mesh();
+    for (std::size_t i = 0; panel && i < mesh.panels.size(); ++i) {
+        if (!(mesh.panels[i].panel == *panel)) continue;
+        counts = AttributeEditor::MeshCounts{.particles = mesh.panels[i].points.size(), .triangles = mesh.panels[i].triangles.size()};
+        for (const sim::Stitch& stitch : mesh.stitches) counts->stitches += stitch.panelA == i || stitch.panelB == i;
+    }
+    attributes_->showMesh(counts);
 }
 
 bool MainWindow::changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb, session::ChangeRules rules) {
@@ -591,8 +622,7 @@ void MainWindow::refresh() {
     const Result& shapes = session_.editor().shapes();
     std::optional<PanelId>& selected = drafting_.selection.panel;
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
-    const QString body = session_.avatarPath().empty() ? "No body" : QFileInfo(QString::fromStdString(session_.avatarPath())).fileName();
-    outliner_->show(doc, shapes, selected, body);
+    outliner_->show(doc, shapes, selected, bodyNow());
     for (QAction* onPanel : {shelf_->instance(), shelf_->mirroredInstance(), shelf_->bake(), shelf_->placeFromTable()}) onPanel->setEnabled(selected.has_value());
     parameters_->show(doc, shapes);
     // Looking back only at a step of the selected panel.
@@ -708,7 +738,7 @@ void MainWindow::addBeside(PanelId source, Follow how) {
     change([&](Document& doc) {
         const std::string name = firstFreeName(doc, doc.get(source).name + suffix);
         if (how == Follow::Copy) {
-            added = doc.copy(source, Panel{.name = name, .x = x, .y = from.y});
+            added = doc.copy(source, Panel{.name = name, .x = x, .y = from.y, .particleDistance = from.particleDistance});
         } else {
             added = doc.add(Panel{.name = name, .x = x, .y = from.y});
             doc.add(*added, Instance{.source = source, .mirrored = how == Follow::MirroredInstance});

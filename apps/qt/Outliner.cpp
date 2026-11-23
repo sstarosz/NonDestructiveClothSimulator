@@ -44,7 +44,7 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
     setIndentation(14);
     setFrameShape(QFrame::NoFrame);
     body_ = new QTreeWidgetItem(this, {"No body"});
-    body_->setIcon(0, icon(Icon::Body, theme::quiet));
+    showBody({});
     panels_ = new QTreeWidgetItem(this, {"Panels"});
     panels_->setIcon(0, icon(Icon::Folder, theme::quiet));
     seams_ = new QTreeWidgetItem(this, {"Seams"});
@@ -54,6 +54,9 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
     connect(this, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* item) {
         if (showing_ || !item || !item->data(0, panelRole).isValid()) return;
         emit panelChosen(PanelId{item->data(0, panelRole).toUInt()});
+    });
+    connect(this, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int column) {
+        if (item == body_ && column == 1 && !bodyNow_.name.isEmpty()) emit bodyShownChanged(!bodyNow_.shown);
     });
     // Only the name column of a panel is edited, and only by double click or F2.
     setEditTriggers(QAbstractItemView::EditKeyPressed);
@@ -67,6 +70,15 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
     setContextMenuPolicy(Qt::CustomContextMenu);
     connect(this, &QWidget::customContextMenuRequested, this, [this](const QPoint& where) {
         QTreeWidgetItem* item = itemAt(where);
+        if (item == body_ && !bodyNow_.name.isEmpty()) {
+            QMenu menu(this);
+            QAction* shown = menu.addAction("Shown", [this](bool on) { emit bodyShownChanged(on); });
+            shown->setToolTip("Hidden, the body is also taken out of the simulation.");
+            shown->setCheckable(true);
+            shown->setChecked(bodyNow_.shown);
+            menu.exec(viewport()->mapToGlobal(where));
+            return;
+        }
         if (const std::optional<SeamId> seam = seamOf(item)) {
             QMenu menu(this);
             menu.addAction(icon(Icon::Delete, theme::error), "Delete", [this, seam] { emit seamDeleteRequested(*seam); });
@@ -112,9 +124,24 @@ void Outliner::rename(PanelId panel, const QString& name) {
         if (panelOf(panels_->child(i)) == panel) panels_->child(i)->setText(0, name);
 }
 
-void Outliner::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const QString& body) {
+void Outliner::showBody(const Body& body) {
+    if (body == bodyNow_) return;
+    bodyNow_ = body;
+    const bool none = body.name.isEmpty();
+    const QSignalBlocker quiet(this);
+    // Working out how to collide with a new avatar takes a moment; the cloth waits for it.
+    body_->setText(0, none ? QString("No body") : body.ready ? body.name : body.name + "  ·  preparing…");
+    body_->setIcon(0, icon(Icon::Body, theme::quiet));
+    body_->setForeground(0, none || !body.shown ? theme::quiet : theme::text);
+    body_->setIcon(1, none ? QIcon() : icon(body.shown ? Icon::Eye : Icon::EyeShut, theme::quiet));
+    body_->setToolTip(1, none ? QString() : body.shown ? "Shown. Click to hide it; hidden, it is also out of the simulation." : "Hidden. Click to show it.");
+}
+
+QString Outliner::bodyShown() const { return body_->text(0); }
+
+void Outliner::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const Body& body) {
     showing_ = true;
-    body_->setText(0, body);
+    showBody(body);
     qDeleteAll(panels_->takeChildren());
     qDeleteAll(seams_->takeChildren());
     for (PanelId panel : doc.panels()) {

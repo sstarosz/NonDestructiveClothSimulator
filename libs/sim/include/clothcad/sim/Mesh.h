@@ -21,7 +21,9 @@
 namespace clothcad::sim {
 
 struct MeshSettings {
-    double particleDistance = 2.0_cm;  // roughly how far apart particles are; smaller is finer and slower
+    // Roughly how far apart particles are in a panel that has no distance of
+    // its own (Panel::particleDistance); smaller is finer and slower.
+    double particleDistance = defaultParticleDistance;
 };
 
 // The particles along one edge of a panel, from the edge's start to its end.

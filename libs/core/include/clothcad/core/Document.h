@@ -69,7 +69,16 @@ struct Panel {
     double angle = 0.0;         // how far the panel is turned about its origin on the table, in degrees
                                 // counter-clockwise; placement only, it does not affect the shape
     Arrangement arrangement{};  // where it is in space
+    // Roughly how far apart this panel's cloth particles are, in cm; smaller
+    // is finer and slower. None: the default, 2 cm. Where a seam joins panels
+    // of different distances, the finer one sets the seam's particles.
+    std::optional<double> particleDistance{};
 };
+
+// What a panel's particle distance may be, in cm.
+inline constexpr double defaultParticleDistance = 2.0;
+inline constexpr double finestParticleDistance = 0.5;
+inline constexpr double coarsestParticleDistance = 5.0;
 
 // One side of a seam: an edge of a panel. The panel is named too, because an
 // instance shows its source's edges under the same names.
@@ -134,6 +143,8 @@ public:
     void arrange(PanelId panel, Arrangement arrangement);
     // Whether the panel is only a base for instances, not a piece to cut.
     void setConstruction(PanelId panel, bool construction);
+    // How fine the panel's cloth is meshed; none for the default.
+    void setParticleDistance(PanelId panel, std::optional<double> cm);
     void remove(PanelId panel);
 
     // ---- Operations --------------------------------------------------------

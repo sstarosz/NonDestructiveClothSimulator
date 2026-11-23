@@ -38,8 +38,9 @@ the body follows too.
 - **Files**: save and open (`.clothcad`, plain text), undo.
 - **The window** is laid out as Maya is: a shelf of tools on top, the 3D
   view and the table side by side (or one, or stacked), and dockable panels
-  that fold and stack as tabs: the Outliner and Parameters on the left, the
-  Attribute Editor (a panel's operations as layers) and Cloth on the right.
+  that fold and stack as tabs (tabs on top): the Outliner (which also shows
+  or hides the body, with its eye) and Parameters on the left, the Attribute
+  Editor on the right (a panel's operations as layers, and how fine its cloth is).
   Its 3D view is drawn by the graphics card, with Vulkan.
 
 ## Building
@@ -165,7 +166,7 @@ How it is kept fast:
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
 | `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
-| `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers) and Cloth, 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
+| `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
 | `examples/` | Six small garments as programs, the sixth a T-shirt body | `core` |
 | `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` and read and write no files (bodies are made in memory); tests on the project's avatar are in `tests/integration/AvatarTests.cpp` | everything |
 

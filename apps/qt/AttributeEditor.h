@@ -35,6 +35,14 @@ public:
     explicit AttributeEditor(QWidget* parent = nullptr);
     // `viewed`: the step the panel is shown as of, if not the last.
     void show(const Document& doc, const Result& shapes, std::optional<PanelId> panel, std::optional<OpId> viewed = std::nullopt);
+    // How many particles, triangles and stitches the selected panel's cloth
+    // has now; none while it has no mesh. The mesh follows the shape a few
+    // frames late, so this is shown on its own.
+    struct MeshCounts {
+        std::size_t particles = 0, triangles = 0, stitches = 0;
+        friend bool operator==(const MeshCounts&, const MeshCounts&) = default;
+    };
+    void showMesh(std::optional<MeshCounts> counts);
 
     // The layers as shown, top first; and whether one shows its fields.
     std::vector<OpId> layersShown() const { return layers_; }
@@ -56,6 +64,8 @@ public:
     ValueField* field(OpId layer, FieldId field) const;  // of an open layer
     ValueField* spaceField(int which) const;
     ValueField* tableField(int which) const;
+    ValueField* particleDistance() const { return distance_; }
+    QString meshShown() const;  // the words under the distance, empty if none
 
 signals:
     void layerSwitched(clothcad::OpId layer, bool on);
@@ -72,6 +82,9 @@ signals:
     void fieldDragged(clothcad::OpId layer, clothcad::FieldId field, double value, clothcad::session::DragPhase phase);
     void spaceDragged(clothcad::PanelId panel, int which, double value, clothcad::session::DragPhase phase);
     void tableDragged(clothcad::PanelId panel, int which, double value, clothcad::session::DragPhase phase);
+    // The panel's particle distance, typed or dragged.
+    void particleDistanceTyped(clothcad::PanelId panel, QString text);
+    void particleDistanceDragged(clothcad::PanelId panel, double value, clothcad::session::DragPhase phase);
     // A layer was opened or closed: show again.
     void layerOpened();
     // The name of an edge, corner or line a layer uses was clicked: choose another on the table.
@@ -110,6 +123,9 @@ private:
     QVBoxLayout* layerRows_;
     Section* spaceSection_;
     Section* tableSection_;
+    Section* particlesSection_;
+    ValueField* distance_;
+    QLabel* meshCounts_;
     Section* seamsSection_;
     QVBoxLayout* seamRows_;
     std::vector<SeamId> seams_;

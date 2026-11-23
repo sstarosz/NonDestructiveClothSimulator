@@ -120,6 +120,8 @@ void Document::arrange(PanelId panel, Arrangement arrangement) { entry(panel).pa
 
 void Document::setConstruction(PanelId panel, bool construction) { entry(panel).panel.construction = construction; }
 
+void Document::setParticleDistance(PanelId panel, std::optional<double> cm) { entry(panel).panel.particleDistance = cm; }
+
 void Document::remove(PanelId panel) {
     entry(panel);  // throws if unknown
     std::erase_if(panels_, [&](const PanelEntry& e) { return e.id == panel; });

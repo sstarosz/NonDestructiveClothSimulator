@@ -44,6 +44,34 @@ TEST_CASE("a rectangle is covered by triangles")
     EXPECT((fine.panels[0].points.size() > 3 * mesh.points.size()), "half the distance is about four times the particles");
 }
 
+TEST_CASE("each panel is meshed as finely as its own particle distance says")
+{
+    Document doc;
+    PanelId coarse = doc.add(Panel{.name = "coarse"});
+    doc.add(coarse, Rect{.width = 30_cm, .height = 30_cm});
+    PanelId fine = doc.add(Panel{.name = "fine", .particleDistance = 1.0});
+    doc.add(fine, Rect{.width = 30_cm, .height = 30_cm});
+    const ClothMesh cloth = meshOf(doc, evaluate(doc), {.particleDistance = 3_cm});
+    EXPECT((cloth.find(fine)->points.size() > 5 * cloth.find(coarse)->points.size()), "the panel with its own distance is finer than the default");
+
+    doc.setParticleDistance(coarse, 1.0);
+    const ClothMesh same = meshOf(doc, evaluate(doc), {.particleDistance = 3_cm});
+    EXPECT((same.find(fine)->points.size() == same.find(coarse)->points.size()), "the same distance gives the same particles");
+}
+
+TEST_CASE("a seam between panels of different distances is cut as finely as the finer one")
+{
+    Document doc;
+    PanelId a = doc.add(Panel{.name = "a", .particleDistance = 4.0});
+    OpRef<Rect> ra = doc.add(a, Rect{.width = 20_cm, .height = 20_cm});
+    PanelId b = doc.add(Panel{.name = "b", .particleDistance = 1.0});
+    OpRef<Rect> rb = doc.add(b, Rect{.width = 20_cm, .height = 20_cm});
+    doc.add(Seam{.a = {a, ra.right()}, .b = {b, rb.left()}});
+    const ClothMesh cloth = meshOf(doc, evaluate(doc));
+    EXPECT((cloth.find(a)->along(ra.right())->points.size() == 21 && cloth.find(b)->along(rb.left())->points.size() == 21), "both sides have a particle every centimetre");
+    EXPECT((cloth.stitches.size() == 21), "so they pair up one to one");
+}
+
 TEST_CASE("curved and hollow panels mesh")
 {
     Document doc;

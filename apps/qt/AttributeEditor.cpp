@@ -165,6 +165,33 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     tableSection_->setOpen(false);
     column->addWidget(tableSection_);
 
+    // How fine this panel's cloth is. What the mesh came to is shown beneath.
+    particlesSection_ = new Section("Particles", page_);
+    auto* particles = new QGridLayout(particlesSection_->content());
+    particles->setContentsMargins(8, 6, 8, 6);
+    particles->setSpacing(4);
+    auto* distanceLabel = new QLabel("Distance", particlesSection_->content());
+    distanceLabel->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
+    particles->addWidget(distanceLabel, 0, 0);
+    distance_ = new ValueField(Unit::Length, particlesSection_->content());
+    distance_->setObjectName("particleDistance");
+    distance_->setToolTip("Roughly how far apart this panel's cloth particles are. Smaller is finer and slower. Where a seam joins panels of different distances, the finer one is used.");
+    distance_->setDragStep(0.05);
+    particles->addWidget(distance_, 0, 1);
+    particles->setColumnStretch(1, 1);
+    connect(distance_, &ValueField::typed, this, [this](QString text) {
+        if (panel_) emit particleDistanceTyped(*panel_, text);
+    });
+    connect(distance_, &ValueField::dragged, this, [this](double value, session::DragPhase phase) {
+        if (panel_) emit particleDistanceDragged(*panel_, value, phase);
+    });
+    meshCounts_ = new QLabel(particlesSection_->content());
+    meshCounts_->setObjectName("meshCounts");
+    meshCounts_->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
+    particles->addWidget(meshCounts_, 1, 0, 1, 2);
+    particlesSection_->setOpen(false);
+    column->addWidget(particlesSection_);
+
     seamsSection_ = new Section("Seams", page_);
     seamRows_ = new QVBoxLayout(seamsSection_->content());
     seamRows_->setContentsMargins(8, 6, 8, 6);
@@ -233,9 +260,18 @@ void AttributeEditor::show(const Document& doc, const Result& shapes, std::optio
     for (std::size_t i = 0; i < space_.size(); ++i) space_[i]->show(Expr(space[i]), doc, shapes);
     const double table[] = {p.x, p.y, p.angle};
     for (std::size_t i = 0; i < table_.size(); ++i) table_[i]->show(Expr(table[i]), doc, shapes);
+    // A base for instances is not cut from cloth: it has no particles.
+    particlesSection_->setVisible(!p.construction);
+    distance_->show(Expr(p.particleDistance.value_or(defaultParticleDistance)), doc, shapes);
 
     rebuildSeams(doc, shapes);
 }
+
+void AttributeEditor::showMesh(std::optional<MeshCounts> counts) {
+    meshCounts_->setText(counts ? QString("%1 particles · %2 triangles · %3 stitches").arg(counts->particles).arg(counts->triangles).arg(counts->stitches) : QString());
+}
+
+QString AttributeEditor::meshShown() const { return meshCounts_->text(); }
 
 // The seams that touch the panel, one small card each: the panel it is sewn
 // to, both lengths and what is gathered, and a button that twists it. Which
