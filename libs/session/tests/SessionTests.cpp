@@ -55,9 +55,11 @@ TEST_CASE("the mesh is made again only when the outlines change")
     EXPECT(session.meshesMade() == made + 1, "changing its length does");
     EXPECT((mesh->panels.size() == 1u), "a view that kept the old mesh still has it whole");
 
-    session.setParticleDistance(3.0);
+    const std::size_t particles = session.mesh()->panels[0].points.size();
+    REQUIRE(session.editor().change([&](Document& doc) { doc.setParticleDistance(start.panel, 3.0); }));
     session.update();
-    EXPECT(session.meshesMade() == made + 2, "so does a new particle distance");
+    EXPECT(session.meshesMade() == made + 2, "so does a new particle distance of the panel");
+    EXPECT(session.mesh()->panels[0].points.size() < particles, "and a coarser one makes fewer particles");
 }
 
 TEST_CASE("on its own thread the mesh is made in the background and catches up")

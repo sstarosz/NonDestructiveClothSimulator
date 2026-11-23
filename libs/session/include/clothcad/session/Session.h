@@ -42,10 +42,9 @@ public:
     void open(Document document);
 
     // ---- The mesh and the arrangement ----
-    void setParticleDistance(double cm);
-    double particleDistance() const { return particleDistance_; }
-    // The pattern as triangles. Made again only when the outlines or the
-    // particle distance change. With Threading::OwnThread it is made in the
+    // The pattern as triangles, each panel as fine as its own particle
+    // distance says. Made again only when the outlines (or a distance, which
+    // is part of the document) change. With Threading::OwnThread it is made in the
     // background, so while a corner is dragged it may be of outlines a few
     // frames old; it never names a panel the document no longer has.
     const std::shared_ptr<const sim::ClothMesh>& mesh() const { return mesh_; }
@@ -120,10 +119,8 @@ private:
 
     Editor editor_;
 
-    double particleDistance_ = 2.0;
     std::shared_ptr<const sim::ClothMesh> mesh_ = std::make_shared<const sim::ClothMesh>();
     std::uint64_t meshedShapes_ = 0;
-    double meshedDistance_ = 0.0;
     std::uint64_t meshesMade_ = 0;
     sim::Placement arranged_;
     std::vector<Placed> arrangedFrom_;
@@ -131,7 +128,6 @@ private:
     struct Meshing {
         std::future<std::shared_ptr<const sim::ClothMesh>> mesh;
         std::uint64_t shapes = 0;
-        double distance = 0.0;
     };
     Meshing meshing_;
     Threading threading_;

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <limits>
 #include <numeric>
 #include <optional>
 
@@ -55,6 +56,11 @@ std::vector<Vec2> spreadAlong(const std::vector<Vec2>& line, int pieces) {
     return points;
 }
 
+// How far apart the panel's particles are: its own, or the default.
+double distanceOf(const Document& doc, PanelId panel, double fallback) {
+    return std::max(doc.contains(panel) ? doc.get(panel).particleDistance.value_or(fallback) : fallback, 0.05);
+}
+
 // An edge of a panel: what a seam side names.
 struct EdgeKey {
     PanelId panel;
@@ -63,22 +69,26 @@ struct EdgeKey {
 };
 
 // How many pieces each sewn edge is divided into. Edges joined by seams,
-// directly or through other seams, share one count: that of the longest.
+// directly or through other seams, share one count: that of the longest,
+// cut as finely as the finest panel among them asks.
 class PieceCounts {
 public:
-    PieceCounts(const Document& doc, const Result& shapes, double particleDistance) {
+    PieceCounts(const Document& doc, const Result& shapes, double fallbackDistance) {
         for (const SeamResult& sewn : shapes.seams) {
             if (!sewn.sewn() || !doc.contains(sewn.seam)) continue;
             const Seam& seam = doc.get(sewn.seam);
-            const std::size_t a = indexOf({seam.a.panel, seam.a.edge}, sewn.lengthA);
-            const std::size_t b = indexOf({seam.b.panel, seam.b.edge}, sewn.lengthB);
+            const std::size_t a = indexOf({seam.a.panel, seam.a.edge}, sewn.lengthA, distanceOf(doc, seam.a.panel, fallbackDistance));
+            const std::size_t b = indexOf({seam.b.panel, seam.b.edge}, sewn.lengthB, distanceOf(doc, seam.b.panel, fallbackDistance));
             group_[root(a)] = root(b);
         }
-        std::vector<double> longest(keys_.size(), 0.0);
-        for (std::size_t i = 0; i < keys_.size(); ++i) longest[root(i)] = std::max(longest[root(i)], length_[i]);
+        std::vector<double> longest(keys_.size(), 0.0), finest(keys_.size(), std::numeric_limits<double>::max());
+        for (std::size_t i = 0; i < keys_.size(); ++i) {
+            longest[root(i)] = std::max(longest[root(i)], length_[i]);
+            finest[root(i)] = std::min(finest[root(i)], distance_[i]);
+        }
         pieces_.resize(keys_.size());
         for (std::size_t i = 0; i < keys_.size(); ++i)
-            pieces_[i] = std::max(1, static_cast<int>(std::lround(longest[root(i)] / particleDistance)));
+            pieces_[i] = std::max(1, static_cast<int>(std::lround(longest[root(i)] / finest[root(i)])));
     }
 
     // 0 when the edge is in no seam.
@@ -89,11 +99,12 @@ public:
     }
 
 private:
-    std::size_t indexOf(const EdgeKey& key, double length) {
+    std::size_t indexOf(const EdgeKey& key, double length, double distance) {
         for (std::size_t i = 0; i < keys_.size(); ++i)
             if (keys_[i] == key) return i;
         keys_.push_back(key);
         length_.push_back(length);
+        distance_.push_back(distance);
         group_.push_back(keys_.size() - 1);
         return keys_.size() - 1;
     }
@@ -104,6 +115,7 @@ private:
 
     std::vector<EdgeKey> keys_;
     std::vector<double> length_;
+    std::vector<double> distance_;  // of the panel the edge is on
     std::vector<std::size_t> group_;
     std::vector<int> pieces_;
 };
@@ -256,12 +268,11 @@ const PanelMesh* ClothMesh::find(PanelId panel) const {
 
 ClothMesh meshOf(const Document& doc, const Result& shapes, MeshSettings settings) {
     ClothMesh cloth;
-    const double d = std::max(settings.particleDistance, 0.05);
-    const PieceCounts counts(doc, shapes, d);
+    const PieceCounts counts(doc, shapes, settings.particleDistance);
     for (const PanelResult& result : shapes.panels) {
         if (!doc.contains(result.panel) || doc.get(result.panel).construction) continue;
         if (result.pattern.edges.empty()) continue;
-        cloth.panels.push_back(meshPanel(result.panel, result.pattern, counts, d));
+        cloth.panels.push_back(meshPanel(result.panel, result.pattern, counts, distanceOf(doc, result.panel, settings.particleDistance)));
         cloth.panels.back().anchor = anchorOf(doc.get(result.panel).arrangement, result.pattern);
     }
 

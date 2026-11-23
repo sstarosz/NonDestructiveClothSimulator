@@ -29,7 +29,6 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "AttributeEditor.h"
-#include "ClothPanel.h"
 #include "Expect.h"
 #include "MainWindow.h"
 #include "Outliner.h"
@@ -117,7 +116,7 @@ TEST_CASE("the window opens with its shelf, docks and two views", "[qt]")
 {
     Window w;
     EXPECT((w.window.shelf()->tabCount() == 3), "the shelf has its Draft, Sew and Simulate tabs");
-    for (const char* name : {"Outliner", "Parameters", "Attribute Editor", "Cloth"}) EXPECT((w.window.dock(name) != nullptr), std::string("there is a dock ") + name);
+    for (const char* name : {"Outliner", "Parameters", "Attribute Editor"}) EXPECT((w.window.dock(name) != nullptr), std::string("there is a dock ") + name);
     EXPECT((w.window.outliner()->panelsShown().size() == 2), "the Outliner lists the sample's two panels");
     EXPECT((w.window.parameters()->field(w.parameter("chest"))->text() == "96 cm"), "a parameter shows its unit");
     EXPECT((w.window.space()->isVisible() && w.window.table()->isVisible()), "both views are shown, side by side");
@@ -1122,6 +1121,29 @@ TEST_CASE("a panel is renamed, made base only and deleted in the Outliner", "[qt
     EXPECT((w.doc().panels().size() == before - 1 && !w.window.selected()), "Delete removes the panel and the selection");
 }
 
+TEST_CASE("a panel's particle distance is set in the Attribute Editor, for that panel only; its counts are shown", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    const PanelId back = w.panel("back");
+    EXPECT((w.window.dock("Cloth") == nullptr), "there is no Cloth tab any more");
+    w.window.select(front);
+    w.window.tick();
+    auto* editor = w.window.attributes();
+    EXPECT((editor->meshShown().contains("particles") && editor->meshShown().contains("stitches")), "the panel's particles, triangles and stitches are shown");
+    const QString before = editor->meshShown();
+
+    type(editor->particleDistance(), "1");
+    EXPECT((w.doc().get(front).particleDistance == 1.0 && !w.doc().get(back).particleDistance), "typing 1 sets the selected panel's distance, not the other's");
+    w.window.tick();
+    EXPECT((editor->meshShown() != before), "its counts follow the finer mesh");
+
+    type(editor->particleDistance(), "0.1");
+    EXPECT((w.doc().get(front).particleDistance == 1.0 && editor->particleDistance()->property("refused").toBool()), "a distance out of range is refused, with the field marked");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((!w.doc().get(front).particleDistance), "undo gives the default back");
+}
+
 TEST_CASE("the shelf gives a mirrored instance and bakes the selected panel", "[qt]")
 {
     Window w;
@@ -1354,11 +1376,13 @@ TEST_CASE("the body is hidden in 3D and taken out of the simulation together; th
     bool anyBody = false;
     for (const render::Surface& surface : scene.surfaces) anyBody = anyBody || !surface.panel.has_value();
     EXPECT((!anyBody), "and not drawn in 3D");
-    auto* shown = w.window.cloth()->findChild<QCheckBox*>("bodyShown");
-    REQUIRE(shown != nullptr);
-    EXPECT((!shown->isChecked()), "the Cloth tab shows it hidden too");
-    shown->click();
+    w.window.tick();
+    EXPECT((w.window.outliner()->bodyShown() == "avatarV1.obj"), "the Outliner still names it");
+    w.window.outliner()->setBodyShown(true);  // a click on its eye
     EXPECT((w.window.bodyShown()), "and shows it again from there");
+    w.window.outliner()->setBodyShown(false);
+    EXPECT((!w.window.bodyShown()), "or hides it again");
+    w.window.outliner()->setBodyShown(true);
 
     w.window.table()->setGridShown(false);
     EXPECT((!w.window.table()->gridShown()), "the grid can be hidden");
@@ -1460,9 +1484,7 @@ TEST_CASE("each sample opens on its avatar, found from any folder; one that cann
     EXPECT((w.window.session().avatarPath().ends_with("avatarV1.obj")), "the T-shirt is draped on the project's avatar");
     EXPECT((w.window.session().bodySurface().triangles.size() > 1000), "its surface is there");
     EXPECT((w.window.session().bodyReady()), "and ready to collide with soon after");
-    auto* body = w.window.cloth()->findChild<QLabel*>("bodyName");
-    REQUIRE(body != nullptr);
-    EXPECT((body->text() == "avatarV1.obj"), "the Cloth tab names it");
+    EXPECT((w.window.outliner()->bodyShown() == "avatarV1.obj"), "the Outliner names it");
 
     const QString started = QDir::currentPath();
     QDir::setCurrent(QDir::tempPath());  // as when the program is started from its build folder

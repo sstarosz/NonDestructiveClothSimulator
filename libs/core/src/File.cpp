@@ -263,7 +263,8 @@ std::string toText(const Document& doc) {
     for (PanelId id : doc.panels()) {
         const Panel& panel = doc.get(id);
         out += "panel " + std::to_string(id.value) + " " + quoted(panel.name) + " " + (panel.construction ? "1" : "0") + " " +
-               number(panel.x) + " " + number(panel.y) + " " + number(panel.angle) + "\n";
+               number(panel.x) + " " + number(panel.y) + " " + number(panel.angle) +
+               (panel.particleDistance ? " " + number(*panel.particleDistance) : std::string()) + "\n";
         if (const Arrangement& in = panel.arrangement; in.placed)
             out += "arrange " + number(in.x) + " " + number(in.y) + " " + number(in.z) + " " + number(in.turn) + " " + number(in.tilt) + " " +
                    number(in.roll) + " " + number(in.wrap) + (in.anchor ? " " + number(in.anchor->x) + " " + number(in.anchor->y) : std::string()) + "\n";
@@ -342,6 +343,7 @@ std::variant<Document, FileError> fromText(std::string_view text) {
                 description.x = words.real();
                 description.y = words.real();
                 description.angle = words.real();
+                if (!words.done()) description.particleDistance = words.real();  // older files have none
                 DocumentAccess::restore(doc, id, std::move(description));
                 panel = id;
             } else if (what == "arrange") {

@@ -14,8 +14,8 @@
 #include <chrono>
 #include <thread>
 
+#include "AttributeEditor.h"
 #include "Avatar.h"
-#include "ClothPanel.h"
 #include "MainWindow.h"
 #include "Perf.h"
 #include "SpaceView.h"
@@ -131,14 +131,14 @@ int main(int argc, char** argv) {
         // frame in three is what a lag feels like.
         {
             window.shelf()->layout(ViewLayout::SideBySide)->trigger();  // the 3D view shown, as one works
-            emit window.cloth()->ownThreadChanged(true);
-            emit window.cloth()->distanceTyped("1");
+            window.setThreading(session::Threading::OwnThread);
+            window.select(front);
+            frame(window);
+            emit window.attributes()->particleDistanceTyped(front, "1");
             for (int i = 0; i < 200 && window.session().meshesMade() == meshesBeforeDrag; ++i) {
                 frame(window);
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
-            window.select(front);
-            frame(window);
             const Panel& placed = window.session().document().get(front);
             QPointF corner = table->toScreen({placed.x + 60, placed.y + 80});
             mouse(table, QEvent::MouseButtonPress, corner, Qt::LeftButton);
@@ -161,8 +161,8 @@ int main(int argc, char** argv) {
             report.record("frame while dragging a corner, 3D shown, 1 cm particles", 16.0, sum / watched);
             std::printf("(%llu meshes made during the drag of %d frames)\n", static_cast<unsigned long long>(meshesDuringDrag), watched + 3);
             report.expect(meshesDuringDrag >= 5, "the mesh follows the corner while it is dragged");
-            emit window.cloth()->distanceTyped("2");
-            emit window.cloth()->ownThreadChanged(false);
+            emit window.attributes()->particleDistanceTyped(front, "2");
+            window.setThreading(session::Threading::OneStepPerAdvance);
             for (int i = 0; i < 3; ++i) frame(window);
         }
 
@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
         window.shelf()->simulate()->setChecked(false);
 
         // ---- The cloth on its own thread: the frame only picks up the news ----
-        emit window.cloth()->ownThreadChanged(true);
+        window.setThreading(session::Threading::OwnThread);
         window.shelf()->simulate()->setChecked(true);
         for (int i = 0; i < 3; ++i) frame(window);
         const double timeBefore = window.session().clothShown() ? window.session().cloth().time : 0.0;

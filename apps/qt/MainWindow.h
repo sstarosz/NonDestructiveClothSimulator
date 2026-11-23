@@ -1,7 +1,7 @@
 #pragma once
 // The Qt window of 0.1.1, laid out as Maya is: the shelf across the top,
 // docks that fold, float and stack as tabs (Outliner and Parameters on the
-// left; Attribute Editor and Cloth on the right), the 3D view on the left of
+// left; Attribute Editor on the right), the 3D view on the left of
 // the middle and the table on the right, and a help line at the bottom.
 //
 // It owns the session. The docks and views only report what the user did;
@@ -16,6 +16,7 @@
 #include <QMainWindow>
 #include <optional>
 
+#include "Outliner.h"
 #include "Shelf.h"
 #include "clothcad/session/Drafting.h"
 #include "clothcad/session/Session.h"
@@ -29,8 +30,6 @@ class QTimer;
 namespace clothcad::ui {
 
 class AttributeEditor;
-class ClothPanel;
-class Outliner;
 class ParametersPanel;
 class SpaceView;
 class TableView;
@@ -63,6 +62,8 @@ public:
     void tick();
     // Stops or starts that timer: a benchmark that counts frames runs them itself.
     void setTicking(bool running);
+    // The cloth on its own thread (the default) or stepped by the frames, as tests and benchmarks need.
+    void setThreading(session::Threading threading);
 
     const session::Session& session() const { return session_; }
     // The parts, for tests.
@@ -70,7 +71,6 @@ public:
     Outliner* outliner() const { return outliner_; }
     ParametersPanel* parameters() const { return parameters_; }
     AttributeEditor* attributes() const { return attributes_; }
-    ClothPanel* cloth() const { return cloth_; }
     TableView* table() const { return table_; }
     SpaceView* space() const { return space_; }
     QDockWidget* dock(const QString& name) const;
@@ -92,6 +92,8 @@ private:
     enum class Follow { Copy, Instance, MirroredInstance };
     void addBeside(PanelId source, Follow how);
     void buildMenus();
+    Outliner::Body bodyNow() const;
+    void showMeshCounts();
     // What a gesture on the table changes: decided by the rules both windows share.
     void on(const session::Gesture& gesture);
     // The tool in use: kept by Drafting, shown by the shelf and both views.
@@ -103,7 +105,6 @@ private:
     QShortcut* showAllSteps_;  // Escape, while an earlier step is shown
     ParametersPanel* parameters_;
     AttributeEditor* attributes_;
-    ClothPanel* cloth_;
     TableView* table_;
     SpaceView* space_;
     QSplitter* views_;
@@ -130,6 +131,8 @@ private:
     // A layer's edge, corner or line is chosen next by a click on the table.
     void startPicking(OpId layer, ReferenceId reference);
     std::uint64_t shownVersion_ = 0;
+    std::uint64_t countedMesh_ = 0;  // the mesh the attribute editor's counts are of, and whose panel
+    std::optional<PanelId> countedPanel_;
     ViewLayout layout_ = ViewLayout::SideBySide;
     QWidget* lastView_ = nullptr;  // the view one-view layout keeps: the one last clicked
     QString path_;
