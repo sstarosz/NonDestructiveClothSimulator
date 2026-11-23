@@ -465,6 +465,8 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
             name->setFlat(true);
             name->setStyleSheet(QString("text-align: left; color: %1; %2").arg(colour.name(), on ? "" : "text-decoration: line-through;"));
             name->setToolTip("Click: close or open.  Alt+click: show the panel as it was at this step.  Drag: move the layer.");
+            // The name gives way before the buttons beside it, so a narrow dock needs no scroll bar.
+            name->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
             // Taken by its name and moved; the base shape and a mirror applied last stay where they are.
             if (op != base && !appliedLast(operation)) {
                 name->setCursor(Qt::OpenHandCursor);
@@ -528,7 +530,9 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                     auto* what = new QPushButton(used, box);
                     what->setFlat(true);
                     what->setCursor(Qt::PointingHandCursor);
-                    what->setToolTip("Click, then click another on the table");
+                    what->setToolTip(used + "\nClick, then click another on the table");
+                    // A long name is cut off at the dock's edge (the tooltip has it all), not scrolled to.
+                    what->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
                     what->setStyleSheet(QString("text-align: left; color: %1; text-decoration: underline;").arg(theme::seam.name()));
                     const ReferenceId id = reference.id;
                     connect(what, &QPushButton::clicked, this, [this, op, id] { emit referenceClicked(op, id); });

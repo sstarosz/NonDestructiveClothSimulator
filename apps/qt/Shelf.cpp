@@ -2,7 +2,7 @@
 
 #include <QAction>
 #include <QActionGroup>
-#include <QHBoxLayout>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QToolBar>
@@ -62,10 +62,7 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     column->setContentsMargins(0, 0, 0, 0);
     column->setSpacing(0);
     column->addWidget(tabs_);
-    auto* line = new QHBoxLayout();
-    line->setSpacing(0);
-    line->addWidget(rows_, 1);
-    column->addLayout(line);
+    column->addWidget(rows_);
 
     toolGroup_ = new QActionGroup(this);
     toolGroup_->setExclusive(true);
@@ -88,11 +85,14 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     simulate_ = new QAction(icon(Icon::Play, theme::formula), "Simulate", this);
     simulate_->setCheckable(true);
     simulate_->setShortcut(QKeySequence("Space"));
+    simulate_->setToolTip("Simulate  ·  Space");
     connect(simulate_, &QAction::toggled, this, [this](bool on) {
         simulate_->setIcon(on ? icon(Icon::Pause) : icon(Icon::Play, theme::formula));
         simulate_->setText(on ? "Pause" : "Simulate");
+        simulate_->setToolTip(on ? "Pause  ·  Space" : "Simulate  ·  Space");
     });
     reset_ = new QAction(icon(Icon::Reset), "Reset the cloth", this);
+    reset_->setToolTip("Reset the cloth  ·  drop it again from where the panels are placed");
 
     instance_ = new QAction(icon(Icon::Instance, theme::instance), "Instance", this);
     instance_->setToolTip("Instance  ·  a panel that follows the selected one entirely");
@@ -109,7 +109,8 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     connect(bake_, &QAction::triggered, this, &Shelf::bakeRequested);
 
     layoutGroup_ = new QActionGroup(this);
-    for (const auto& [which, picture, name] : {std::tuple{ViewLayout::One, Icon::OneView, "One view"},
+    for (const auto& [which, picture, name] : {std::tuple{ViewLayout::SpaceOnly, Icon::SpaceOnly, "3D view only"},
+                                                std::tuple{ViewLayout::TableOnly, Icon::TableOnly, "Table only"},
                                                 std::tuple{ViewLayout::SideBySide, Icon::SideBySide, "Side by side"},
                                                 std::tuple{ViewLayout::Stacked, Icon::Stacked, "Stacked"}}) {
         QAction* action = new QAction(icon(picture, theme::quiet), name, this);
@@ -121,56 +122,70 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     }
     layout(ViewLayout::SideBySide)->setChecked(true);
 
-    const auto tools = [&](QToolBar* bar, std::initializer_list<Tool> group) {
-        for (Tool tool : group) bar->addAction(action(tool));
-        bar->addSeparator();
+    mesh_ = new QAction(icon(Icon::Mesh), "Cloth mesh", this);
+    mesh_->setCheckable(true);
+    mesh_->setToolTip("Cloth mesh  ·  the triangles the cloth is made of");
+
+    const auto tools = [&](QToolBar* to, std::initializer_list<Tool> group) {
+        for (Tool tool : group) to->addAction(action(tool));
+        to->addSeparator();
     };
+    // Each action is shown once. What every stage needs is in the two bars
+    // around the shelf; the tabs hold what is made in that stage.
     QToolBar* draft = row("Draft");
-    draft->addAction(undo_);
-    draft->addAction(redo_);
-    draft->addSeparator();
-    tools(draft, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale});
     tools(draft, {Tool::Rectangle, Tool::Circle, Tool::Ring});
     tools(draft, {Tool::Point, Tool::Curve, Tool::Line, Tool::Mirror});
     tools(draft, {Tool::Cut, Tool::Split});
-    tools(draft, {Tool::Sew});
     draft->addAction(instance_);
     draft->addAction(mirroredInstance_);
     draft->addAction(bake_);
     draft->addAction(placeFromTable_);
     QToolBar* sew = row("Sew");
-    tools(sew, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale});
-    tools(sew, {Tool::Sew});
+    sew->addAction(action(Tool::Sew));
     QToolBar* simulate = row("Simulate");
-    simulate->addAction(undo_);
-    simulate->addAction(redo_);
-    simulate->addSeparator();
-    tools(simulate, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale, Tool::Pull});
-    simulate->addAction(simulate_);
-    simulate->addAction(reset_);
+    simulate->addAction(action(Tool::Pull));
     connect(tabs_, &QTabBar::currentChanged, rows_, &QStackedWidget::setCurrentIndex);
 
-    // The layouts are the same on every tab: beside the rows, at the right.
-    auto* corner = new QToolBar(this);
-    corner->setObjectName("shelfRow");
-    corner->setIconSize(QSize(20, 20));
-    mesh_ = new QAction(icon(Icon::Mesh), "Cloth mesh", this);
-    mesh_->setCheckable(true);
-    mesh_->setToolTip("Cloth mesh  ·  the triangles the cloth is made of");
-    corner->addAction(mesh_);
-    corner->addSeparator();
-    for (const auto& [which, action] : layouts_) corner->addAction(action);
-    line->addWidget(corner);
+    // Under the menu, whichever tab is shown. More can be added at the end:
+    // the room that is left is the bar's own.
+    actionRow_ = bar(22);
+    actionRow_->addAction(undo_);
+    actionRow_->addAction(redo_);
+    actionRow_->addSeparator();
+    actionRow_->addAction(simulate_);
+    actionRow_->addAction(reset_);
+    actionRow_->addSeparator();
+    actionRow_->addAction(mesh_);
+
+    // At the window's left edge: the tools that work on what is there.
+    toolbox_ = bar(28);
+    toolbox_->setOrientation(Qt::Vertical);
+    for (Tool tool : {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale}) toolbox_->addAction(action(tool));
+    // The views' layouts sit at the bottom of the bar, as in Maya.
+    auto* room = new QWidget(toolbox_);
+    room->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+    toolbox_->addWidget(room);
+    for (const auto& [which, layoutAction] : layouts_) toolbox_->addAction(layoutAction);
+
+    // Keys work from every tab, as the actions are on the shelf, which is always shown.
+    for (const auto& [which, toolAction] : tools_) addAction(toolAction);
+    for (QAction* keyed : {undo_, redo_, simulate_, reset_, mesh_}) addAction(keyed);
+}
+
+QToolBar* Shelf::bar(int iconSize) {
+    auto* made = new QToolBar(this);
+    made->setObjectName("shelfRow");
+    made->setIconSize(QSize(iconSize, iconSize));
+    made->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    made->setMovable(false);
+    return made;
 }
 
 QToolBar* Shelf::row(const QString& tab) {
-    auto* bar = new QToolBar(this);
-    bar->setObjectName("shelfRow");
-    bar->setIconSize(QSize(28, 28));
-    bar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    QToolBar* made = bar(28);
     tabs_->addTab(tab);
-    rows_->addWidget(bar);
-    return bar;
+    rows_->addWidget(made);
+    return made;
 }
 
 QAction* Shelf::action(Tool tool) const {

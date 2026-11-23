@@ -1,8 +1,10 @@
 #pragma once
-// The Qt window of 0.1.1, laid out as Maya is: the shelf across the top,
-// docks that fold, float and stack as tabs (Outliner and Parameters on the
-// left; Attribute Editor on the right), the 3D view on the left of
-// the middle and the table on the right, and a help line at the bottom.
+// The Qt window of 0.1.1, laid out as Maya is: the action row (undo, play,
+// reset) and the shelf across the top, the toolbox (Select, Move, Rotate,
+// Scale, the view layouts) at the left edge, docks that fold, float and stack
+// as tabs (Outliner and Parameters on the left; Attribute Editor on the
+// right), the 3D view on the left of the middle and the table on the right,
+// and a help line at the bottom.
 //
 // It owns the session. The docks and views only report what the user did;
 // what that changes in the document is decided here, through the editor,
@@ -134,7 +136,6 @@ private:
     std::uint64_t countedMesh_ = 0;  // the mesh the attribute editor's counts are of, and whose panel
     std::optional<PanelId> countedPanel_;
     ViewLayout layout_ = ViewLayout::SideBySide;
-    QWidget* lastView_ = nullptr;  // the view one-view layout keeps: the one last clicked
     QString path_;
     QString title_;
 };
