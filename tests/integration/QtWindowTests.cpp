@@ -17,6 +17,8 @@
 #include <QScrollArea>
 #include <QShortcut>
 #include <QTemporaryDir>
+#include <QScrollBar>
+#include <QToolBar>
 #include <QToolButton>
 #include <QWheelEvent>
 #include <chrono>
@@ -122,6 +124,94 @@ TEST_CASE("the window opens with its shelf, docks and two views", "[qt]")
     EXPECT((w.window.space()->isVisible() && w.window.table()->isVisible()), "both views are shown, side by side");
 }
 
+TEST_CASE("undo, play and reset sit in a row under the menu; the tools and view layouts in a toolbox at the left; no button is shown twice", "[qt]")
+{
+    Window w;
+    Shelf& shelf = *w.window.shelf();
+    const auto shownIn = [&](QAction* action) {
+        int bars = 0;
+        for (QToolBar* bar : w.window.findChildren<QToolBar*>())
+            if (bar->actions().contains(action)) ++bars;
+        return bars;
+    };
+    EXPECT((w.window.toolBarArea(shelf.actionRow()) == Qt::TopToolBarArea), "the action row is at the top, above the shelf");
+    EXPECT((w.window.toolBarArea(shelf.toolbox()) == Qt::LeftToolBarArea), "the toolbox is at the left edge, beside the docks");
+    EXPECT((shelf.actionRow()->geometry().top() < shelf.parentWidget()->geometry().top()), "and the action row is above the shelf");
+    EXPECT((shelf.toolbox()->geometry().right() <= w.window.dock("Outliner")->geometry().left()), "the toolbox is left of the Outliner");
+    for (QAction* action : {shelf.undo(), shelf.redo(), shelf.simulate(), shelf.reset()})
+        EXPECT((shelf.actionRow()->actions().contains(action) && shownIn(action) == 1), "undo, redo, simulate and reset are in the action row only");
+    for (Tool tool : {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale})
+        EXPECT((shelf.toolbox()->actions().contains(shelf.action(tool)) && shownIn(shelf.action(tool)) == 1), std::string(nameOf(tool)) + " is in the toolbox only");
+    for (ViewLayout layout : {ViewLayout::SpaceOnly, ViewLayout::TableOnly, ViewLayout::SideBySide, ViewLayout::Stacked})
+        EXPECT((shelf.toolbox()->actions().contains(shelf.layout(layout))), "the toolbox chooses how the views share the window");
+    for (int tool = 0; tool <= static_cast<int>(Tool::Pull); ++tool)
+        EXPECT((shownIn(shelf.action(static_cast<Tool>(tool))) == 1), std::string(nameOf(static_cast<Tool>(tool))) + " is shown in one place");
+}
+
+TEST_CASE("the toolbox keeps the tools on top and the view layouts at the bottom; the two views share the middle in half", "[qt]")
+{
+    Window w;
+    Shelf& shelf = *w.window.shelf();
+    QWidget* scale = shelf.toolbox()->widgetForAction(shelf.action(Tool::Scale));
+    QWidget* first = shelf.toolbox()->widgetForAction(shelf.layout(ViewLayout::SpaceOnly));
+    QWidget* last = shelf.toolbox()->widgetForAction(shelf.layout(ViewLayout::Stacked));
+    REQUIRE((scale && first && last));
+    EXPECT((scale->geometry().bottom() < shelf.toolbox()->height() / 2), "the tools are in the top half of the toolbox");
+    EXPECT((first->geometry().top() > shelf.toolbox()->height() / 2), "the view layouts are in the bottom half");
+    EXPECT((shelf.toolbox()->height() - last->geometry().bottom() < 120), "and the last one is close to the bottom");
+
+    const auto half = [&] {
+        const double space = w.window.space()->width(), table = w.window.table()->width();
+        return std::abs(space - table) < 0.05 * (space + table);
+    };
+    EXPECT((half()), "side by side: the 3D view and the table are each half");
+    w.window.shelf()->layout(ViewLayout::Stacked)->trigger();
+    const double up = w.window.space()->height(), down = w.window.table()->height();
+    EXPECT((std::abs(up - down) < 0.05 * (up + down)), "stacked: each is half the height");
+    w.window.shelf()->layout(ViewLayout::SideBySide)->trigger();
+    EXPECT((half()), "and half again when put side by side again");
+}
+
+TEST_CASE("the Attribute Editor opens without a horizontal scroll bar, in it or in its list of layers", "[qt]")
+{
+    Window w;
+    AttributeEditor& editor = *w.window.attributes();
+    const auto scrolls = [&](QScrollArea* area) {
+        return area->horizontalScrollBar()->isVisible() || area->widget()->minimumSizeHint().width() > area->viewport()->width();
+    };
+    QScrollArea* layers = editor.findChild<QScrollArea*>("layerScroll");
+    REQUIRE(layers != nullptr);
+    for (const char* name : {"front", "back"}) {
+        w.window.select(w.panel(name));
+        w.window.tick();
+        QApplication::processEvents();
+        EXPECT((!scrolls(&editor)), std::string("the editor of ") + name + " fits its width as it opens");
+        EXPECT((!scrolls(layers)), std::string("and so does its list of layers (") + name + ")");
+    }
+    w.window.select(std::nullopt);
+    w.window.tick();
+    EXPECT((!scrolls(&editor)), "nor does it with nothing selected");
+}
+
+TEST_CASE("Space starts and stops the simulation, from the 3D view as well; it keeps its state until Reset", "[qt]")
+{
+    Window w;
+    QAction* simulate = w.window.shelf()->simulate();
+    EXPECT((simulate->shortcut() == QKeySequence("Space")), "Space is the simulation's key");
+    w.window.space()->key(QKeyCombination(Qt::Key_Space));
+    EXPECT((simulate->isChecked() && simulate->text() == "Pause"), "Space starts it, and the button now says Pause");
+    for (int i = 0; i < 10; ++i) w.window.tick();
+    const double time = w.window.session().cloth().time;
+    EXPECT((time > 0.0), "the cloth moves");
+    w.window.space()->key(QKeyCombination(Qt::Key_Space));
+    EXPECT((!simulate->isChecked() && simulate->text() == "Simulate"), "Space again pauses it");
+    for (int i = 0; i < 10; ++i) w.window.tick();
+    EXPECT((w.window.session().cloth().time == time), "paused, the cloth stands still");
+    w.window.space()->key(QKeyCombination(Qt::Key_Space));
+    for (int i = 0; i < 10; ++i) w.window.tick();
+    EXPECT((w.window.session().cloth().time > time), "and starts again where it was");
+}
+
 TEST_CASE("a chosen panel's operations show as layers, newest on top", "[qt]")
 {
     Window w;
@@ -216,8 +306,14 @@ TEST_CASE("placement is typed in space; the views can be laid out", "[qt]")
 
     w.window.shelf()->layout(ViewLayout::Stacked)->trigger();
     EXPECT((w.window.viewLayout() == ViewLayout::Stacked && w.window.space()->isVisible() && w.window.table()->isVisible()), "stacked shows both");
-    w.window.shelf()->layout(ViewLayout::One)->trigger();
-    EXPECT((w.window.space()->isVisible() != w.window.table()->isVisible()), "one view shows one");
+    w.window.shelf()->layout(ViewLayout::SpaceOnly)->trigger();
+    EXPECT((w.window.space()->isVisible() && !w.window.table()->isVisible()), "3D view only shows the 3D view");
+    w.window.shelf()->layout(ViewLayout::TableOnly)->trigger();
+    EXPECT((!w.window.space()->isVisible() && w.window.table()->isVisible()), "table only shows the table");
+    w.window.shelf()->layout(ViewLayout::SpaceOnly)->trigger();
+    EXPECT((w.window.viewLayout() == ViewLayout::SpaceOnly && !w.window.table()->isVisible()), "and each stays, whichever view was used last");
+    w.window.shelf()->layout(ViewLayout::SideBySide)->trigger();
+    EXPECT((w.window.space()->isVisible() && w.window.table()->isVisible()), "side by side brings both back");
 }
 
 TEST_CASE("simulate runs the cloth; copy and instance add a panel beside", "[qt]")

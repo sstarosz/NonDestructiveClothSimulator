@@ -66,10 +66,17 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     setDockNestingEnabled(true);
 
     shelf_ = new Shelf(this);
+    // As in Maya: the action row under the menu, the shelf under that, and the
+    // toolbox at the left edge, outside the docks.
+    shelf_->actionRow()->setWindowTitle("Actions");
+    addToolBar(Qt::TopToolBarArea, shelf_->actionRow());
+    addToolBarBreak(Qt::TopToolBarArea);
     QToolBar* top = addToolBar("Shelf");
     top->setObjectName("shelf");
     top->setMovable(false);
     top->addWidget(shelf_);
+    shelf_->toolbox()->setWindowTitle("Tools");
+    addToolBar(Qt::LeftToolBarArea, shelf_->toolbox());
 
     space_ = new SpaceView(this);
     table_ = new TableView(this);
@@ -77,8 +84,10 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     views_->addWidget(space_);
     views_->addWidget(table_);
     views_->setChildrenCollapsible(false);
+    views_->setStretchFactor(0, 1);
+    views_->setStretchFactor(1, 1);
+    views_->setSizes({1, 1});  // each view's own size hint would otherwise decide: half and half
     setCentralWidget(views_);
-    lastView_ = table_;
 
     outliner_ = new Outliner(this);
     parameters_ = new ParametersPanel(this);
@@ -129,18 +138,9 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     });
     connect(shelf_, &Shelf::layoutChosen, this, &MainWindow::setViewLayout);
     connect(outliner_, &Outliner::panelChosen, this, [this](PanelId panel) { select(panel); });
-    connect(table_, &TableView::gestured, this, [this](const session::Gesture& gesture) {
-        lastView_ = table_;
-        on(gesture);
-    });
-    connect(space_, &SpaceView::panelClicked, this, [this](std::optional<PanelId> panel) {
-        lastView_ = space_;
-        select(panel);
-    });
-    connect(space_, &SpaceView::gestured, this, [this](const session::Gesture& gesture) {
-        lastView_ = space_;
-        on(gesture);
-    });
+    connect(table_, &TableView::gestured, this, &MainWindow::on);
+    connect(space_, &SpaceView::panelClicked, this, &MainWindow::select);
+    connect(space_, &SpaceView::gestured, this, &MainWindow::on);
     connect(space_, &SpaceView::keyed, this, [this](QKeyCombination pressed) {
         // Keys typed while the 3D view's own window has the focus do not reach
         // the window's shortcuts by themselves.
@@ -154,7 +154,6 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(space_, &SpaceView::hinted, this, [this](const QString& next) { say(next); });
     connect(space_, &SpaceView::clothPulled, this, [this](PanelId panel, std::uint32_t point, sim::Vec3 to, session::DragPhase phase) {
         // Pulling the cloth by hand changes nothing in the document: only the drape.
-        lastView_ = space_;
         if (!session_.document().contains(panel)) return;
         if (phase == session::DragPhase::Begin) session_.grab(panel, point, to);
         else if (phase == session::DragPhase::Continue) session_.pullTo(to);
@@ -719,8 +718,9 @@ void MainWindow::setViewLayout(ViewLayout layout) {
     layout_ = layout;
     shelf_->layout(layout)->setChecked(true);
     views_->setOrientation(layout == ViewLayout::Stacked ? Qt::Vertical : Qt::Horizontal);
-    space_->setVisible(layout != ViewLayout::One || lastView_ == space_);
-    table_->setVisible(layout != ViewLayout::One || lastView_ == table_);
+    space_->setVisible(layout != ViewLayout::TableOnly);
+    table_->setVisible(layout != ViewLayout::SpaceOnly);
+    if (layout == ViewLayout::SideBySide || layout == ViewLayout::Stacked) views_->setSizes({1, 1});  // shared in half again
 }
 
 void MainWindow::addBeside(PanelId source, Follow how) {

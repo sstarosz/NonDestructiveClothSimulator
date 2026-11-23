@@ -36,8 +36,11 @@ the body follows too.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Files**: save and open (`.clothcad`, plain text), undo.
-- **The window** is laid out as Maya is: a shelf of tools on top, the 3D
-  view and the table side by side (or one, or stacked), and dockable panels
+- **The window** is laid out as Maya is: a row of actions under the menu
+  (undo, redo, play and pause, reset, cloth mesh), a shelf of tools to make
+  things (Draft, Sew, Simulate), a toolbox at the left edge (Select, Move,
+  Rotate, Scale, and the view layouts), the 3D
+  view and the table side by side (or stacked, or either one alone), and dockable panels
   that fold and stack as tabs (tabs on top): the Outliner (which also shows
   or hides the body, with its eye) and Parameters on the left, the Attribute
   Editor on the right (a panel's operations as layers, and how fine its cloth is).
@@ -155,7 +158,7 @@ How it is kept fast:
 3. Select the first panel. In the Attribute Editor, open "In space" and set
    Position to 0, 95, 24 and Wrap to 110. For the second: Position 0, 95, -24,
    Rotation 0, 180, 0 (the middle number turns it about y), Wrap 110.
-4. Press Simulate on the shelf (or Space).
+4. Press Play in the action row (or Space; Space again pauses).
 5. Change a width while it hangs.
 
 ## How the code is laid out

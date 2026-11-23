@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
         const auto best = [&](int runs) { return perf::bestMilliseconds([&] { frame(window); }, runs); };
 
         // ---- Nothing changing ----
-        window.shelf()->layout(ViewLayout::One)->trigger();  // the table, which was the last view used
+        window.shelf()->layout(ViewLayout::TableOnly)->trigger();
         for (int i = 0; i < 5; ++i) frame(window);
         report.record("frame, table only, nothing changing", 1.0, best(60));
         window.shelf()->layout(ViewLayout::SideBySide)->trigger();
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
         }
 
         // ---- Dragging a panel on the table: placement only, nothing meshed again ----
-        window.shelf()->layout(ViewLayout::One)->trigger();
+        window.shelf()->layout(ViewLayout::TableOnly)->trigger();
         for (int i = 0; i < 3; ++i) frame(window);
         TableView* table = window.table();
         const PanelId front = window.session().document().panels().front();

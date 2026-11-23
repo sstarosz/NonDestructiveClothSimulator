@@ -124,7 +124,16 @@ void draw(Icon which, Pen& d) {
     case Icon::Grid: for (double v : {9.0, 15.0}) { d.line({3, v}, {21, v}); d.line({v, 3}, {v, 21}); } break;
     case Icon::Lengths: d.line({3, 12}, {21, 12}); d.line({3, 8}, {3, 16}); d.line({21, 8}, {21, 16}); break;
     case Icon::Fit: d.lines({{4, 9}, {4, 4}, {9, 4}}); d.lines({{15, 4}, {20, 4}, {20, 9}}); d.lines({{4, 15}, {4, 20}, {9, 20}}); d.lines({{15, 20}, {20, 20}, {20, 15}}); break;
-    case Icon::OneView: p.drawRoundedRect(QRectF(3, 4, 18, 16), 1, 1); break;
+    case Icon::SpaceOnly:  // a view with a cube in it
+        p.drawRoundedRect(QRectF(3, 4, 18, 16), 1, 1);
+        d.lines({{12, 7}, {17, 9.5}, {17, 14.5}, {12, 17}, {7, 14.5}, {7, 9.5}, {12, 7}});
+        d.lines({{7, 9.5}, {12, 12}, {17, 9.5}});
+        d.line({12, 12}, {12, 17});
+        break;
+    case Icon::TableOnly:  // a view with a pattern piece in it
+        p.drawRoundedRect(QRectF(3, 4, 18, 16), 1, 1);
+        d.lines({{8, 8}, {16, 8}, {16, 16}, {11, 16}, {8, 13}, {8, 8}});
+        break;
     case Icon::SideBySide: p.drawRoundedRect(QRectF(3, 4, 18, 16), 1, 1); d.line({12, 4}, {12, 20}); break;
     case Icon::Stacked: p.drawRoundedRect(QRectF(3, 4, 18, 16), 1, 1); d.line({3, 12}, {21, 12}); break;
     case Icon::Eye: {
