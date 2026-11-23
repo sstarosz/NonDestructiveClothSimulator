@@ -1409,9 +1409,8 @@ TEST_CASE("a panel is placed in space again where the table has it", "[qt]")
     const double was = w.doc().get(plain).arrangement.x;
     emit w.window.attributes()->spaceTyped(plain, 0, "250");
     REQUIRE(w.doc().get(plain).arrangement.x == 250.0);
-    auto* button = w.window.attributes()->findChild<QToolButton*>("placeFromTable");
-    REQUIRE(button != nullptr);
-    button->click();
+    REQUIRE(w.window.shelf()->placeFromTable()->isEnabled());
+    w.window.shelf()->placeFromTable()->trigger();
     EXPECT((w.doc().get(plain).arrangement.placed && std::abs(w.doc().get(plain).arrangement.x - was) < 1e-9), "it stands where it stood when it was new");
     w.window.shelf()->undo()->trigger();
     EXPECT((w.doc().get(plain).arrangement.x == 250.0), "and undo puts it back");

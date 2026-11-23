@@ -100,7 +100,10 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     mirroredInstance_->setToolTip("Mirrored instance  ·  follows the selected panel, flipped left to right");
     bake_ = new QAction(icon(Icon::Lock, theme::formula), "Bake", this);
     bake_->setToolTip("Bake  ·  replace every formula of the selected panel with the number it comes to now,\nso that it follows no parameter. Useful on a copy.");
-    for (QAction* panelAction : {instance_, mirroredInstance_, bake_}) panelAction->setEnabled(false);
+    placeFromTable_ = new QAction(icon(Icon::Reset, theme::quiet), "Place in space from the table", this);
+    placeFromTable_->setToolTip("Place in space from the table  ·  put the selected panel in space where the table has it, as when it was new");
+    for (QAction* panelAction : {instance_, mirroredInstance_, bake_, placeFromTable_}) panelAction->setEnabled(false);
+    connect(placeFromTable_, &QAction::triggered, this, &Shelf::placeFromTableRequested);
     connect(instance_, &QAction::triggered, this, &Shelf::instanceRequested);
     connect(mirroredInstance_, &QAction::triggered, this, &Shelf::mirroredInstanceRequested);
     connect(bake_, &QAction::triggered, this, &Shelf::bakeRequested);
@@ -134,6 +137,7 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     draft->addAction(instance_);
     draft->addAction(mirroredInstance_);
     draft->addAction(bake_);
+    draft->addAction(placeFromTable_);
     QToolBar* sew = row("Sew");
     tools(sew, {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale});
     tools(sew, {Tool::Sew});

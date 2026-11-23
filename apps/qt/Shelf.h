@@ -51,8 +51,11 @@ public:
     QAction* instance() const { return instance_; }
     QAction* mirroredInstance() const { return mirroredInstance_; }
     QAction* bake() const { return bake_; }
+    QAction* placeFromTable() const { return placeFromTable_; }
 
 signals:
+    // The panel placed in space again where the table has it, as when it was new.
+    void placeFromTableRequested();
     void instanceRequested();
     void mirroredInstanceRequested();
     // Every formula of the panel replaced by the number it comes to now.
@@ -77,6 +80,7 @@ private:
     QAction* instance_;
     QAction* mirroredInstance_;
     QAction* bake_;
+    QAction* placeFromTable_;
 };
 
 } // namespace clothcad::ui

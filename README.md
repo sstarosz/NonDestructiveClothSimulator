@@ -151,8 +151,9 @@ How it is kept fast:
 1. Rectangle tool: draw two panels of about 46 x 55 cm.
 2. Sew tool: click the right edge of one and the left edge of the other;
    then the two remaining side edges.
-3. Select the first panel. In the Attribute Editor, under "In space", set
-   x 0, y 95, z 24, Wrap 110. For the second: z -24, Turn 180, Wrap 110.
+3. Select the first panel. In the Attribute Editor, open "In space" and set
+   Position to 0, 95, 24 and Wrap to 110. For the second: Position 0, 95, -24,
+   Rotation 0, 180, 0 (the middle number turns it about y), Wrap 110.
 4. Press Simulate on the shelf (or Space).
 5. Change a width while it hangs.
 
