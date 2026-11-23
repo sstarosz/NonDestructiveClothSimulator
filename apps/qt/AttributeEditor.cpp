@@ -227,8 +227,9 @@ void AttributeEditor::show(const Document& doc, const Result& shapes, std::optio
     rebuildSeams(doc, shapes);
 }
 
-// The seams that touch the panel: what is sewn to what, both lengths, and
-// which way round; each can be reversed or removed.
+// The seams that touch the panel, one small card each: the panel it is sewn
+// to, both lengths and what is gathered, and a button that twists it. Which
+// edges are sewn is in the card's tooltip; removing a seam is the Outliner's.
 void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
     std::vector<SeamId> mine;
     for (SeamId id : doc.seams())
@@ -238,33 +239,47 @@ void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
             if (r.seam == id) return &r;
         return nullptr;
     };
-    const auto sideName = [&](const SeamSide& side) {
-        std::string name = nameOf(Reference(side.edge), doc);
-        if (!(side.panel == *panel_)) name += " on " + (doc.contains(side.panel) ? doc.get(side.panel).name : std::string("a removed panel"));
-        return QString::fromStdString(name);
+    const auto edgeName = [&](const SeamSide& side) {
+        const std::string panel = doc.contains(side.panel) ? doc.get(side.panel).name : std::string("a removed panel");
+        return QString::fromStdString(nameOf(Reference(side.edge), doc) + " on " + panel);
     };
-    // The words each row shows; the rows are made again only when they change.
+    // The words each card shows; the cards are made again only when they change.
     struct Shown {
         SeamId id;
-        QString here, there, lengths;
+        QString partner, lengths, gathered, edges;
         bool broken, reversed;
+        bool uneven = false;  // the edges differ in length: one side is gathered
     };
     std::vector<Shown> rows;
     std::string signature = std::to_string(panel_->value);
     for (SeamId id : mine) {
         const Seam& seam = doc.get(id);
         const bool swap = !(seam.a.panel == *panel_);  // this panel's edge first
+        const SeamSide& here = swap ? seam.b : seam.a;
+        const SeamSide& there = swap ? seam.a : seam.b;
         const SeamResult* sewn = sewnOf(id);
-        Shown row{id, sideName(swap ? seam.b : seam.a), "sewn to " + sideName(swap ? seam.a : seam.b), {}, sewn && !sewn->sewn(), seam.reversed};
-        if (sewn && !sewn->sewn()) {
-            row.lengths = QString::fromStdString("Broken: " + sewn->problem + ". It comes back if the edge does.");
+        Shown row{.id = id,
+                  .partner = there.panel == *panel_   ? QString("Itself")
+                             : doc.contains(there.panel) ? QString::fromStdString(doc.get(there.panel).name)
+                                                         : QString("A removed panel"),
+                  .edges = edgeName(here) + "\nsewn to " + edgeName(there),
+                  .broken = sewn && !sewn->sewn(),
+                  .reversed = seam.reversed};
+        if (row.broken) {
+            row.lengths = QString::fromStdString("Broken: " + sewn->problem + ".");
+            row.gathered = "It comes back if the edge does.";
         } else if (sewn) {
-            const double here = swap ? sewn->lengthB : sewn->lengthA, there = swap ? sewn->lengthA : sewn->lengthB;
-            row.lengths = std::abs(here - there) < 0.05
-                              ? QString::fromStdString(formatValue(here, Unit::Length) + ", both sides")
-                              : QString::fromStdString(formatValue(here, Unit::Length) + " to " + formatValue(there, Unit::Length) + ": the longer side is gathered");
+            const double mineLong = swap ? sewn->lengthB : sewn->lengthA, otherLong = swap ? sewn->lengthA : sewn->lengthB;
+            if (std::abs(mineLong - otherLong) < 0.05) {
+                row.lengths = QString::fromStdString(formatValue(mineLong, Unit::Length));
+                row.gathered = "even";
+            } else {
+                row.lengths = QString::fromStdString(formatValue(mineLong, Unit::Length) + "  →  " + formatValue(otherLong, Unit::Length));
+                row.gathered = QString::fromStdString(formatValue(std::abs(mineLong - otherLong), Unit::Length) + " gathered");
+                row.uneven = true;
+            }
         }
-        signature += "," + std::to_string(id.value) + row.here.toStdString() + row.there.toStdString() + row.lengths.toStdString() + (row.reversed ? "r" : "");
+        signature += "," + std::to_string(id.value) + row.partner.toStdString() + row.edges.toStdString() + row.lengths.toStdString() + (row.reversed ? "r" : "");
         rows.push_back(row);
     }
     seamsSection_->setVisible(!rows.empty());
@@ -276,42 +291,53 @@ void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
         delete item;
     }
     for (const Shown& row : rows) {
-        auto* box = new QWidget(seamsSection_->content());
-        box->setObjectName(QString("seam%1").arg(row.id.value));
-        auto* column = new QVBoxLayout(box);
-        column->setContentsMargins(0, 0, 0, 0);
-        column->setSpacing(1);
-        auto* here = new QLabel(row.here, box);
-        here->setWordWrap(true);
-        here->setStyleSheet(QString("color: %1").arg(theme::seam.name()));
-        auto* there = new QLabel(row.there, box);
-        there->setWordWrap(true);
-        auto* lengths = new QLabel(row.lengths, box);
+        auto* card = new QFrame(seamsSection_->content());
+        const QString name = QString("seam%1").arg(row.id.value);
+        card->setObjectName(name);
+        card->setStyleSheet(cardStyle("QFrame#" + name, false, false));
+        card->setToolTip(row.edges);
+        auto* grid = new QGridLayout(card);
+        grid->setContentsMargins(6, 4, 4, 4);
+        grid->setHorizontalSpacing(6);
+        grid->setVerticalSpacing(0);
+        auto* sew = new QLabel(card);
+        sew->setPixmap(icon(Icon::Sew, row.broken ? theme::error : theme::seam).pixmap(16, 16));
+        auto* partner = new QLabel(row.partner, card);
+        partner->setStyleSheet(QString("color: %1").arg((row.broken ? theme::error : theme::seam).name()));
+        // Uneven lengths in orange, so a gathered seam stands out from an even one.
+        const QColor said = row.broken ? theme::error : row.uneven ? theme::uneven : theme::text;
+        auto* lengths = new QLabel(row.lengths, card);
+        lengths->setObjectName("seamLengths");
         lengths->setWordWrap(true);
-        lengths->setStyleSheet(QString("color: %1").arg((row.broken ? theme::error : theme::quiet).name()));
-        auto* buttons = new QHBoxLayout();
-        auto* reversed = new QCheckBox("Reversed", box);
+        lengths->setStyleSheet(QString("color: %1").arg(said.name()));
+        auto* gathered = new QLabel(row.gathered, card);
+        gathered->setWordWrap(true);
+        gathered->setStyleSheet(QString("color: %1").arg((row.uneven ? theme::uneven : theme::quiet).name()));
+        // Checked: start meets start, which twists the pieces.
+        auto* reversed = new QToolButton(card);
         reversed->setObjectName("reversed");
+        reversed->setCheckable(true);
         reversed->setChecked(row.reversed);
-        reversed->setToolTip("Sews start to start instead of start to end, which twists the pieces.\nThe dotted links on the table show which ends meet.");
+        reversed->setAutoRaise(true);
+        reversed->setIcon(icon(Icon::Twist, row.reversed ? theme::seam : theme::quiet));
+        reversed->setToolTip("Reverse: sew start to start instead of start to end, which twists the pieces.\n"
+                             "The dotted links on the table show which ends meet.");
         const SeamId id = row.id;
-        connect(reversed, &QCheckBox::clicked, this, [this, id](bool on) { reverseSeam(id, on); });
-        auto* remove = new QPushButton("Remove", box);
-        remove->setObjectName("removeSeam");
-        connect(remove, &QPushButton::clicked, this, [this, id] { removeSeam(id); });
-        buttons->addWidget(reversed, 1);
-        buttons->addWidget(remove);
-        column->addWidget(here);
-        column->addWidget(there);
-        column->addWidget(lengths);
-        column->addLayout(buttons);
-        seamRows_->addWidget(box);
+        connect(reversed, &QToolButton::clicked, this, [this, id](bool on) { reverseSeam(id, on); });
+        grid->addWidget(sew, 0, 0, Qt::AlignVCenter);
+        grid->addWidget(partner, 0, 1);
+        grid->addWidget(reversed, 0, 2, 2, 1, Qt::AlignVCenter);
+        auto* numbers = new QHBoxLayout();
+        numbers->setSpacing(10);
+        numbers->addWidget(lengths);
+        numbers->addWidget(gathered, 1);
+        grid->addLayout(numbers, 1, 1);
+        grid->setColumnStretch(1, 1);
+        seamRows_->addWidget(card);
     }
 }
 
 void AttributeEditor::reverseSeam(SeamId seam, bool reversed) { emit seamReversed(seam, reversed); }
-
-void AttributeEditor::removeSeam(SeamId seam) { emit seamRemoved(seam); }
 
 void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
     // Newest on top; a mirror applied last is on top of everything.

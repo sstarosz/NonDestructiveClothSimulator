@@ -271,7 +271,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         changed.reversed = reversed;
         change([&](Document& doc) { doc.set(seam, changed); });
     });
-    connect(attributes_, &AttributeEditor::seamRemoved, this, [this](SeamId seam) {
+    connect(outliner_, &Outliner::seamDeleteRequested, this, [this](SeamId seam) {
         if (session_.document().contains(seam)) change([&](Document& doc) { doc.remove(seam); }, {.ifItBreaks = session::IfItBreaks::Allow});
     });
     connect(attributes_, &AttributeEditor::panelReferenceChosen, this, [this](OpId layer, ReferenceId reference, PanelId panel) {

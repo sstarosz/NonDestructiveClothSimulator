@@ -52,8 +52,7 @@ public:
     std::vector<session::Offer> offered() const;
     void addOperation(session::Offer offer);
     std::vector<SeamId> seamsShown() const { return seams_; }
-    void reverseSeam(SeamId seam, bool reversed);  // as a click on its tick
-    void removeSeam(SeamId seam);                  // as a click on its Remove
+    void reverseSeam(SeamId seam, bool reversed);  // as a click on its twist button
     ValueField* field(OpId layer, FieldId field) const;  // of an open layer
     ValueField* spaceField(int which) const;
     ValueField* tableField(int which) const;
@@ -86,7 +85,6 @@ signals:
     void mirrorLastChanged(clothcad::OpId layer, bool last);
     void instanceMirroredChanged(clothcad::OpId layer, bool mirrored);
     void seamReversed(clothcad::SeamId seam, bool reversed);
-    void seamRemoved(clothcad::SeamId seam);
     // An operation chosen from the "+ Add operation" list.
     void operationOffered(clothcad::PanelId panel, clothcad::session::Offer offer);
 

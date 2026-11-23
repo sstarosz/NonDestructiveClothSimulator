@@ -2,6 +2,7 @@
 // a screen (QT_QPA_PLATFORM=offscreen): what the document became is checked.
 
 #include <QAction>
+#include <algorithm>
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -1046,7 +1047,7 @@ TEST_CASE("a mirror can be applied in its place instead of last", "[qt]")
     EXPECT((!std::get<Mirror>(w.doc().get(mirror)).appliedLast), "unticked, the mirror runs in its place");
 }
 
-TEST_CASE("a panel's seams are listed; each can be reversed or removed, and undone", "[qt]")
+TEST_CASE("a panel's seams are listed and reversed in the Attribute Editor, deleted in the Outliner, and undone", "[qt]")
 {
     Window w;
     const PanelId front = w.panel("front");
@@ -1058,13 +1059,45 @@ TEST_CASE("a panel's seams are listed; each can be reversed or removed, and undo
 
     const SeamId seam = seams.front();
     const bool was = w.doc().get(seam).reversed;
-    editor.reverseSeam(seam, !was);
-    EXPECT((w.doc().get(seam).reversed == !was), "the tick reverses the seam");
-    editor.removeSeam(seam);
-    EXPECT((!w.doc().contains(seam)), "Remove takes the seam away");
-    EXPECT((editor.seamsShown().size() == seams.size() - 1), "and it is no longer listed");
+    auto* card = editor.findChild<QWidget*>(QString("seam%1").arg(seam.value));
+    REQUIRE(card != nullptr);
+    EXPECT((card->findChild<QPushButton*>() == nullptr), "a seam's card has no Remove: the Outliner deletes seams");
+    auto* twist = card->findChild<QToolButton*>("reversed");
+    REQUIRE(twist != nullptr);
+    twist->click();
+    EXPECT((w.doc().get(seam).reversed == !was), "the twist button reverses the seam");
+
+    const std::vector<SeamId> listed = w.window.outliner()->seamsShown();
+    EXPECT((std::find(listed.begin(), listed.end(), seam) != listed.end()), "the Outliner lists the seam");
+    w.window.outliner()->removeSeam(seam);
+    EXPECT((!w.doc().contains(seam)), "Delete in the Outliner takes the seam away");
+    EXPECT((editor.seamsShown().size() == seams.size() - 1), "and the Attribute Editor no longer lists it");
     w.window.shelf()->undo()->trigger();
     EXPECT((w.doc().contains(seam) && w.doc().get(seam).reversed == !was), "undo brings it back as it was");
+}
+
+TEST_CASE("a seam whose edges differ in length shows its lengths in orange; an even one does not", "[qt]")
+{
+    Window w;
+    Document doc;
+    const PanelId wide = doc.add(Panel{.name = "wide"});
+    const OpRef<Rect> wideRect = doc.add(wide, Rect{.width = 30_cm, .height = 10_cm});
+    const PanelId narrow = doc.add(Panel{.name = "narrow"});
+    const OpRef<Rect> narrowRect = doc.add(narrow, Rect{.width = 20_cm, .height = 10_cm});
+    const SeamId uneven = doc.add(Seam{.a = {wide, wideRect.top()}, .b = {narrow, narrowRect.top()}});
+    const SeamId even = doc.add(Seam{.a = {wide, wideRect.left()}, .b = {narrow, narrowRect.right()}});
+    w.window.open(std::move(doc), "seams");
+    w.window.tick();
+    w.window.select(wide);
+    const auto colourOf = [&](SeamId seam) {
+        auto* card = w.window.attributes()->findChild<QWidget*>(QString("seam%1").arg(seam.value));
+        REQUIRE(card != nullptr);
+        auto* lengths = card->findChild<QLabel*>("seamLengths");
+        REQUIRE(lengths != nullptr);
+        return lengths->styleSheet();
+    };
+    EXPECT((colourOf(uneven).contains(theme::uneven.name())), "30 cm sewn to 20 cm is shown in orange");
+    EXPECT((!colourOf(even).contains(theme::uneven.name())), "10 cm sewn to 10 cm is not");
 }
 
 TEST_CASE("a panel is renamed, made base only and deleted in the Outliner", "[qt]")

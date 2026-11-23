@@ -2,7 +2,8 @@
 // The scene as a tree, as Maya's Outliner: the body, the panels, the seams.
 // A panel's icon says what it is: mirrored (pink), an instance (violet).
 // Choosing, renaming (double click or F2), copying, making it base only and
-// deleting a panel (its context menu, Delete) are only reported.
+// deleting a panel (its context menu, Delete) are only reported, as is
+// deleting a seam (its context menu, Delete).
 //
 //   outliner->show(doc, shapes, selected, "avatarV1.obj");
 //   connect(outliner, &Outliner::panelChosen, ...);
@@ -28,6 +29,8 @@ public:
     void copy(PanelId panel) { emit copyRequested(panel); }      // as "Copy" in its menu
     void remove(PanelId panel) { emit deleteRequested(panel); }  // as "Delete" in its menu
     void setBaseOnly(PanelId panel, bool on);                    // as ticking "Base only" in its menu
+    std::vector<SeamId> seamsShown() const;
+    void removeSeam(SeamId seam) { emit seamDeleteRequested(seam); }  // as "Delete" in a seam's menu
 
 signals:
     void panelChosen(clothcad::PanelId panel);
@@ -36,12 +39,14 @@ signals:
     void deleteRequested(clothcad::PanelId panel);
     // Base only: a panel kept as a base for instances, not cut from cloth.
     void baseOnlyChanged(clothcad::PanelId panel, bool baseOnly);
+    void seamDeleteRequested(clothcad::SeamId seam);
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
 
 private:
     std::optional<PanelId> panelOf(const QTreeWidgetItem* item) const;
+    std::optional<SeamId> seamOf(const QTreeWidgetItem* item) const;
 
     QTreeWidgetItem* body_;
     QTreeWidgetItem* panels_;

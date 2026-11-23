@@ -89,6 +89,10 @@ void draw(Icon which, Pen& d) {
     case Icon::Mirror: d.dashed({12, 3}, {12, 21}); d.lines({{9, 6}, {4, 6}, {4, 18}, {9, 18}}); d.lines({{15, 6}, {20, 6}, {20, 18}, {15, 18}}); break;
     case Icon::Cut: p.drawEllipse(QPointF(6, 18), 3, 3); p.drawEllipse(QPointF(18, 18), 3, 3); d.line({8, 16}, {20, 4}); d.line({16, 16}, {4, 4}); break;
     case Icon::Split: p.drawRect(QRectF(3, 5, 7, 14)); p.drawRect(QRectF(14, 5, 7, 14)); break;
+    case Icon::Twist:  // two edges whose ends cross over: a seam sewn start to start
+        d.line({4, 6}, {20, 18}); d.line({4, 18}, {20, 6});
+        d.lines({{15, 6}, {20, 6}, {20, 11}}); d.lines({{15, 18}, {20, 18}, {20, 13}});
+        break;
     case Icon::Sew: d.line({4, 7}, {20, 7}); d.line({4, 17}, {20, 17}); for (double x : {8.0, 12.0, 16.0}) d.dashed({x, 7}, {x, 17}); break;
     case Icon::Pull: {
         QPainterPath hand;

@@ -13,6 +13,7 @@ namespace {
 
 constexpr int panelRole = Qt::UserRole + 1;
 constexpr int baseOnlyRole = Qt::UserRole + 2;  // a panel kept as a base for instances, not cut from cloth
+constexpr int seamRole = Qt::UserRole + 3;
 
 // What a panel is, for its icon: an instance follows another; a mirror makes two halves.
 Icon iconOf(const Document& doc, PanelId panel, QColor& colour) {
@@ -66,6 +67,12 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
     setContextMenuPolicy(Qt::CustomContextMenu);
     connect(this, &QWidget::customContextMenuRequested, this, [this](const QPoint& where) {
         QTreeWidgetItem* item = itemAt(where);
+        if (const std::optional<SeamId> seam = seamOf(item)) {
+            QMenu menu(this);
+            menu.addAction(icon(Icon::Delete, theme::error), "Delete", [this, seam] { emit seamDeleteRequested(*seam); });
+            menu.exec(viewport()->mapToGlobal(where));
+            return;
+        }
         const std::optional<PanelId> panel = panelOf(item);
         if (!panel) return;
         QMenu menu(this);
@@ -85,9 +92,16 @@ std::optional<PanelId> Outliner::panelOf(const QTreeWidgetItem* item) const {
     return PanelId{item->data(0, panelRole).toUInt()};
 }
 
+std::optional<SeamId> Outliner::seamOf(const QTreeWidgetItem* item) const {
+    if (!item || !item->data(0, seamRole).isValid()) return std::nullopt;
+    return SeamId{item->data(0, seamRole).toUInt()};
+}
+
 void Outliner::keyPressEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_Delete && state() != EditingState)
+    if (event->key() == Qt::Key_Delete && state() != EditingState) {
         if (const std::optional<PanelId> panel = panelOf(currentItem())) return emit deleteRequested(*panel);
+        if (const std::optional<SeamId> seam = seamOf(currentItem())) return emit seamDeleteRequested(*seam);
+    }
     QTreeWidget::keyPressEvent(event);
 }
 
@@ -124,12 +138,19 @@ void Outliner::show(const Document& doc, const Result& shapes, std::optional<Pan
         };
         auto* item = new QTreeWidgetItem(seams_, {QString::fromStdString(side(seam.a) + "  ↔  " + side(seam.b))});
         item->setForeground(0, theme::seam);
+        item->setData(0, seamRole, id.value);
         item->setToolTip(0, QString::fromStdString(nameOf(Reference(seam.a.edge), doc) + "\n" + nameOf(Reference(seam.b.edge), doc)));
     }
     seams_->setText(1, QString::number(doc.seams().size()));
     seams_->setForeground(1, theme::quiet);
     if (!selected) setCurrentItem(nullptr);
     showing_ = false;
+}
+
+std::vector<SeamId> Outliner::seamsShown() const {
+    std::vector<SeamId> shown;
+    for (int i = 0; i < seams_->childCount(); ++i) shown.push_back(SeamId{seams_->child(i)->data(0, seamRole).toUInt()});
+    return shown;
 }
 
 std::vector<PanelId> Outliner::panelsShown() const {
