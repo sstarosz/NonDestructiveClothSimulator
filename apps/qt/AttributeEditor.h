@@ -67,8 +67,6 @@ signals:
     void fieldTyped(clothcad::OpId layer, clothcad::FieldId field, QString text);
     // In space: 0 x, 1 y, 2 z, 3 turn, 4 tilt, 5 roll, 6 wrap. On the table: 0 x, 1 y, 2 angle.
     void spaceTyped(clothcad::PanelId panel, int which, QString text);
-    // Placed in space again where the table has it, as a new panel is.
-    void placeFromTableRequested(clothcad::PanelId panel);
     void tableTyped(clothcad::PanelId panel, int which, QString text);
     // The same fields dragged: the number, in the field's unit, and where in one drag it is.
     void fieldDragged(clothcad::OpId layer, clothcad::FieldId field, double value, clothcad::session::DragPhase phase);

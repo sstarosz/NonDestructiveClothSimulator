@@ -106,16 +106,24 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     auto* space = new QGridLayout(spaceSection_->content());
     space->setContentsMargins(8, 6, 8, 6);
     space->setSpacing(4);
-    const char* spaceLabels[] = {"x", "y", "z", "Turn", "Tilt", "Roll", "Wrap"};
-    const QColor spaceColours[] = {theme::axisX, theme::axisY, theme::axisZ, theme::quiet, theme::quiet, theme::quiet, theme::quiet};
+    // As in Maya: one row per attribute, its name on the left and its numbers
+    // side by side, without saying which axis each is (the tooltip does).
+    const char* spaceRows[] = {"Position", "Rotation", "Wrap"};
+    const char* spaceTips[] = {"x", "y", "z", "Turn (about y)", "Tilt", "Roll", "Wrap"};
+    for (int row = 0; row < 3; ++row) {
+        auto* label = new QLabel(spaceRows[row], spaceSection_->content());
+        label->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
+        space->addWidget(label, row, 0);
+    }
+    space->setColumnStretch(1, 1);
+    space->setColumnStretch(2, 1);
+    space->setColumnStretch(3, 1);
     for (int i = 0; i < 7; ++i) {
-        auto* label = new QLabel(spaceLabels[i], spaceSection_->content());
-        label->setStyleSheet(QString("color: %1").arg(spaceColours[i].name()));
         auto* field = new ValueField(i < 3 ? Unit::Length : Unit::Angle, spaceSection_->content());
-        // x y z on the first two rows; turn, tilt, roll on the next two; wrap below.
-        const int labelRow = i < 3 ? 0 : i < 6 ? 2 : 4, place = i < 3 ? i : i < 6 ? i - 3 : 0;
-        space->addWidget(label, labelRow, place);
-        space->addWidget(field, labelRow + 1, place);
+        field->setToolTip(spaceTips[i]);
+        // Position x y z, rotation turn tilt roll, wrap alone.
+        const int row = i < 3 ? 0 : i < 6 ? 1 : 2, place = i < 3 ? i : i < 6 ? i - 3 : 0;
+        space->addWidget(field, row, 1 + place);
         space_.push_back(field);
         field->setDragStep(i < 3 ? 0.5 : 1.0);  // half a centimetre or a degree a pixel
         connect(field, &ValueField::typed, this, [this, i](QString text) {
@@ -125,24 +133,26 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
             if (panel_) emit spaceDragged(*panel_, i, value, phase);
         });
     }
-    // Back to where the table has it, as when the panel was new.
-    QToolButton* fromTable = smallButton(Icon::Reset, theme::quiet, "Place it where the table has it", spaceSection_);
-    fromTable->setObjectName("placeFromTable");
-    spaceSection_->addToHeader(fromTable);
-    connect(fromTable, &QToolButton::clicked, this, [this] {
-        if (panel_) emit placeFromTableRequested(*panel_);
-    });
+    spaceSection_->setOpen(false);
     column->addWidget(spaceSection_);
 
     tableSection_ = new Section("On the table", page_);
     auto* table = new QGridLayout(tableSection_->content());
     table->setContentsMargins(8, 6, 8, 6);
     table->setSpacing(4);
-    const char* tableLabels[] = {"x", "y", "Angle"};
+    const char* tableTips[] = {"x", "y", "Angle"};
+    for (int row = 0; row < 2; ++row) {
+        auto* label = new QLabel(row == 0 ? "Position" : "Rotation", tableSection_->content());
+        label->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
+        table->addWidget(label, row, 0);
+    }
+    table->setColumnStretch(1, 1);
+    table->setColumnStretch(2, 1);
+    table->setColumnStretch(3, 1);
     for (int i = 0; i < 3; ++i) {
-        table->addWidget(new QLabel(tableLabels[i], tableSection_->content()), 0, i);
         auto* field = new ValueField(i < 2 ? Unit::Length : Unit::Angle, tableSection_->content());
-        table->addWidget(field, 1, i);
+        field->setToolTip(tableTips[i]);
+        table->addWidget(field, i < 2 ? 0 : 1, i < 2 ? 1 + i : 1);
         table_.push_back(field);
         field->setDragStep(i < 2 ? 0.5 : 1.0);
         connect(field, &ValueField::typed, this, [this, i](QString text) {

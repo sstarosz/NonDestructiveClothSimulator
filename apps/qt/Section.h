@@ -15,15 +15,12 @@ class Section : public QWidget {
 public:
     explicit Section(const QString& title, QWidget* parent = nullptr);
     QWidget* content() const { return content_; }
-    // Widgets beside the title, at the right of the header (an add button).
-    void addToHeader(QWidget* widget);
     void setOpen(bool open);
     bool isOpen() const;
 
 private:
     QString title_;
     QPushButton* header_;
-    QWidget* headerRow_;
     QWidget* content_;
 };
 

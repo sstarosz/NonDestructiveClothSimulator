@@ -358,7 +358,10 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         if (change([&](Document& doc) { baked = bake(doc, *panel); }))
             say(baked == 0 ? "Nothing to bake: the panel has no formulas." : QString("Baked %1 formula%2 into numbers.").arg(baked).arg(baked == 1 ? "" : "s"));
     });
-    connect(attributes_, &AttributeEditor::placeFromTableRequested, this, [this](PanelId panel) {
+    connect(shelf_, &Shelf::placeFromTableRequested, this, [this] {
+        const std::optional<PanelId> selected = drafting_.selection.panel;
+        if (!selected) return;
+        const PanelId panel = *selected;
         // No place of its own: the editor gives it one from the table again, keeping its anchor.
         change([&](Document& doc) { doc.arrange(panel, Arrangement{.anchor = doc.get(panel).arrangement.anchor}); }, {.touches = session::Touches::PlacementOnly});
     });
@@ -590,7 +593,7 @@ void MainWindow::refresh() {
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
     const QString body = session_.avatarPath().empty() ? "No body" : QFileInfo(QString::fromStdString(session_.avatarPath())).fileName();
     outliner_->show(doc, shapes, selected, body);
-    for (QAction* onPanel : {shelf_->instance(), shelf_->mirroredInstance(), shelf_->bake()}) onPanel->setEnabled(selected.has_value());
+    for (QAction* onPanel : {shelf_->instance(), shelf_->mirroredInstance(), shelf_->bake(), shelf_->placeFromTable()}) onPanel->setEnabled(selected.has_value());
     parameters_->show(doc, shapes);
     // Looking back only at a step of the selected panel.
     if (viewUntil_ && (!selected || !doc.contains(*viewUntil_) || !(doc.panelOf(*viewUntil_) == *selected))) viewUntil_.reset();
