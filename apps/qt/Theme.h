@@ -2,7 +2,7 @@
 // The window's look: a dark Fusion palette, and the colours that mean
 // something. The meanings are the same everywhere in the window:
 // teal = driven by a formula, violet = an instance, pink = symmetry,
-// blue = a seam, amber = selected.
+// blue = a seam, amber = selected, orange = a seam whose edges differ in length.
 //
 //   theme::apply(app);
 //   painter.setPen(theme::seam);
@@ -19,6 +19,7 @@ inline const QColor symmetry{242, 128, 199};
 inline const QColor seam{115, 173, 255};
 inline const QColor selected{255, 191, 69};
 inline const QColor error{255, 107, 97};
+inline const QColor uneven{240, 140, 60};  // sewn edges of different lengths: one side is gathered
 inline const QColor axisX{230, 99, 99};
 inline const QColor axisY{120, 209, 120};
 inline const QColor axisZ{110, 150, 240};
