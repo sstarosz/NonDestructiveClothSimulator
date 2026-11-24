@@ -2,9 +2,10 @@
 // The 2D table: every panel's outline where the table has it, seams in
 // blue, the selected panel in amber, mirror axes in pink. With the Select
 // tool (Q) a panel is chosen and dragged, its corners and curve handles are
-// dragged (Shift adds corners, Shift-drag selects corners in a box; Shift
-// held while a corner is dragged keeps it on the x or y it first moved
-// along, Ctrl snaps the other to the grid), and a
+// dragged (a drag from empty table draws a box that selects the corners in
+// it, Shift adds them to the ones selected, and a click on empty table
+// chooses nothing; Shift held while a corner is dragged keeps it on the x
+// or y it first moved along, Ctrl snaps the other to the grid), and a
 // double-click on an edge types its length. Move (W), Rotate (E) and Scale
 // (R) do the same and show their gizmo on the selected panel
 // (session/TableGizmo): its arrows move it, its ring turns it about its

@@ -41,6 +41,10 @@ the body follows too.
   with its grid: the x axis in red, the y axis in green. The keys work while
   the table (or the 3D view) has the focus, so typing in a field or in the
   Outliner is left alone.
+- **Selecting corners**: with a panel chosen, a box dragged on empty table
+  selects the corners of that panel inside it (Shift adds them to the ones
+  already selected; Shift-click on a corner adds or takes it out); a click on
+  empty table chooses nothing.
 - **A corner along one axis**: Shift held while a corner (or the selected
   corners) is dragged keeps it on the table's x or y, whichever the pointer
   moved furthest along first; a dashed line in that axis's colour shows it.

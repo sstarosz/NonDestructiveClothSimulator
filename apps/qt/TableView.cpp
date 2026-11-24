@@ -511,7 +511,10 @@ void TableView::mousePressEvent(QMouseEvent* event) {
         for (const Drawn& d : drawn_)
             if (encloses(d.pattern, at) && (!under || (selected_ && d.panel == *selected_))) under = &d;
         if (under) grab = Grab{Grab::Kind::Panel, under->panel, {}, {}, false, under->place, session::TableHandle::Middle};
-        emit gestured(session::SelectPanel{under ? std::optional<PanelId>(under->panel) : std::nullopt});
+        // On empty table with a panel chosen, a drag draws a box over its corners; whether it was
+        // only a click (which chooses nothing) is told on release.
+        else if (chosen()) grab = Grab{Grab::Kind::Box, chosen()->panel, {}, {}, false, at, session::TableHandle::Middle};
+        if (under || !chosen()) emit gestured(session::SelectPanel{under ? std::optional<PanelId>(under->panel) : std::nullopt});
     }
     if (grab) drag_ = Drag{*grab, at, event->position(), 0.0, false, grab->kind == Grab::Kind::Gizmo ? gizmo() : std::nullopt};
     if (drag_ && drag_->grab.kind == Grab::Kind::Gizmo)
@@ -649,14 +652,17 @@ void TableView::mouseReleaseEvent(QMouseEvent* event) {
             for (const Vertex& v : chosen()->pattern.vertices)
                 if (v.position.x >= x0 && v.position.x <= x1 && v.position.y >= y0 && v.position.y <= y1) inside.push_back(v.name);
             drag_.reset();
-            emit gestured(session::SelectCorners{drag.grab.panel, std::move(inside), true});
+            emit gestured(session::SelectCorners{drag.grab.panel, std::move(inside), shift ? session::Pick::Add : session::Pick::Replace});
+        } else if (!drag.moved && !shift) {
+            drag_.reset();
+            emit gestured(session::SelectPanel{std::nullopt});  // a click on the empty table
         }
     } else if (drag.moved) {
         // Shift let go a moment before the button must not make the corner jump at the last event.
         dragTo(event->position(), event->modifiers() & Qt::ControlModifier, shift || drag.along != session::Along::Both, true);
     } else if (drag.grab.kind == Grab::Kind::Corner) {
         drag_.reset();
-        emit gestured(session::SelectCorners{drag.grab.panel, {drag.grab.corner}, shift});  // a click on a corner selects it
+        emit gestured(session::SelectCorners{drag.grab.panel, {drag.grab.corner}, shift ? session::Pick::Toggle : session::Pick::Replace});  // a click on a corner selects it
     }
     drag_.reset();
     readout_.clear();

@@ -173,7 +173,7 @@ TEST_CASE("selected corners held to one axis all keep their other coordinate")
     const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    drafting.handle(editor, SelectCorners{box, {rect.topRight(), rect.bottomRight()}, false});
+    drafting.handle(editor, SelectCorners{box, {rect.topRight(), rect.bottomRight()}, Pick::Replace});
     const Vec2 top = editor.shapes()[box].position(rect.topRight()), bottom = editor.shapes()[box].position(rect.bottomRight());
     drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin, Along::Y}, 3.3, 2.0);
     const Vec2 top2 = editor.shapes()[box].position(rect.topRight()), bottom2 = editor.shapes()[box].position(rect.bottomRight());
@@ -188,6 +188,25 @@ TEST_CASE("the axis a drag went furthest along")
     EXPECT((axisOf(3.0, 3.0) == Along::X), "a tie is x");
 }
 
+TEST_CASE("corners are picked to replace, to add or to toggle what is selected")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    const CornerRef a = rect.topRight(), b = rect.bottomRight(), c = rect.topLeft();
+    drafting.handle(editor, SelectCorners{box, {a}, Pick::Replace});
+    drafting.handle(editor, SelectCorners{box, {b, c}, Pick::Replace});
+    EXPECT((drafting.selection.corners == std::vector<CornerRef>{b, c}), "Replace leaves only what was picked");
+    drafting.handle(editor, SelectCorners{box, {b}, Pick::Add});
+    EXPECT((drafting.selection.corners.size() == 2), "Add of a corner already selected keeps it: a box over one corner does not take it out");
+    drafting.handle(editor, SelectCorners{box, {a, b}, Pick::Add});
+    EXPECT((drafting.selection.corners == std::vector<CornerRef>{b, c, a}), "Add joins the new ones");
+    drafting.handle(editor, SelectCorners{box, {b, rect.bottomLeft()}, Pick::Toggle});
+    EXPECT((drafting.selection.corners == std::vector<CornerRef>{c, a, rect.bottomLeft()}), "Toggle takes out the one selected and puts in the other");
+}
+
 TEST_CASE("selected corners move together, as one undo step")
 {
     Document doc;
@@ -195,13 +214,13 @@ TEST_CASE("selected corners move together, as one undo step")
     const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, false});
-    drafting.handle(editor, SelectCorners{box, {rect.bottomRight()}, true});
+    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, Pick::Replace});
+    drafting.handle(editor, SelectCorners{box, {rect.bottomRight()}, Pick::Add});
     EXPECT((drafting.selection.corners.size() == 2 && drafting.selection.panel == box), "a second corner is added");
     drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin}, 5.0, 0.0);
     EXPECT((count<AdjustPoint>(editor.document(), box) == 2 && std::abs(editor.shapes()[box].length(rect.bottom()) - 25.0) < 1e-9), "dragging one moves both");
     EXPECT((editor.undo() && count<AdjustPoint>(editor.document(), box) == 0), "and one undo takes them both back");
-    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, true});
+    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, Pick::Toggle});
     EXPECT((drafting.selection.corners.size() == 1), "clicking a selected corner with Shift takes it out");
 }
 
@@ -433,25 +452,25 @@ TEST_CASE("Delete removes corners added with the Point tool and refuses the corn
     const std::vector<OpId> layers = editor.document().operations(front);
     const CornerRef first = OpRef<AddPoint>(layers[1]).corner(), second = OpRef<AddPoint>(layers[2]).corner();
 
-    drafting.handle(editor, SelectCorners{front, {first}, false});
+    drafting.handle(editor, SelectCorners{front, {first}, Pick::Replace});
     const Outcome done = drafting.handle(editor, DeleteSelection{});
     EXPECT((!done.refused && editor.document().operations(front).size() == 2 && editor.document().operations(front)[1] == layers[2]), "that point's layer is dropped");
     EXPECT((drafting.selection.corners.empty() && drafting.selection.panel == front), "no corner is selected now, the panel still is");
     EXPECT((editor.undo() && editor.document().operations(front).size() == 3), "undo brings the point back");
 
-    drafting.handle(editor, SelectCorners{front, {first, second}, false});
+    drafting.handle(editor, SelectCorners{front, {first, second}, Pick::Replace});
     drafting.handle(editor, DeleteSelection{});
     EXPECT((editor.document().operations(front).size() == 1), "two points go together");
     EXPECT((editor.undo() && editor.document().operations(front).size() == 3), "in one undo step");
 
-    drafting.handle(editor, SelectCorners{front, {rect.topLeft()}, false});
+    drafting.handle(editor, SelectCorners{front, {rect.topLeft()}, Pick::Replace});
     const std::size_t steps = editor.version();
     const Outcome refused = drafting.handle(editor, DeleteSelection{});
     EXPECT((refused.refused && refused.notice.find("1. Rectangle") != std::string::npos && refused.notice.find("Remove or change that layer") != std::string::npos),
            "a corner of the rectangle says which layer it belongs to");
     EXPECT((editor.version() == steps && drafting.selection.corners.size() == 1), "and nothing changes");
 
-    drafting.handle(editor, SelectCorners{front, {first, rect.topLeft()}, false});
+    drafting.handle(editor, SelectCorners{front, {first, rect.topLeft()}, Pick::Replace});
     const Outcome mixed = drafting.handle(editor, DeleteSelection{});
     EXPECT((mixed.refused && editor.document().operations(front).size() == 3), "one corner of a shape among the points refuses all of them");
 }

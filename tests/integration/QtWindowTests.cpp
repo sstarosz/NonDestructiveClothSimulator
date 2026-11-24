@@ -488,6 +488,30 @@ TEST_CASE("Shift-drag selects corners in a box; dragging one moves them together
     EXPECT((w.window.selectedCorners().size() == 3), "Shift-click adds a corner");
 }
 
+TEST_CASE("a box dragged on empty table selects the chosen panel's corners; Shift adds; a click chooses nothing", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const Vec2 topRight = w.corner(plain, 1, 1), bottomRight = w.corner(plain, 1, -1);
+    const Vec2 topLeft = w.corner(plain, -1, 1);
+    // Pressed outside the panel, so it is a box and not a drag of the panel.
+    drag(w.table(), w.table()->toScreen({topRight.x + 6, topRight.y + 8}), w.table()->toScreen({bottomRight.x - 2, bottomRight.y - 8}));
+    EXPECT((w.window.selectedCorners().size() == 2 && w.window.selected() == plain), "a box over the right side selects its two corners, with no Shift");
+    const std::size_t layers = w.doc().operations(plain).size();
+    EXPECT((layers == 1), "and changes nothing in the document");
+
+    drag(w.table(), w.table()->toScreen({topLeft.x - 6, topLeft.y + 6}), w.table()->toScreen({topLeft.x + 2, topLeft.y - 2}), Qt::ShiftModifier);
+    EXPECT((w.window.selectedCorners().size() == 3), "with Shift a box adds its corner to the ones selected");
+    drag(w.table(), w.table()->toScreen({topLeft.x - 6, topLeft.y + 6}), w.table()->toScreen({topLeft.x + 2, topLeft.y - 2}), Qt::ShiftModifier);
+    EXPECT((w.window.selectedCorners().size() == 3), "and a box over one already selected does not take it out");
+
+    drag(w.table(), w.table()->toScreen({topLeft.x - 6, topLeft.y + 6}), w.table()->toScreen({topLeft.x + 2, topLeft.y - 2}));
+    EXPECT((w.window.selectedCorners().size() == 1), "without Shift a box replaces them");
+    click(w.table(), w.table()->toScreen({-1000, -1000}));
+    EXPECT((!w.window.selected() && w.window.selectedCorners().empty()), "a click on empty table chooses nothing");
+}
+
 TEST_CASE("a double-click on an edge opens its length for typing", "[qt]")
 {
     Table w;

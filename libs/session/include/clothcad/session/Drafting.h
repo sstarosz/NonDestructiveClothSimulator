@@ -75,12 +75,17 @@ struct ScalePanel {
     double x, y;
     DragPhase phase;
 };
-// A click or a box dragged over corners of one panel. With `add` they join the
-// corners already selected (a click on a selected one takes it out).
+// How what a click or a box picks joins what is selected already.
+enum class Pick {
+    Replace,  // only these are selected
+    Add,      // these join the others; one already selected stays
+    Toggle,   // each of these goes in, or out if it was in (Shift-click)
+};
+// A click or a box dragged over corners of one panel.
 struct SelectCorners {
     PanelId panel;
     std::vector<CornerRef> corners;
-    bool add;
+    Pick how;
 };
 struct DrawRect {
     double x, y, width, height;  // on the table; x, y is the bottom-left corner

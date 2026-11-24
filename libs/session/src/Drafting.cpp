@@ -140,13 +140,13 @@ Outcome Drafting::on(Editor& editor, const SelectCorners& g) {
     selection.panel = g.panel;
     std::vector<CornerRef>& chosen = selection.corners;
     const auto has = [&](const CornerRef& c) { return std::find(chosen.begin(), chosen.end(), c) != chosen.end(); };
-    if (!g.add) {
+    if (g.how == Pick::Replace) {
         chosen = g.corners;
-    } else if (g.corners.size() == 1 && has(g.corners.front())) {
-        chosen.erase(std::find(chosen.begin(), chosen.end(), g.corners.front()));
-    } else {
-        for (const CornerRef& c : g.corners)
-            if (!has(c)) chosen.push_back(c);
+        return {};
+    }
+    for (const CornerRef& c : g.corners) {
+        if (!has(c)) chosen.push_back(c);
+        else if (g.how == Pick::Toggle) chosen.erase(std::find(chosen.begin(), chosen.end(), c));
     }
     return {};
 }
