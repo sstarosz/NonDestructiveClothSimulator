@@ -34,18 +34,6 @@ namespace clothcad::ui {
 
 namespace {
 
-// "front copy", or "front copy 2" if that is taken.
-std::string firstFreeName(const Document& doc, const std::string& wanted) {
-    const auto taken = [&](const std::string& name) {
-        for (PanelId panel : doc.panels())
-            if (doc.get(panel).name == name) return true;
-        return false;
-    };
-    if (!taken(wanted)) return wanted;
-    for (int n = 2;; ++n)
-        if (!taken(wanted + " " + std::to_string(n))) return wanted + " " + std::to_string(n);
-}
-
 QDockWidget* makeDock(const QString& title, QWidget* content, QMainWindow* window) {
     auto* dock = new QDockWidget(title, window);
     dock->setObjectName(title);
@@ -339,13 +327,13 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
             else doc.place(panel, x, y);
         }, {.touches = session::Touches::PlacementOnly}, field);
     });
-    connect(outliner_, &Outliner::copyRequested, this, [this](PanelId panel) { addBeside(panel, Follow::Copy); });
+    connect(outliner_, &Outliner::copyRequested, this, [this](PanelId panel) { on(session::AddBeside{panel, session::Follow::Copy}); });
     // The shelf acts on the selected panel.
     connect(shelf_, &Shelf::instanceRequested, this, [this] {
-        if (const std::optional<PanelId> panel = drafting_.selection.panel) addBeside(*panel, Follow::Instance);
+        if (const std::optional<PanelId> panel = drafting_.selection.panel) on(session::AddBeside{*panel, session::Follow::Instance});
     });
     connect(shelf_, &Shelf::mirroredInstanceRequested, this, [this] {
-        if (const std::optional<PanelId> panel = drafting_.selection.panel) addBeside(*panel, Follow::MirroredInstance);
+        if (const std::optional<PanelId> panel = drafting_.selection.panel) on(session::AddBeside{*panel, session::Follow::MirroredInstance});
     });
     connect(shelf_, &Shelf::bakeRequested, this, [this] {
         const std::optional<PanelId> panel = drafting_.selection.panel;
@@ -365,8 +353,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         if (session_.document().contains(panel)) change([&](Document& doc) { doc.setConstruction(panel, baseOnly); });
     });
     connect(outliner_, &Outliner::deleteRequested, this, [this](PanelId panel) {
-        if (!session_.document().contains(panel)) return;
-        if (change([&](Document& doc) { doc.remove(panel); }, {.ifItBreaks = session::IfItBreaks::Allow})) select(std::nullopt);
+        on(session::DeletePanel{panel});
     });
 
     connect(attributes_, &AttributeEditor::particleDistanceTyped, this, [this](PanelId panel, QString text) {
@@ -721,30 +708,6 @@ void MainWindow::setViewLayout(ViewLayout layout) {
     space_->setVisible(layout != ViewLayout::TableOnly);
     table_->setVisible(layout != ViewLayout::SpaceOnly);
     if (layout == ViewLayout::SideBySide || layout == ViewLayout::Stacked) views_->setSizes({1, 1});  // shared in half again
-}
-
-void MainWindow::addBeside(PanelId source, Follow how) {
-    const Panel& from = session_.document().get(source);
-    double x = from.x + 30_cm;
-    const Result& shapes = session_.editor().shapes();
-    if (const std::optional<Bounds> box = bounds(shapes[source])) {
-        // Just right of where the source is; a mirrored panel's own left edge is the source's right one.
-        const double newLeft = how == Follow::MirroredInstance ? -box->max.x : box->min.x;
-        const std::optional<Bounds> placed = bounds(turned(shapes[source], from.angle));
-        x = from.x + (placed ? placed->max.x : box->max.x) + 12_cm - newLeft;
-    }
-    const char* suffix = how == Follow::Copy ? " copy" : how == Follow::Instance ? " instance" : " mirrored";
-    std::optional<PanelId> added;
-    change([&](Document& doc) {
-        const std::string name = firstFreeName(doc, doc.get(source).name + suffix);
-        if (how == Follow::Copy) {
-            added = doc.copy(source, Panel{.name = name, .x = x, .y = from.y, .particleDistance = from.particleDistance});
-        } else {
-            added = doc.add(Panel{.name = name, .x = x, .y = from.y});
-            doc.add(*added, Instance{.source = source, .mirrored = how == Follow::MirroredInstance});
-        }
-    });
-    if (added) select(added);
 }
 
 } // namespace clothcad::ui

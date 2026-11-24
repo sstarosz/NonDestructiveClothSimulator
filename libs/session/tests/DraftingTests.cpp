@@ -326,3 +326,156 @@ TEST_CASE("Drafting keeps the tool in use; a drawing tool that has done its work
     drafting.handle(editor, SelectPanel{std::nullopt});
     EXPECT((drafting.tool == Tool::Rotate), "selecting keeps the tool");
 }
+
+TEST_CASE("a panel is deleted with its layers, one undo step; what used it shows a problem")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
+    const PanelId twin = doc.add(Panel{.name = "twin"});
+    doc.add(twin, Instance{.source = front});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanel{front});
+
+    const Outcome done = drafting.handle(editor, DeletePanel{front});
+    EXPECT((done.notice.empty() && !editor.document().contains(front)), "the panel is gone");
+    EXPECT((!drafting.selection.panel.has_value()), "and nothing is selected any more");
+    EXPECT((!editor.shapes().ok()), "the instance that followed it shows a problem; the delete was not refused");
+    EXPECT((editor.undo() && editor.document().contains(front) && editor.shapes().ok()), "one undo brings it back, and the instance is well again");
+    EXPECT((!editor.canUndo()), "that was one step");
+
+    drafting.handle(editor, DeletePanel{PanelId{999}});
+    EXPECT((!editor.canUndo()), "a panel that does not exist is nothing to delete");
+}
+
+TEST_CASE("Delete with no corner selected deletes the selected panel; with nothing selected it says so")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+
+    const Outcome nothing = drafting.handle(editor, DeleteSelection{});
+    EXPECT((nothing.refused && !nothing.notice.empty() && editor.document().contains(front)), "nothing selected: a sentence and no change");
+
+    drafting.handle(editor, SelectPanel{front});
+    drafting.handle(editor, DeleteSelection{});
+    EXPECT((!editor.document().contains(front) && !drafting.selection.panel), "the selected panel goes");
+    EXPECT((editor.undo() && editor.document().contains(front) && !editor.canUndo()), "as one undo step");
+}
+
+TEST_CASE("Delete removes corners added with the Point tool and refuses the corners of a shape")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> rect = doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, AddPointOn{front, OutlinePoint{.edge = rect.bottom(), .along = 0.25}});
+    drafting.handle(editor, AddPointOn{front, OutlinePoint{.edge = rect.top(), .along = 0.5}});
+    REQUIRE(editor.document().operations(front).size() == 3);
+    const std::vector<OpId> layers = editor.document().operations(front);
+    const CornerRef first = OpRef<AddPoint>(layers[1]).corner(), second = OpRef<AddPoint>(layers[2]).corner();
+
+    drafting.handle(editor, SelectCorners{front, {first}, false});
+    const Outcome done = drafting.handle(editor, DeleteSelection{});
+    EXPECT((!done.refused && editor.document().operations(front).size() == 2 && editor.document().operations(front)[1] == layers[2]), "that point's layer is dropped");
+    EXPECT((drafting.selection.corners.empty() && drafting.selection.panel == front), "no corner is selected now, the panel still is");
+    EXPECT((editor.undo() && editor.document().operations(front).size() == 3), "undo brings the point back");
+
+    drafting.handle(editor, SelectCorners{front, {first, second}, false});
+    drafting.handle(editor, DeleteSelection{});
+    EXPECT((editor.document().operations(front).size() == 1), "two points go together");
+    EXPECT((editor.undo() && editor.document().operations(front).size() == 3), "in one undo step");
+
+    drafting.handle(editor, SelectCorners{front, {rect.topLeft()}, false});
+    const std::size_t steps = editor.version();
+    const Outcome refused = drafting.handle(editor, DeleteSelection{});
+    EXPECT((refused.refused && refused.notice.find("1. Rectangle") != std::string::npos && refused.notice.find("Remove or change that layer") != std::string::npos),
+           "a corner of the rectangle says which layer it belongs to");
+    EXPECT((editor.version() == steps && drafting.selection.corners.size() == 1), "and nothing changes");
+
+    drafting.handle(editor, SelectCorners{front, {first, rect.topLeft()}, false});
+    const Outcome mixed = drafting.handle(editor, DeleteSelection{});
+    EXPECT((mixed.refused && editor.document().operations(front).size() == 3), "one corner of a shape among the points refuses all of them");
+}
+
+TEST_CASE("a copied panel is pasted with its middle at the pointer and follows the same parameter")
+{
+    Document doc;
+    const Param width = doc.add(Parameter{.name = "width", .value = 20_cm});
+    const PanelId front = doc.add(Panel{.name = "front", .x = 5, .y = 5});
+    const OpRef<Rect> rect = doc.add(front, Rect{.width = width, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    EXPECT((!drafting.copied().has_value()), "nothing is copied at first");
+
+    const Outcome nothing = drafting.handle(editor, PastePanel{Vec2{0, 0}});
+    EXPECT((nothing.refused && !nothing.notice.empty() && !editor.canUndo()), "pasting before copying says so");
+
+    const Outcome copied = drafting.handle(editor, CopyPanel{front});
+    EXPECT((!copied.refused && !copied.notice.empty() && drafting.copied() == front && !editor.canUndo()), "copying remembers the panel and changes no document");
+
+    drafting.handle(editor, PastePanel{Vec2{100, 40}});
+    const std::vector<PanelId> panels = editor.document().panels();
+    REQUIRE(panels.size() == 2);
+    const PanelId pasted = panels[1];
+    EXPECT((drafting.selection.panel == pasted && editor.document().get(pasted).name == "front copy"), "the copy is selected and named for its source");
+    const Panel& placed = editor.document().get(pasted);
+    EXPECT_NEAR(placed.x + 10.0, 100.0, "the middle of its 20 cm width is under the pointer in x");
+    EXPECT_NEAR(placed.y + 5.0, 40.0, "and its 10 cm height in y");
+    EXPECT((editor.undo() && editor.document().panels().size() == 1 && !editor.canUndo()), "a paste is one undo step");
+    editor.redo();
+
+    drafting.handle(editor, PastePanel{Vec2{100, 80}});
+    EXPECT((editor.document().panels().size() == 3 && editor.document().get(editor.document().panels()[2]).name == "front copy 2"), "pasting again copies the same panel, with a free name");
+
+    EXPECT(editor.change([&](Document& d) { d.set(width, Expr(30_cm)); }).has_value(), "the parameter is changed");
+    EXPECT_NEAR(editor.shapes()[front].length(rect.bottom()), 30.0, "the source follows the parameter");
+    EXPECT_NEAR(editor.shapes()[pasted].length(OpRef<Rect>(editor.document().operations(pasted)[0]).bottom()), 30.0, "and so does the copy");
+}
+
+TEST_CASE("pasting without a place goes beside the original; a copied panel that is gone is refused")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, CopyPanel{front});
+    drafting.handle(editor, PastePanel{std::nullopt});
+    const PanelId pasted = editor.document().panels()[1];
+    EXPECT((editor.document().get(pasted).x > 20.0 && editor.document().get(pasted).y == 0.0), "just right of the original, as Duplicate does");
+
+    drafting.handle(editor, DeletePanel{front});
+    const std::uint64_t version = editor.version();
+    const Outcome gone = drafting.handle(editor, PastePanel{Vec2{0, 0}});
+    EXPECT((gone.refused && !gone.notice.empty() && editor.version() == version), "the panel is gone: a sentence, and no change");
+    EXPECT((!drafting.copied().has_value()), "and nothing stays copied");
+}
+
+TEST_CASE("Add beside makes a copy, an instance or a mirrored instance just right of the source, selected")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front", .x = 10, .y = 3});
+    doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+
+    drafting.handle(editor, AddBeside{front, Follow::Copy});
+    const PanelId copy = editor.document().panels()[1];
+    EXPECT((editor.document().get(copy).name == "front copy" && drafting.selection.panel == copy), "a copy, named for its source and selected");
+    EXPECT((editor.document().get(copy).x >= 10.0 + 20.0 && editor.document().get(copy).y == 3.0), "clear of the source's right edge, on its row");
+    EXPECT((count<Rect>(editor.document(), copy) == 1), "with the source's layers");
+
+    drafting.handle(editor, AddBeside{front, Follow::Instance});
+    const PanelId instance = editor.document().panels()[2];
+    EXPECT((count<Instance>(editor.document(), instance) == 1 && !last<Instance>(editor.document(), instance).mirrored), "an instance follows the source");
+    drafting.handle(editor, AddBeside{front, Follow::MirroredInstance});
+    const PanelId mirrored = editor.document().panels()[3];
+    EXPECT((last<Instance>(editor.document(), mirrored).mirrored), "a mirrored instance is its mirror image");
+    EXPECT((editor.shapes().ok()), "all of them evaluate");
+    EXPECT((editor.undo() && editor.undo() && editor.undo() && editor.document().panels().size() == 1), "each is one undo step");
+}

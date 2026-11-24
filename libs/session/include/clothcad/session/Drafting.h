@@ -136,9 +136,35 @@ struct EditLength {
     EdgeRef edge;
 };
 
+// How a panel added next to another relates to it: a copy of its own, or
+// something that follows the source (an instance, or its mirror image).
+enum class Follow { Copy, Instance, MirroredInstance };
+// A new panel just right of `source`, selected (Duplicate, and the shelf's instance buttons).
+struct AddBeside {
+    PanelId source;
+    Follow how;
+};
+// A panel removed with what it holds. Whatever used it (an instance, a seam)
+// stays and shows a problem; undo brings everything back.
+struct DeletePanel {
+    PanelId panel;
+};
+// What Delete does: the selected corners that were added with the Point tool
+// go (their layer is dropped); with no corner selected, the selected panel goes.
+struct DeleteSelection {};
+// The panel Paste will copy: it is only remembered, nothing in the document changes.
+struct CopyPanel {
+    PanelId panel;
+};
+// The copied panel, copied again with its middle at `at` on the table; with
+// no place (the 3D view has none), just right of the original.
+struct PastePanel {
+    std::optional<Vec2> at;
+};
+
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
                              DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
-                             ScalePanel, MoveInSpace, TurnInSpace>;
+                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopyPanel, PastePanel>;
 
 // What a gesture came to, beyond the document: words for the help line, and
 // what the window should do next.
@@ -170,6 +196,9 @@ public:
     // The tool in use. Windows set it; a drawing tool that has done its work
     // goes back to Select by itself.
     Tool tool = Tool::Select;
+    // The panel Paste would copy, if one was copied. A new Drafting (a new
+    // document) has none.
+    std::optional<PanelId> copied() const { return copied_; }
 
     // "panel1", "panel2" ...: the first panel name that is free.
     static std::string freeName(const Document& doc, const std::string& base);
@@ -195,6 +224,11 @@ private:
     Outcome on(Editor&, const EditLength&);
     Outcome on(Editor&, const MoveInSpace&);
     Outcome on(Editor&, const TurnInSpace&);
+    Outcome on(Editor&, const AddBeside&);
+    Outcome on(Editor&, const DeletePanel&);
+    Outcome on(Editor&, const DeleteSelection&);
+    Outcome on(Editor&, const CopyPanel&);
+    Outcome on(Editor&, const PastePanel&);
     // A drag in space: the arrangement `now` works out from the one the panel had when the drag began.
     Outcome arrangeByDrag(Editor&, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now);
 
@@ -225,6 +259,7 @@ private:
     };
     std::optional<Turning> turning_;
     std::optional<Arrangement> arrangedFrom_;  // a panel's arrangement when a drag in space began
+    std::optional<PanelId> copied_;            // what CopyPanel remembered
 };
 
 } // namespace clothcad::session

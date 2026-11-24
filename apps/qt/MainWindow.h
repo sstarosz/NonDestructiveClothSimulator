@@ -90,9 +90,6 @@ private:
     void refresh();
     void say(const QString& words, bool problem = false);
     void setViewLayout(ViewLayout layout);
-    // A new panel just right of `source`, selected: a copy, or one that follows it.
-    enum class Follow { Copy, Instance, MirroredInstance };
-    void addBeside(PanelId source, Follow how);
     void buildMenus();
     Outliner::Body bodyNow() const;
     void showMeshCounts();
