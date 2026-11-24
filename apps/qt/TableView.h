@@ -5,9 +5,11 @@
 // dragged (a drag from empty table draws a box that selects the corners in
 // it, Shift adds them to the ones selected, and a click on empty table
 // chooses nothing; Shift held while a corner is dragged keeps it on the x
-// or y it first moved along, Ctrl snaps the other to the grid). Ctrl-click
-// adds a panel to the selection or takes it out, and a box dragged with Ctrl,
-// or on empty table with no panel chosen, selects the panels it touches. A
+// or y it first moved along, Ctrl snaps the other to the grid). Shift- or
+// Ctrl-click adds a panel to the selection or takes it out. A box dragged on
+// empty table selects the panels it touches (Shift or Ctrl adds them), or, if
+// one panel is selected and the box touches only that one, its corners. Drag
+// one of several selected panels, or their gizmo, and they all move or turn. A
 // double-click on an edge types its length. Move (W), Rotate (E) and Scale
 // (R) do the same and show their gizmo on the selected panel
 // (session/TableGizmo): its arrows move it, its ring turns it about its
@@ -144,7 +146,10 @@ private:
         bool moved = false;
         std::optional<session::TableGizmo> gizmo;  // the gizmo as it stood when it was taken hold of
         session::Along along = session::Along::Both;  // a corner held to one axis (Shift), once the pointer has chosen it
-        bool toggleOnClick = false;  // Ctrl on a panel already selected: a click takes it out, a drag moves it
+        // A press on a panel that is selected leaves the selection alone, so that a drag moves them all; what
+        // a click (no drag) then does is told on release: Toggle takes the panel out (Shift or Ctrl), Replace
+        // selects it alone.
+        std::optional<session::Pick> onClick;
     };
 
     // What a drawing tool would act on, under the pointer.
@@ -198,8 +203,11 @@ private:
     mutable std::vector<std::pair<QRectF, EdgeRef>> lengthLabels_;
     std::optional<PanelId> selected_;
     std::vector<CornerRef> corners_;
-    std::vector<PanelId> others_;  // selected with `selected_`: drawn as selected, nothing more
+    std::vector<PanelId> others_;  // selected with `selected_`: drawn as selected
+    Vec2 groupPivot_{};            // the middle of all the selected panels, where their gizmo stands
     bool isSelected(PanelId panel) const;
+    // Several panels are selected: they are moved and turned together, and have no corners or lengths of their own to work on.
+    bool grouped() const { return !others_.empty(); }
     std::shared_ptr<const sim::ClothMesh> mesh_;
     Tool tool_ = Tool::Select;
     Vec2 centre_{0, 0};   // the table point in the middle of the widget

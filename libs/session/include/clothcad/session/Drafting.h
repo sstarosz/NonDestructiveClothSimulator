@@ -49,6 +49,8 @@ struct SelectPanels {
     std::vector<PanelId> panels;
     Pick how;
 };
+// The panel dragged moves to (x, y); if it is one of several selected panels, they
+// all move by as much, as one undo step.
 struct MovePanel {
     PanelId panel;
     double x, y;  // where the panel's origin should now be on the table
@@ -75,6 +77,8 @@ struct MoveHandle {
     DragPhase phase;
 };
 // A panel turned by the rotate gizmo: `angle` is where it now points, in degrees.
+// If it is one of several selected panels, they all turn by as much, about the
+// middle of the group (middleOfPanels).
 struct RotatePanel {
     PanelId panel;
     double angle;
@@ -202,6 +206,10 @@ struct Outcome {
     std::optional<LengthField> typeLength{};
 };
 
+// The middle of the box that holds these panels where the table has them: what a
+// group turns about, and where its gizmo stands. Empty if none has an outline.
+std::optional<Vec2> middleOfPanels(const Document& doc, const Result& shapes, const std::vector<PanelId>& panels);
+
 class Drafting {
 public:
     Outcome handle(Editor& editor, const Gesture& gesture);
@@ -290,6 +298,15 @@ private:
         Vec2 pivot;   // where that is on the table
     };
     std::optional<Turning> turning_;
+    // Several selected panels moved or turned together: where each was when the drag began.
+    struct GroupStart {
+        PanelId panel;
+        double x, y, angle;
+    };
+    std::vector<GroupStart> groupStarts_;
+    Vec2 groupPivot_;  // what a group turns about
+    // Fills groupStarts_ if `panel` is one of several selected ones; says whether it did.
+    bool beginGroup(const Document& doc, PanelId panel);
     std::optional<Arrangement> arrangedFrom_;  // a panel's arrangement when a drag in space began
     std::vector<PanelId> copied_;              // what CopySelection remembered
 };

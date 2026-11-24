@@ -54,6 +54,11 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
     corners_ = corners;
     others_ = others;
     drawn_.clear();
+    if (!others.empty() && selected) {
+        std::vector<PanelId> all{*selected};
+        all.insert(all.end(), others.begin(), others.end());
+        groupPivot_ = session::middleOfPanels(doc, shapes, all).value_or(Vec2{});
+    }
     for (const PanelResult& result : shapes.panels) {
         if (!doc.contains(result.panel) || result.pattern.vertices.empty()) continue;
         const Panel& panel = doc.get(result.panel);
@@ -69,7 +74,7 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         const std::optional<Bounds> own = bounds(result.pattern);
         const Vec2 middle = own ? turned(Vec2{(own->min.x + own->max.x) / 2.0, (own->min.y + own->max.y) / 2.0}, panel.angle) : Vec2{};
         d.pivot = {middle.x + panel.x, middle.y + panel.y};
-        if (selected && *selected == result.panel) {
+        if (selected && *selected == result.panel && others.empty()) {
             for (const Vertex& v : d.pattern.vertices) d.cornerLocks.push_back(session::cornerLock(doc, result.panel, v.name));
             for (const Edge& e : d.pattern.edges)
                 d.handleLocks.push_back(e.cubic ? std::pair{session::handleLock(doc, result.panel, e.name, false), session::handleLock(doc, result.panel, e.name, true)}
@@ -185,7 +190,7 @@ std::optional<session::TableGizmo> TableView::gizmo() const {
     const Drawn* d = chosen();
     const std::optional<session::GizmoMode> mode = session::gizmoOf(tool_);
     if (!d || !mode || choosing_) return std::nullopt;
-    return session::TableGizmo{.mode = *mode, .centre = d->pivot, .angle = d->angle, .cmPerPixel = 1.0 / scale_};
+    return session::TableGizmo{.mode = *mode, .centre = grouped() ? groupPivot_ : d->pivot, .angle = d->angle, .cmPerPixel = 1.0 / scale_};
 }
 
 std::optional<TableView::Grab> TableView::grabAt(QPointF screen, std::string& locked) const {
@@ -196,6 +201,7 @@ std::optional<TableView::Grab> TableView::grabAt(QPointF screen, std::string& lo
     if (const std::optional<session::TableGizmo> shown = gizmo())
         if (const std::optional<session::TableHandle> handle = session::handleAt(*shown, toTable(screen)))
             return Grab{Grab::Kind::Gizmo, d->panel, {}, {}, false, d->place, *handle};
+    if (grouped()) return std::nullopt;  // no corners or handles to take hold of: the panels go together
     for (std::size_t i = 0; i < d->pattern.edges.size(); ++i) {
         const Edge& edge = d->pattern.edges[i];
         if (!edge.cubic) continue;
@@ -421,7 +427,7 @@ void TableView::paintEvent(QPaintEvent*) {
     }
 
     // The selected panel's handles and corners.
-    if (const Drawn* d = chosen(); d && selecting() && !choosing_) {
+    if (const Drawn* d = chosen(); d && selecting() && !choosing_ && !grouped()) {
         for (std::size_t i = 0; i < d->pattern.edges.size(); ++i) {
             const Edge& edge = d->pattern.edges[i];
             if (!edge.cubic) continue;
@@ -504,15 +510,14 @@ void TableView::mousePressEvent(QMouseEvent* event) {
     }
     const Vec2 at = toTable(event->position());
     const bool shift = event->modifiers() & Qt::ShiftModifier;
-    const bool ctrl = event->modifiers() & Qt::ControlModifier;
-    bool toggleOnClick = false;
+    const bool additive = shift || (event->modifiers() & Qt::ControlModifier);
+    std::optional<session::Pick> onClick;
     std::string locked;
     std::optional<Grab> grab = grabAt(event->position(), locked);
     if (!locked.empty()) {
         emit told(QString::fromStdString(locked));
         return;
     }
-    if (!grab && shift && chosen()) grab = Grab{Grab::Kind::Box, chosen()->panel, {}, {}, false, at, session::TableHandle::Middle};
     if (!grab) {
         // The panel under the pointer; the selected one wins where they overlap.
         const Drawn* under = nullptr;
@@ -520,21 +525,19 @@ void TableView::mousePressEvent(QMouseEvent* event) {
             if (encloses(d.pattern, at) && (!under || (selected_ && d.panel == *selected_))) under = &d;
         if (under) {
             grab = Grab{Grab::Kind::Panel, under->panel, {}, {}, false, under->place, session::TableHandle::Middle};
-            // Ctrl adds a panel that was not selected at once, so a drag moves it; one that was is taken
-            // out by a click (told on release), and a drag moves it and leaves the selection alone.
-            if (!ctrl) emit gestured(session::SelectPanel{under->panel});
-            else if (!isSelected(under->panel)) emit gestured(session::SelectPanel{under->panel, session::Pick::Add});
-            else toggleOnClick = true;
+            // A panel that is selected stays so for now: a drag moves it with the others, and what a click
+            // does is told on release. One that is not selected is added (Shift or Ctrl) or chosen alone at
+            // once, so that a drag moves it.
+            if (isSelected(under->panel)) onClick = additive ? session::Pick::Toggle : session::Pick::Replace;
+            else emit gestured(session::SelectPanel{under->panel, additive ? session::Pick::Add : session::Pick::Replace});
         } else {
-            // On empty table a drag draws a box: over the chosen panel's corners, or with Ctrl, or
-            // with no panel chosen, over panels. Whether it was only a click (which chooses nothing)
+            // On empty table a drag draws a box. Whether it was only a click (which chooses nothing)
             // is told on release; with no panel chosen the box's panel is not used.
             grab = Grab{Grab::Kind::Box, chosen() ? chosen()->panel : PanelId{}, {}, {}, false, at, session::TableHandle::Middle};
-            if (!chosen()) emit gestured(session::SelectPanel{std::nullopt});
         }
     }
     if (grab) drag_ = Drag{*grab, at, event->position(), 0.0, false, grab->kind == Grab::Kind::Gizmo ? gizmo() : std::nullopt};
-    if (drag_) drag_->toggleOnClick = toggleOnClick;
+    if (drag_) drag_->onClick = onClick;
     if (drag_ && drag_->grab.kind == Grab::Kind::Gizmo)
         for (const Drawn& d : drawn_)
             if (d.panel == drag_->grab.panel) drag_->angleWas = d.angle;
@@ -662,24 +665,27 @@ void TableView::mouseReleaseEvent(QMouseEvent* event) {
     const bool shift = event->modifiers() & Qt::ShiftModifier;
     const Drag drag = *drag_;
     if (drag.grab.kind == Grab::Kind::Box) {
-        const bool ctrl = event->modifiers() & Qt::ControlModifier;
-        const Vec2 at = toTable(event->position());
-        const double x0 = std::min(drag.pressedAt.x, at.x), x1 = std::max(drag.pressedAt.x, at.x);
-        const double y0 = std::min(drag.pressedAt.y, at.y), y1 = std::max(drag.pressedAt.y, at.y);
-        if (drag.moved && (ctrl || !chosen())) {
-            // The panels the box touches; Ctrl adds them to the ones selected.
+        const bool adding = shift || (event->modifiers() & Qt::ControlModifier);
+        if (drag.moved) {
+            const Vec2 at = toTable(event->position());
+            const double x0 = std::min(drag.pressedAt.x, at.x), x1 = std::max(drag.pressedAt.x, at.x);
+            const double y0 = std::min(drag.pressedAt.y, at.y), y1 = std::max(drag.pressedAt.y, at.y);
             std::vector<PanelId> touched;
             for (const Drawn& d : drawn_)
                 if (const std::optional<Bounds> b = bounds(d.pattern); b && b->max.x >= x0 && b->min.x <= x1 && b->max.y >= y0 && b->min.y <= y1) touched.push_back(d.panel);
-            drag_.reset();
-            emit gestured(session::SelectPanels{std::move(touched), ctrl ? session::Pick::Add : session::Pick::Replace});
-        } else if (drag.moved && chosen() && chosen()->panel == drag.grab.panel) {
+            // One panel selected, and the box touches only it: the box is for its corners. Anything else: panels.
+            const bool corners = chosen() && !grouped() && !touched.empty() &&
+                                 std::all_of(touched.begin(), touched.end(), [&](PanelId panel) { return panel == chosen()->panel; });
             std::vector<CornerRef> inside;
-            for (const Vertex& v : chosen()->pattern.vertices)
-                if (v.position.x >= x0 && v.position.x <= x1 && v.position.y >= y0 && v.position.y <= y1) inside.push_back(v.name);
+            if (corners)
+                for (const Vertex& v : chosen()->pattern.vertices)
+                    if (v.position.x >= x0 && v.position.x <= x1 && v.position.y >= y0 && v.position.y <= y1) inside.push_back(v.name);
+            const PanelId panel = corners ? chosen()->panel : PanelId{};
             drag_.reset();
-            emit gestured(session::SelectCorners{drag.grab.panel, std::move(inside), shift ? session::Pick::Add : session::Pick::Replace});
-        } else if (!drag.moved && !shift && !ctrl) {
+            const session::Pick how = adding ? session::Pick::Add : session::Pick::Replace;
+            if (corners) emit gestured(session::SelectCorners{panel, std::move(inside), how});
+            else emit gestured(session::SelectPanels{std::move(touched), how});
+        } else if (!adding) {
             drag_.reset();
             emit gestured(session::SelectPanel{std::nullopt});  // a click on the empty table
         }
@@ -689,9 +695,9 @@ void TableView::mouseReleaseEvent(QMouseEvent* event) {
     } else if (drag.grab.kind == Grab::Kind::Corner) {
         drag_.reset();
         emit gestured(session::SelectCorners{drag.grab.panel, {drag.grab.corner}, shift ? session::Pick::Toggle : session::Pick::Replace});  // a click on a corner selects it
-    } else if (drag.grab.kind == Grab::Kind::Panel && drag.toggleOnClick) {
+    } else if (drag.grab.kind == Grab::Kind::Panel && drag.onClick) {
         drag_.reset();
-        emit gestured(session::SelectPanel{drag.grab.panel, session::Pick::Toggle});  // Ctrl-click on a selected panel takes it out
+        emit gestured(session::SelectPanel{drag.grab.panel, *drag.onClick});  // a click on a selected panel
     }
     drag_.reset();
     readout_.clear();
@@ -1008,7 +1014,7 @@ void TableView::mouseDoubleClickEvent(QMouseEvent* event) {
     // Two quick clicks with a drawing tool are two clicks, not a double-click.
     if (!selecting() || choosing_) return mousePressEvent(event);
     // A double-click on an edge of the selected panel types its length.
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton || grouped()) return;
     std::string locked;
     if (grabAt(event->position(), locked) || !locked.empty()) return;
     for (const auto& [box, edge] : lengthLabels_)

@@ -154,6 +154,33 @@ Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
     return outcome;
 }
 
+std::optional<Vec2> middleOfPanels(const Document& doc, const Result& shapes, const std::vector<PanelId>& panels) {
+    std::optional<Bounds> all;
+    for (PanelId panel : panels) {
+        if (!doc.contains(panel)) continue;
+        const Panel& placed = doc.get(panel);
+        const std::optional<Bounds> box = bounds(turned(shapes[panel], placed.angle));
+        if (!box) continue;
+        const Bounds here{{box->min.x + placed.x, box->min.y + placed.y}, {box->max.x + placed.x, box->max.y + placed.y}};
+        if (!all) all = here;
+        else all = Bounds{{std::min(all->min.x, here.min.x), std::min(all->min.y, here.min.y)}, {std::max(all->max.x, here.max.x), std::max(all->max.y, here.max.y)}};
+    }
+    if (!all) return std::nullopt;
+    return Vec2{(all->min.x + all->max.x) / 2.0, (all->min.y + all->max.y) / 2.0};
+}
+
+bool Drafting::beginGroup(const Document& doc, PanelId panel) {
+    groupStarts_.clear();
+    if (!selection.has(panel)) return false;
+    const std::vector<PanelId> group = selectedInOrder(doc, selection);
+    if (group.size() < 2) return false;
+    for (PanelId member : group) {
+        const Panel& placed = doc.get(member);
+        groupStarts_.push_back({member, placed.x, placed.y, placed.angle});
+    }
+    return true;
+}
+
 std::vector<PanelId> Drafting::Selection::panels() const {
     std::vector<PanelId> all;
     if (panel) all.push_back(*panel);
@@ -188,6 +215,7 @@ void Drafting::drop(PanelId panel) {
 void Drafting::forget(const Document& doc) {
     dragging_.reset();
     scaling_.reset();
+    groupStarts_.clear();
     cornerDrags_.clear();
     turning_.reset();
     arrangedFrom_.reset();
@@ -265,6 +293,28 @@ Outcome Drafting::on(Editor& editor, const RotatePanel& g) {
         const Vec2 now = turned(centre, panel.angle);
         turning_ = Turning{centre, {panel.x + now.x, panel.y + now.y}};
     }
+    if (g.phase == DragPhase::Begin && beginGroup(editor.document(), g.panel))
+        groupPivot_ = middleOfPanels(editor.document(), editor.shapes(), selectedInOrder(editor.document(), selection)).value_or(Vec2{});
+    if (!groupStarts_.empty()) {
+        // Several panels turn together about the middle of the group.
+        const auto grabbed = std::find_if(groupStarts_.begin(), groupStarts_.end(), [&](const GroupStart& s) { return s.panel == g.panel; });
+        if (grabbed == groupStarts_.end()) {
+            groupStarts_.clear();
+            return outcome;
+        }
+        const double by = g.angle - grabbed->angle;
+        const Vec2 pivot = groupPivot_;
+        apply(editor, [&](Document& doc) {
+            for (const GroupStart& s : groupStarts_) {
+                if (!doc.contains(s.panel)) continue;
+                const Vec2 offset = turned(Vec2{s.x - pivot.x, s.y - pivot.y}, by);
+                doc.place(s.panel, pivot.x + offset.x, pivot.y + offset.y);
+                doc.turn(s.panel, s.angle + by);
+            }
+        }, placing(g.phase == DragPhase::Begin), outcome);
+        if (g.phase == DragPhase::End) groupStarts_.clear();
+        return outcome;
+    }
     if (!turning_) return outcome;
     const Vec2 shifted = turned(turning_->centre, g.angle);
     const Vec2 pivot = turning_->pivot;
@@ -282,6 +332,11 @@ Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
     if (!doc.contains(g.panel)) return outcome;
     if (g.phase == DragPhase::Begin) {
         scaling_.reset();
+        if (selection.has(g.panel) && selectedInOrder(doc, selection).size() > 1) {
+            outcome.notice = "Several panels cannot be scaled together yet. Click one panel, then scale it.";
+            outcome.refused = true;
+            return outcome;
+        }
         // The last operation that runs and is on: a mirror applied last waits until the end, so look past it.
         std::optional<OpId> last;
         for (OpId op : doc.operations(g.panel)) {
@@ -360,6 +415,22 @@ Outcome Drafting::arrangeByDrag(Editor& editor, PanelId panel, DragPhase phase, 
 Outcome Drafting::on(Editor& editor, const MovePanel& g) {
     Outcome outcome;
     if (!editor.document().contains(g.panel)) return outcome;
+    if (g.phase == DragPhase::Begin) beginGroup(editor.document(), g.panel);
+    if (!groupStarts_.empty()) {
+        // Several panels move together, each by as much as the one taken hold of.
+        const auto grabbed = std::find_if(groupStarts_.begin(), groupStarts_.end(), [&](const GroupStart& s) { return s.panel == g.panel; });
+        if (grabbed == groupStarts_.end()) {
+            groupStarts_.clear();
+            return outcome;
+        }
+        const double dx = g.x - grabbed->x, dy = g.y - grabbed->y;
+        apply(editor, [&](Document& doc) {
+            for (const GroupStart& s : groupStarts_)
+                if (doc.contains(s.panel)) doc.place(s.panel, s.x + dx, s.y + dy);
+        }, placing(g.phase == DragPhase::Begin), outcome);
+        if (g.phase == DragPhase::End) groupStarts_.clear();
+        return outcome;
+    }
     apply(editor, [&](Document& doc) { doc.place(g.panel, g.x, g.y); }, placing(g.phase == DragPhase::Begin), outcome);
     return outcome;
 }

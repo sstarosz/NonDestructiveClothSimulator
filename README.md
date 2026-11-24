@@ -42,15 +42,18 @@ the body follows too.
   with its grid: the x axis in red, the y axis in green. The keys work while
   the table (or the 3D view) has the focus, so typing in a field or in the
   Outliner is left alone.
-- **Selecting several panels**: Ctrl-click adds a panel to the selection or,
-  on a selected one, takes it out; a box dragged with Ctrl, or on empty
-  table with no panel chosen, selects the panels it touches (Ctrl adds them
-  to the ones selected). The last one added is the one the docks and the gizmo
-  show; the others are drawn as selected.
-- **Selecting corners**: with a panel chosen, a box dragged on empty table
-  selects the corners of that panel inside it (Shift adds them to the ones
-  already selected; Shift-click on a corner adds or takes it out); a click on
-  empty table chooses nothing.
+- **Selecting several panels**: Shift- or Ctrl-click adds a panel to the
+  selection or, on a selected one, takes it out; a box dragged on empty table
+  selects the panels it touches (Shift or Ctrl adds them to the ones
+  selected). Dragging one of the selected panels, or their move gizmo, moves
+  them all, and the rotate gizmo turns them all about the middle of the group;
+  each is one undo step. A click on one of them selects it alone. The last one
+  added is the one the docks show; the others are drawn as selected, and the
+  gizmo stands at the middle of the group.
+- **Selecting corners**: with one panel chosen, a box dragged on empty table
+  that touches only that panel selects its corners inside it (Shift adds them
+  to the ones already selected; Shift-click on a corner adds or takes it out);
+  a click on empty table, or a box over nothing, chooses nothing.
 - **A corner along one axis**: Shift held while a corner (or the selected
   corners) is dragged keeps it on the table's x or y, whichever the pointer
   moved furthest along first; a dashed line in that axis's colour shows it.
@@ -245,11 +248,12 @@ holds and hands it what the user did.
   is allowed: they show a problem until it is put right, and undo brings the
   panel back. In 3D, Delete takes whole panels and Paste has no place on
   the table, so the copies go beside the originals.
-- Several selected panels can be selected, copied, pasted and deleted
-  together, but the gizmos, a drag, Ctrl+D and the docks act on the shown one
-  only; a click on a panel without Ctrl selects it alone. The 3D view and the
-  Outliner show the shown panel only. A paste does not copy seams between
-  panels, and a copy of a turned panel is not turned.
+- Several selected panels are selected, moved, turned, copied, pasted and
+  deleted together, but not scaled together (the help line says so), and
+  Ctrl+D, the docks, corners and lengths work on one panel only: the shown one,
+  or the single panel selected. The 3D view and the Outliner show the shown
+  panel only. A paste does not copy seams between panels, and a copy of a
+  turned panel is not turned.
 - A panel grows away from its sewn edges that kept their length. If every
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.

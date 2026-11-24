@@ -654,6 +654,53 @@ TEST_CASE("copied panels are pasted as a group with their places in it kept, sel
     EXPECT((editor.document().panels().size() == count + 1 && drafting.copied() == std::vector<PanelId>{row.c}), "a panel deleted since is left out; the rest are pasted");
 }
 
+TEST_CASE("several selected panels move together by as much as the one taken hold of, as one undo step")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    drafting.handle(editor, MovePanel{row.b, 40.0, 0.0, DragPhase::Begin});
+    drafting.handle(editor, MovePanel{row.b, 52.0, -3.0, DragPhase::Continue});
+    drafting.handle(editor, MovePanel{row.b, 52.0, -3.0, DragPhase::End});
+    const Document& doc = editor.document();
+    EXPECT((doc.get(row.b).x == 52.0 && doc.get(row.b).y == -3.0), "the panel taken hold of is where it was dragged");
+    EXPECT((doc.get(row.a).x == 12.0 && doc.get(row.a).y == -3.0), "the other selected panel moved by the same");
+    EXPECT((doc.get(row.c).x == 80.0 && doc.get(row.c).y == 0.0), "a panel not selected stays");
+    EXPECT((editor.undo() && editor.document().get(row.a).x == 0.0 && editor.document().get(row.b).x == 40.0), "one undo puts both back");
+
+    // A panel that is not selected is moved alone, even if others are selected.
+    drafting.handle(editor, MovePanel{row.c, 80.0, 0.0, DragPhase::Begin});
+    drafting.handle(editor, MovePanel{row.c, 90.0, 0.0, DragPhase::End});
+    EXPECT((editor.document().get(row.c).x == 90.0 && editor.document().get(row.a).x == 0.0 && editor.document().get(row.b).x == 40.0), "a panel outside the selection moves alone");
+}
+
+TEST_CASE("several selected panels turn about the middle of the group; the shapes do not change")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    const std::optional<Vec2> middle = middleOfPanels(editor.document(), editor.shapes(), {row.a, row.b});
+    REQUIRE(middle.has_value());
+    EXPECT((std::abs(middle->x - 30.0) < 1e-9 && std::abs(middle->y - 5.0) < 1e-9), "the middle of the box that holds a (0 to 20) and b (40 to 60)");
+    EXPECT((!middleOfPanels(editor.document(), editor.shapes(), {}).has_value()), "no panels have no middle");
+
+    drafting.handle(editor, RotatePanel{row.a, 0.0, DragPhase::Begin});
+    drafting.handle(editor, RotatePanel{row.a, 90.0, DragPhase::End});
+    const Document& doc = editor.document();
+    EXPECT((std::abs(doc.get(row.a).angle - 90.0) < 1e-9 && std::abs(doc.get(row.b).angle - 90.0) < 1e-9), "both turn by the angle given");
+    // The middle is (30, 5): a's origin is 30 left and 5 below it, and a quarter turn counter-clockwise puts it 5 right and 30 below.
+    EXPECT((std::abs(doc.get(row.a).x - 35.0) < 1e-9 && std::abs(doc.get(row.a).y + 25.0) < 1e-9), "a's origin turned about the middle of the group");
+    EXPECT((std::abs(doc.get(row.b).x - 35.0) < 1e-9 && std::abs(doc.get(row.b).y - 15.0) < 1e-9), "and so is b's");
+    EXPECT((std::abs(editor.shapes()[row.a].length(OpRef<Rect>(doc.operations(row.a)[0]).bottom()) - 20.0) < 1e-9), "turning is not shape");
+    EXPECT((editor.undo() && editor.document().get(row.a).angle == 0.0 && editor.document().get(row.b).x == 40.0), "one undo turns them back");
+
+    const Outcome refused = drafting.handle(editor, ScalePanel{row.a, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(editor, ScalePanel{row.a, 1.5, 1.0, DragPhase::End});
+    EXPECT((refused.refused && !refused.notice.empty() && editor.document().operations(row.a).size() == 1 && !editor.canUndo()), "scaling several panels at once is refused with a sentence and changes nothing");
+}
+
 TEST_CASE("Add beside makes a copy, an instance or a mirrored instance just right of the source, selected")
 {
     Document doc;
