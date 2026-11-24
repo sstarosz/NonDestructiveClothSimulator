@@ -24,7 +24,7 @@ struct ToolInfo {
 };
 
 const ToolInfo toolInfo[] = {
-    {Tool::Select, Icon::Select, theme::text, "Select", "Q", "Click a panel; drag a corner, or the panel on the table. Delete removes it; Ctrl+C, V and D copy it."},
+    {Tool::Select, Icon::Select, theme::text, "Select", "Q", "Click a panel; drag a corner or a panel: Shift holds it to one axis, Ctrl snaps to the grid. Shift-click or a box selects several panels, which move together; a box on one panel selects its corners. Delete removes; Ctrl+C, V and D copy."},
     {Tool::Move, Icon::Move, theme::text, "Move", "W", "Drag an arrow to move along it, a square to move in its plane. Ctrl: whole centimetres."},
     {Tool::Rotate, Icon::Rotate, theme::text, "Rotate", "E", "Drag a ring to turn about its axis. Ctrl: steps of 15°."},
     {Tool::Scale, Icon::Scale, theme::text, "Scale", "R", "Drag a handle to stretch along it, the middle to scale evenly. Ctrl: steps of 10 %."},

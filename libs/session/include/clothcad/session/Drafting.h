@@ -13,6 +13,7 @@
 // On a symmetric panel (a mirror applied last), what is done on the mirrored
 // side is done on the drawn side, the mirrored way.
 
+#include <expected>
 #include <functional>
 #include <optional>
 #include <string>
@@ -32,19 +33,42 @@ namespace clothcad::session {
 // and End when the button is released.
 enum class DragPhase { Begin, Continue, End };
 
+// How what a click or a box picks joins what is selected already.
+enum class Pick {
+    Replace,  // only these are selected
+    Add,      // these join the others; one already selected stays
+    Toggle,   // each of these goes in, or out if it was in (Shift-click on a corner, Ctrl-click on a panel)
+};
+// A click on a panel. With Add or Toggle it joins the panels selected already, and
+// becomes the one the docks and the gizmo show.
 struct SelectPanel {
     std::optional<PanelId> panel;  // empty: clicked on nothing
+    Pick how = Pick::Replace;
 };
+// A box dragged over panels. Replace with none inside chooses nothing.
+struct SelectPanels {
+    std::vector<PanelId> panels;
+    Pick how;
+};
+// The panel dragged moves to (x, y); if it is one of several selected panels, they
+// all move by as much, as one undo step.
 struct MovePanel {
     PanelId panel;
     double x, y;  // where the panel's origin should now be on the table
     DragPhase phase;
 };
+// Which way a dragged corner may go on the table: both ways, or only along its x or its y.
+enum class Along { Both, X, Y };
+// The axis a drag has gone furthest along (X when it went further sideways than up or down;
+// a tie is X). It is for a window to decide once, when a drag with Shift has gone far enough.
+Along axisOf(double dx, double dy);
+
 struct MoveCorner {
     PanelId panel;
     CornerRef corner;
     double dx, dy;  // how far it has been dragged since the drag began, on the table
     DragPhase phase;
+    Along along = Along::Both;  // X or Y: the other coordinate does not change at all
 };
 struct MoveHandle {
     PanelId panel;
@@ -54,26 +78,36 @@ struct MoveHandle {
     DragPhase phase;
 };
 // A panel turned by the rotate gizmo: `angle` is where it now points, in degrees.
+// If it is one of several selected panels, they all turn by as much, about the
+// middle of the group (middleOfPanels).
 struct RotatePanel {
     PanelId panel;
     double angle;
     DragPhase phase;
 };
 // A panel scaled by the scale gizmo, along its own x and y: how many times as
-// big as when the drag began (1 is as it was). It is a Scale layer at the end
-// of the panel: the last one, if it is already there and holds plain
-// numbers; else a new one.
+// big as when the drag began (1 is as it was). What changes depends on the panel:
+//   - a Scale layer at its end, if one is there and holds plain numbers (a layer
+//     the user added stays the one that is changed);
+//   - else the lengths of its starting shape, if that is a Rect, a Circle or a
+//     RingSector whose lengths are plain numbers (so no layer is added);
+//   - else a new Scale layer at the end (a formula that sets a length is never
+//     overwritten, and an Instance has no lengths of its own).
+// A Scale layer set by a formula refuses the drag and says where to change it.
+// Whichever way, the middle of the panel's box stays where it was on the table
+// (the panel's place moves to keep it there). If it is one of several selected
+// panels, they are all scaled by as much, evenly (x and y the same), about the
+// middle of the group: each panel's middle moves away from it by as much.
 struct ScalePanel {
     PanelId panel;
     double x, y;
     DragPhase phase;
 };
-// A click or a box dragged over corners of one panel. With `add` they join the
-// corners already selected (a click on a selected one takes it out).
+// A click or a box dragged over corners of one panel.
 struct SelectCorners {
     PanelId panel;
     std::vector<CornerRef> corners;
-    bool add;
+    Pick how;
 };
 struct DrawRect {
     double x, y, width, height;  // on the table; x, y is the bottom-left corner
@@ -150,21 +184,26 @@ struct DeletePanel {
     PanelId panel;
 };
 // What Delete does: the selected corners that were added with the Point tool
-// go (their layer is dropped); with no corner selected, the selected panel goes.
-struct DeleteSelection {};
-// The panel Paste will copy: it is only remembered, nothing in the document changes.
-struct CopyPanel {
-    PanelId panel;
+// go (their layer is dropped); with no corner selected, the selected panels go,
+// all in one undo step.
+struct DeleteSelection {
+    bool wholePanels = false;  // ignore selected corners: the 3D view shows none
 };
-// The copied panel, copied again with its middle at `at` on the table; with
-// no place (the 3D view has none), just right of the original.
+// The selected panels are what Paste will copy: only remembered, nothing in the document changes.
+struct CopySelection {};
+// What Ctrl+D does: the selected panels copied just right of where they are,
+// keeping their layout; the copies become the selection, one undo step.
+struct DuplicateSelection {};
+// The copied panels, copied again as a group with its middle at `at` on the
+// table, each keeping its place in the group; with no place (the 3D view has
+// none), just right of the originals. The copies are selected.
 struct PastePanel {
     std::optional<Vec2> at;
 };
 
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
                              DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
-                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopyPanel, PastePanel>;
+                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, DuplicateSelection, PastePanel, SelectPanels>;
 
 // What a gesture came to, beyond the document: words for the help line, and
 // what the window should do next.
@@ -180,6 +219,10 @@ struct Outcome {
     std::optional<LengthField> typeLength{};
 };
 
+// The middle of the box that holds these panels where the table has them: what a
+// group turns about, and where its gizmo stands. Empty if none has an outline.
+std::optional<Vec2> middleOfPanels(const Document& doc, const Result& shapes, const std::vector<PanelId>& panels);
+
 class Drafting {
 public:
     Outcome handle(Editor& editor, const Gesture& gesture);
@@ -187,24 +230,31 @@ public:
     // selection that no longer exists goes.
     void forget(const Document& doc);
 
-    // What is selected. Windows read and set it as they please.
+    // What is selected. Windows read and set it as they please. `panel` is the
+    // one the docks show, the gizmo stands at and the corners belong to; `others`
+    // are the panels selected with it (Ctrl-click, a box with Ctrl).
     struct Selection {
         std::optional<PanelId> panel;
-        std::vector<CornerRef> corners;  // of that panel
+        std::vector<CornerRef> corners;  // of `panel`
+        std::vector<PanelId> others;
+        // Every selected panel, `panel` first.
+        std::vector<PanelId> panels() const;
+        bool has(PanelId candidate) const;
     };
     Selection selection;
     // The tool in use. Windows set it; a drawing tool that has done its work
     // goes back to Select by itself.
     Tool tool = Tool::Select;
-    // The panel Paste would copy, if one was copied. A new Drafting (a new
+    // The panels Paste would copy, if any were copied. A new Drafting (a new
     // document) has none.
-    std::optional<PanelId> copied() const { return copied_; }
+    const std::vector<PanelId>& copied() const { return copied_; }
 
     // "panel1", "panel2" ...: the first panel name that is free.
     static std::string freeName(const Document& doc, const std::string& base);
 
 private:
     Outcome on(Editor&, const SelectPanel&);
+    Outcome on(Editor&, const SelectPanels&);
     Outcome on(Editor&, const MovePanel&);
     Outcome on(Editor&, const MoveCorner&);
     Outcome on(Editor&, const MoveHandle&);
@@ -227,8 +277,12 @@ private:
     Outcome on(Editor&, const AddBeside&);
     Outcome on(Editor&, const DeletePanel&);
     Outcome on(Editor&, const DeleteSelection&);
-    Outcome on(Editor&, const CopyPanel&);
+    Outcome on(Editor&, const CopySelection&);
+    Outcome on(Editor&, const DuplicateSelection&);
     Outcome on(Editor&, const PastePanel&);
+    // `panel` joins the selection as the one shown, or goes out of it; the others stay.
+    void join(PanelId panel);
+    void drop(PanelId panel);
     // A drag in space: the arrangement `now` works out from the one the panel had when the drag began.
     Outcome arrangeByDrag(Editor&, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now);
 
@@ -244,22 +298,41 @@ private:
         OpId operation;    // the adjustment it is written to
     };
     std::vector<CornerDrag> cornerDrags_;  // while a group of corners is dragged
-    // A panel being scaled by the gizmo. The layer is only added with the first
-    // change that is accepted, so a refused drag leaves nothing behind.
+    // Panels being scaled by the gizmo, each in the way that adds the least to the
+    // document (see ScalePanel). A layer is only added with the first change that is
+    // accepted, so a refused drag leaves nothing behind.
+    struct ScalePart {
+        PanelId panel;
+        std::optional<OpId> layer;  // the Scale layer changed or added; empty until added
+        std::optional<OpId> shape;  // the starting operation whose lengths are scaled instead of a layer
+        double baseA = 1.0, baseB = 1.0;  // the layer's x and y, or the shape's two lengths, when the drag began
+        Vec2 middle;                // the middle of its box on the table when the drag began
+    };
     struct Scaling {
-        std::optional<OpId> layer;  // empty until the drag has added its own
-        double baseX, baseY;
-        bool stepOpen;              // whether an accepted change has opened the undo step
+        std::vector<ScalePart> parts;
+        Vec2 pivot;                 // what a group is scaled about
+        bool several = false;
+        bool stepOpen = false;      // whether an accepted change has opened the undo step
     };
     std::optional<Scaling> scaling_;
+    std::expected<ScalePart, std::string> scalePartOf(const Editor& editor, PanelId panel) const;
     // A panel being turned by the gizmo turns about the table position of its box's centre.
     struct Turning {
         Vec2 centre;  // in its own coordinates
         Vec2 pivot;   // where that is on the table
     };
     std::optional<Turning> turning_;
+    // Several selected panels moved or turned together: where each was when the drag began.
+    struct GroupStart {
+        PanelId panel;
+        double x, y, angle;
+    };
+    std::vector<GroupStart> groupStarts_;
+    Vec2 groupPivot_;  // what a group turns about
+    // Fills groupStarts_ if `panel` is one of several selected ones; says whether it did.
+    bool beginGroup(const Document& doc, PanelId panel);
     std::optional<Arrangement> arrangedFrom_;  // a panel's arrangement when a drag in space began
-    std::optional<PanelId> copied_;            // what CopyPanel remembered
+    std::vector<PanelId> copied_;              // what CopySelection remembered
 };
 
 } // namespace clothcad::session

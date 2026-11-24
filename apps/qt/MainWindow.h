@@ -53,6 +53,8 @@ public:
     bool loadAvatar(const QString& path);
     void select(std::optional<PanelId> panel);
     std::optional<PanelId> selected() const { return drafting_.selection.panel; }
+    // Every selected panel, the one the docks show first.
+    std::vector<PanelId> selectedPanels() const { return drafting_.selection.panels(); }
     std::optional<OpId> viewedStep() const { return viewUntil_; }
     // The body shown in 3D or hidden; hidden, it is also out of the simulation.
     void showBody(bool shown);

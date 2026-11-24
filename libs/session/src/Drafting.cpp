@@ -77,21 +77,57 @@ Vec2 besideSource(const Editor& editor, PanelId source, Follow how) {
     return {x, from.y};
 }
 
-// A new panel like `source`, at `place` on the table. Selected if the change is taken.
-std::optional<PanelId> addLike(Editor& editor, PanelId source, Follow how, Vec2 place, Outcome& outcome) {
+// A new panel like each `source`, at its place on the table, all in one change.
+// Empty if the change is refused.
+struct Placed {
+    PanelId source;
+    Vec2 at;
+};
+std::vector<PanelId> addLike(Editor& editor, const std::vector<Placed>& wanted, Follow how, Outcome& outcome) {
     const std::string suffix = how == Follow::Copy ? " copy" : how == Follow::Instance ? " instance" : " mirrored";
-    const auto particleDistance = editor.document().get(source).particleDistance;
-    std::optional<PanelId> added;
+    std::vector<PanelId> added;
     apply(editor, [&](Document& doc) {
-        const std::string name = firstFreeName(doc, doc.get(source).name + suffix);
-        if (how == Follow::Copy) {
-            added = doc.copy(source, Panel{.name = name, .x = place.x, .y = place.y, .particleDistance = particleDistance});
-        } else {
-            added = doc.add(Panel{.name = name, .x = place.x, .y = place.y});
-            doc.add(*added, Instance{.source = source, .mirrored = how == Follow::MirroredInstance});
+        added.clear();
+        for (const Placed& one : wanted) {
+            const std::string name = firstFreeName(doc, doc.get(one.source).name + suffix);
+            if (how == Follow::Copy) {
+                const auto particleDistance = doc.get(one.source).particleDistance;
+                added.push_back(doc.copy(one.source, Panel{.name = name, .x = one.at.x, .y = one.at.y, .particleDistance = particleDistance}));
+            } else {
+                const PanelId panel = doc.add(Panel{.name = name, .x = one.at.x, .y = one.at.y});
+                doc.add(panel, Instance{.source = one.source, .mirrored = how == Follow::MirroredInstance});
+                added.push_back(panel);
+            }
         }
     }, adding, outcome);
-    return outcome.refused ? std::nullopt : added;
+    if (outcome.refused) added.clear();
+    return added;
+}
+
+// Where copies of a group go: it keeps its shape, with the middle of its box at `at`, or
+// just right of where it is when there is no place.
+std::vector<Placed> groupPlaces(const Editor& editor, const std::vector<PanelId>& sources, const std::optional<Vec2>& at) {
+    const Document& doc = editor.document();
+    Vec2 low{1e300, 1e300}, high{-1e300, -1e300};
+    for (PanelId source : sources) {
+        const Panel& from = doc.get(source);
+        const std::optional<Bounds> box = bounds(editor.shapes()[source]);
+        const Bounds own = box ? *box : Bounds{};
+        low = {std::min(low.x, from.x + own.min.x), std::min(low.y, from.y + own.min.y)};
+        high = {std::max(high.x, from.x + own.max.x), std::max(high.y, from.y + own.max.y)};
+    }
+    const Vec2 by = at ? Vec2{at->x - (low.x + high.x) / 2.0, at->y - (low.y + high.y) / 2.0} : Vec2{high.x - low.x + 12_cm, 0.0};
+    std::vector<Placed> places;
+    for (PanelId source : sources) places.push_back({source, {doc.get(source).x + by.x, doc.get(source).y + by.y}});
+    return places;
+}
+
+// The selected panels in the document's order; only those that are still there.
+std::vector<PanelId> selectedInOrder(const Document& doc, const Drafting::Selection& selection) {
+    std::vector<PanelId> panels;
+    for (PanelId panel : doc.panels())
+        if (selection.has(panel)) panels.push_back(panel);
+    return panels;
 }
 
 // "2. Curve": a layer by its place in its panel and its label, as the window names it.
@@ -102,6 +138,8 @@ std::string layerName(const Document& doc, OpId layer) {
 }
 
 } // namespace
+
+Along axisOf(double dx, double dy) { return std::abs(dx) >= std::abs(dy) ? Along::X : Along::Y; }
 
 std::string Drafting::freeName(const Document& doc, const std::string& base) {
     for (int number = 1;; ++number) {
@@ -116,19 +154,100 @@ Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
     return outcome;
 }
 
+std::optional<Vec2> middleOfPanels(const Document& doc, const Result& shapes, const std::vector<PanelId>& panels) {
+    std::optional<Bounds> all;
+    for (PanelId panel : panels) {
+        if (!doc.contains(panel)) continue;
+        const Panel& placed = doc.get(panel);
+        const std::optional<Bounds> box = bounds(turned(shapes[panel], placed.angle));
+        if (!box) continue;
+        const Bounds here{{box->min.x + placed.x, box->min.y + placed.y}, {box->max.x + placed.x, box->max.y + placed.y}};
+        if (!all) all = here;
+        else all = Bounds{{std::min(all->min.x, here.min.x), std::min(all->min.y, here.min.y)}, {std::max(all->max.x, here.max.x), std::max(all->max.y, here.max.y)}};
+    }
+    if (!all) return std::nullopt;
+    return Vec2{(all->min.x + all->max.x) / 2.0, (all->min.y + all->max.y) / 2.0};
+}
+
+bool Drafting::beginGroup(const Document& doc, PanelId panel) {
+    groupStarts_.clear();
+    if (!selection.has(panel)) return false;
+    const std::vector<PanelId> group = selectedInOrder(doc, selection);
+    if (group.size() < 2) return false;
+    for (PanelId member : group) {
+        const Panel& placed = doc.get(member);
+        groupStarts_.push_back({member, placed.x, placed.y, placed.angle});
+    }
+    return true;
+}
+
+std::vector<PanelId> Drafting::Selection::panels() const {
+    std::vector<PanelId> all;
+    if (panel) all.push_back(*panel);
+    for (PanelId other : others)
+        if (std::find(all.begin(), all.end(), other) == all.end()) all.push_back(other);
+    return all;
+}
+
+bool Drafting::Selection::has(PanelId candidate) const {
+    return panel == candidate || std::find(others.begin(), others.end(), candidate) != others.end();
+}
+
+void Drafting::join(PanelId panel) {
+    if (selection.panel == panel) return;
+    std::erase(selection.others, panel);
+    if (selection.panel) selection.others.push_back(*selection.panel);
+    selection.corners.clear();
+    selection.panel = panel;
+}
+
+void Drafting::drop(PanelId panel) {
+    std::erase(selection.others, panel);
+    if (selection.panel != panel) return;
+    selection.corners.clear();
+    selection.panel.reset();
+    if (!selection.others.empty()) {
+        selection.panel = selection.others.back();
+        selection.others.pop_back();
+    }
+}
+
 void Drafting::forget(const Document& doc) {
     dragging_.reset();
     scaling_.reset();
+    groupStarts_.clear();
     cornerDrags_.clear();
     turning_.reset();
     arrangedFrom_.reset();
     selection.corners.clear();
-    if (selection.panel && !doc.contains(*selection.panel)) selection.panel.reset();
+    for (PanelId gone : selection.panels())
+        if (!doc.contains(gone)) drop(gone);
 }
 
-Outcome Drafting::on(Editor&, const SelectPanel& g) {
-    if (g.panel != selection.panel) selection.corners.clear();
-    selection.panel = g.panel;
+Outcome Drafting::on(Editor& editor, const SelectPanel& g) {
+    if (g.how == Pick::Replace) {
+        if (g.panel != selection.panel) selection.corners.clear();
+        selection.panel = g.panel;
+        selection.others.clear();
+    } else if (g.panel && editor.document().contains(*g.panel)) {
+        if (g.how == Pick::Toggle && selection.has(*g.panel)) drop(*g.panel);
+        else join(*g.panel);
+    }
+    return {};
+}
+
+Outcome Drafting::on(Editor& editor, const SelectPanels& g) {
+    const Document& doc = editor.document();
+    if (g.how == Pick::Replace) {
+        selection.panel.reset();
+        selection.others.clear();
+        selection.corners.clear();
+    }
+    for (PanelId panel : g.panels) {
+        if (!doc.contains(panel)) continue;
+        if (g.how == Pick::Toggle && selection.has(panel)) drop(panel);
+        else join(panel);
+    }
     return {};
 }
 
@@ -138,13 +257,13 @@ Outcome Drafting::on(Editor& editor, const SelectCorners& g) {
     selection.panel = g.panel;
     std::vector<CornerRef>& chosen = selection.corners;
     const auto has = [&](const CornerRef& c) { return std::find(chosen.begin(), chosen.end(), c) != chosen.end(); };
-    if (!g.add) {
+    if (g.how == Pick::Replace) {
         chosen = g.corners;
-    } else if (g.corners.size() == 1 && has(g.corners.front())) {
-        chosen.erase(std::find(chosen.begin(), chosen.end(), g.corners.front()));
-    } else {
-        for (const CornerRef& c : g.corners)
-            if (!has(c)) chosen.push_back(c);
+        return {};
+    }
+    for (const CornerRef& c : g.corners) {
+        if (!has(c)) chosen.push_back(c);
+        else if (g.how == Pick::Toggle) chosen.erase(std::find(chosen.begin(), chosen.end(), c));
     }
     return {};
 }
@@ -174,6 +293,28 @@ Outcome Drafting::on(Editor& editor, const RotatePanel& g) {
         const Vec2 now = turned(centre, panel.angle);
         turning_ = Turning{centre, {panel.x + now.x, panel.y + now.y}};
     }
+    if (g.phase == DragPhase::Begin && beginGroup(editor.document(), g.panel))
+        groupPivot_ = middleOfPanels(editor.document(), editor.shapes(), selectedInOrder(editor.document(), selection)).value_or(Vec2{});
+    if (!groupStarts_.empty()) {
+        // Several panels turn together about the middle of the group.
+        const auto grabbed = std::find_if(groupStarts_.begin(), groupStarts_.end(), [&](const GroupStart& s) { return s.panel == g.panel; });
+        if (grabbed == groupStarts_.end()) {
+            groupStarts_.clear();
+            return outcome;
+        }
+        const double by = g.angle - grabbed->angle;
+        const Vec2 pivot = groupPivot_;
+        apply(editor, [&](Document& doc) {
+            for (const GroupStart& s : groupStarts_) {
+                if (!doc.contains(s.panel)) continue;
+                const Vec2 offset = turned(Vec2{s.x - pivot.x, s.y - pivot.y}, by);
+                doc.place(s.panel, pivot.x + offset.x, pivot.y + offset.y);
+                doc.turn(s.panel, s.angle + by);
+            }
+        }, placing(g.phase == DragPhase::Begin), outcome);
+        if (g.phase == DragPhase::End) groupStarts_.clear();
+        return outcome;
+    }
     if (!turning_) return outcome;
     const Vec2 shifted = turned(turning_->centre, g.angle);
     const Vec2 pivot = turning_->pivot;
@@ -185,48 +326,147 @@ Outcome Drafting::on(Editor& editor, const RotatePanel& g) {
     return outcome;
 }
 
+std::expected<Drafting::ScalePart, std::string> Drafting::scalePartOf(const Editor& editor, PanelId panel) const {
+    const Document& doc = editor.document();
+    const Panel& placed = doc.get(panel);
+    ScalePart part{.panel = panel};
+    if (const std::optional<Bounds> box = bounds(editor.shapes()[panel])) {
+        const Vec2 own = turned(Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0}, placed.angle);
+        part.middle = {placed.x + own.x, placed.y + own.y};
+    }
+    const std::string name = "the panel " + placed.name;
+    const std::vector<OpId> layers = doc.operations(panel);
+    // The last operation that runs and is on: a mirror applied last waits until the end, so look past it.
+    std::optional<OpId> last;
+    for (OpId op : layers) {
+        const Mirror* mirror = std::get_if<Mirror>(&doc.get(op));
+        if (doc.enabled(op) && !(mirror && mirror->appliedLast)) last = op;
+    }
+    if (last) {
+        if (const Scale* scale = std::get_if<Scale>(&doc.get(*last))) {
+            if (!asNumber(scale->x) || !asNumber(scale->y))
+                return std::unexpected("The scale of " + name + " is set by a formula. Change it in the Attribute Editor.");
+            part.layer = *last;
+            part.baseA = *asNumber(scale->x);
+            part.baseB = *asNumber(scale->y);
+            return part;
+        }
+    }
+    // No Scale layer to change: scale the starting shape's own lengths, so nothing is added.
+    const OpId first = layers.front();
+    if (doc.enabled(first)) {
+        const OpData& data = doc.get(first);
+        // A length that a formula sets is not overwritten: the formula keeps driving the shape, and a Scale layer goes on top.
+        const auto lengths = [&](const Expr& a, const Expr& b) {
+            if (!asNumber(a) || !asNumber(b)) return;
+            part.shape = first;
+            part.baseA = *asNumber(a);
+            part.baseB = *asNumber(b);
+        };
+        if (const Rect* rect = std::get_if<Rect>(&data)) lengths(rect->width, rect->height);
+        else if (const Circle* circle = std::get_if<Circle>(&data)) lengths(circle->radius, circle->radius);
+        else if (const RingSector* ring = std::get_if<RingSector>(&data)) lengths(ring->innerLength, ring->depth);
+    }
+    return part;  // else its own Scale layer comes with the first accepted change
+}
+
 Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
     Outcome outcome;
     const Document& doc = editor.document();
     if (!doc.contains(g.panel)) return outcome;
     if (g.phase == DragPhase::Begin) {
         scaling_.reset();
-        // The last operation that runs and is on: a mirror applied last waits until the end, so look past it.
-        std::optional<OpId> last;
-        for (OpId op : doc.operations(g.panel)) {
-            const Mirror* mirror = std::get_if<Mirror>(&doc.get(op));
-            if (doc.enabled(op) && !(mirror && mirror->appliedLast)) last = op;
+        std::vector<PanelId> group = selection.has(g.panel) ? selectedInOrder(doc, selection) : std::vector<PanelId>{g.panel};
+        if (group.empty()) group = {g.panel};
+        Scaling next{.several = group.size() > 1};
+        for (PanelId member : group) {
+            if (doc.operations(member).empty()) continue;  // nothing to scale
+            std::expected<ScalePart, std::string> part = scalePartOf(editor, member);
+            if (!part) {
+                outcome.notice = part.error();
+                outcome.refused = true;
+                return outcome;
+            }
+            next.parts.push_back(*part);
         }
-        if (!last && doc.operations(g.panel).empty()) return outcome;
-        const Scale* scale = last ? std::get_if<Scale>(&doc.get(*last)) : nullptr;
-        if (scale && asNumber(scale->x) && asNumber(scale->y)) {
-            scaling_ = Scaling{*last, *asNumber(scale->x), *asNumber(scale->y), false};
-        } else if (scale) {
-            outcome.notice = "This panel's scale is set by a formula. Change it in the Attribute Editor.";
-            outcome.refused = true;
+        if (next.parts.empty()) return outcome;
+        next.pivot = middleOfPanels(doc, editor.shapes(), group).value_or(Vec2{});
+        scaling_ = std::move(next);
+    }
+    if (!scaling_) return outcome;
+    for (const ScalePart& part : scaling_->parts) {
+        const bool gone = !doc.contains(part.panel) ||
+                          (part.layer && (!doc.contains(*part.layer) || !std::holds_alternative<Scale>(doc.get(*part.layer)))) ||
+                          (part.shape && !doc.contains(*part.shape));
+        if (gone) {
+            scaling_.reset();
             return outcome;
-        } else {
-            scaling_ = Scaling{std::nullopt, 1.0, 1.0, false};  // its own layer comes with the first accepted change
         }
     }
-    if (!scaling_ || (scaling_->layer && (!doc.contains(*scaling_->layer) || !std::holds_alternative<Scale>(doc.get(*scaling_->layer))))) return outcome;
-    // A thousandth, so that the numbers in the layer stay readable.
-    const auto rounded = [](double v) { return std::max(std::round(v * 1000.0) / 1000.0, 0.001); };
-    const double x = rounded(scaling_->baseX * g.x), y = rounded(scaling_->baseY * g.y);
-    std::optional<OpId> layer = scaling_->layer;
-    if (!layer && x == 1.0 && y == 1.0) {  // nothing to scale yet: no layer for a drag that has not moved
+    const bool evenly = std::abs(g.x - g.y) < 1e-9;
+    if (scaling_->several && !evenly) {
+        outcome.notice = "Several panels are scaled evenly only. Scale them the same in x and y, or click one panel to stretch it one way.";
+        outcome.refused = true;
+        return outcome;
+    }
+    // A circle's radius and a ring's radius are one length: there is no stretching them one way.
+    for (const ScalePart& part : scaling_->parts) {
+        if (!part.shape || evenly || std::holds_alternative<Rect>(doc.get(*part.shape))) continue;
+        outcome.notice = "A circle or a ring is scaled evenly only. Scale it the same in x and y, or change its lengths in the Attribute Editor.";
+        outcome.refused = true;
+        return outcome;
+    }
+    // A thousandth, so that the numbers stay readable. A drag that is back at 1 gives the exact old number.
+    const auto times = [](double base, double factor) { return factor == 1.0 ? base : std::max(std::round(base * factor * 1000.0) / 1000.0, 0.001); };
+    const bool unchanged = g.x == 1.0 && g.y == 1.0;
+    if (!scaling_->stepOpen && unchanged) {  // a drag that has not moved changes nothing yet
         if (g.phase == DragPhase::End) scaling_.reset();
         return outcome;
     }
+    Scaling next = *scaling_;
     const bool done = apply(editor, [&](Document& d) {
-        if (!layer) layer = d.add(g.panel, Scale{}).id;
-        const OpRef<Scale> scale(*layer);
-        d.set(scale, &Scale::x, Expr(x));
-        d.set(scale, &Scale::y, Expr(y));
+        for (ScalePart& part : next.parts) {
+            if (part.shape) {
+                const OpData& data = d.get(*part.shape);
+                if (std::holds_alternative<Rect>(data)) {
+                    const OpRef<Rect> rect(*part.shape);
+                    d.set(rect, &Rect::width, Expr(times(part.baseA, g.x)));
+                    d.set(rect, &Rect::height, Expr(times(part.baseB, g.y)));
+                } else if (std::holds_alternative<Circle>(data)) {
+                    d.set(OpRef<Circle>(*part.shape), &Circle::radius, Expr(times(part.baseA, g.x)));
+                } else {
+                    const OpRef<RingSector> ring(*part.shape);
+                    d.set(ring, &RingSector::innerLength, Expr(times(part.baseA, g.x)));
+                    d.set(ring, &RingSector::depth, Expr(times(part.baseB, g.x)));
+                }
+            } else {
+                if (!part.layer) part.layer = d.add(part.panel, Scale{}).id;
+                const OpRef<Scale> scale(*part.layer);
+                d.set(scale, &Scale::x, Expr(times(part.baseA, g.x)));
+                d.set(scale, &Scale::y, Expr(times(part.baseB, g.y)));
+            }
+        }
     }, byHand(!scaling_->stepOpen), outcome);
     if (done) {
-        scaling_->layer = layer;
+        scaling_ = std::move(next);
         scaling_->stepOpen = true;
+        // A shape grows about its origin and a layer about its box's middle; what the panel's box now is tells where
+        // the place has to be so that its middle goes where the scaling says: the group's middle stays, and each
+        // panel's middle moves away from it by as much (a single panel's own middle stays).
+        std::vector<std::pair<PanelId, Vec2>> places;
+        for (const ScalePart& part : scaling_->parts) {
+            const std::optional<Bounds> box = bounds(editor.shapes()[part.panel]);
+            if (!box) continue;
+            const Panel& placed = editor.document().get(part.panel);
+            const Vec2 own = turned(Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0}, placed.angle);
+            const Vec2 want{scaling_->pivot.x + g.x * (part.middle.x - scaling_->pivot.x), scaling_->pivot.y + g.x * (part.middle.y - scaling_->pivot.y)};
+            const Vec2 at{want.x - own.x, want.y - own.y};
+            if (std::abs(at.x - placed.x) > 1e-9 || std::abs(at.y - placed.y) > 1e-9) places.push_back({part.panel, at});
+        }
+        if (!places.empty())
+            apply(editor, [&](Document& d) {
+                for (const auto& [panel, at] : places) d.place(panel, at.x, at.y);
+            }, placing(false), outcome);
     }
     if (g.phase == DragPhase::End) scaling_.reset();
     return outcome;
@@ -269,6 +509,22 @@ Outcome Drafting::arrangeByDrag(Editor& editor, PanelId panel, DragPhase phase, 
 Outcome Drafting::on(Editor& editor, const MovePanel& g) {
     Outcome outcome;
     if (!editor.document().contains(g.panel)) return outcome;
+    if (g.phase == DragPhase::Begin) beginGroup(editor.document(), g.panel);
+    if (!groupStarts_.empty()) {
+        // Several panels move together, each by as much as the one taken hold of.
+        const auto grabbed = std::find_if(groupStarts_.begin(), groupStarts_.end(), [&](const GroupStart& s) { return s.panel == g.panel; });
+        if (grabbed == groupStarts_.end()) {
+            groupStarts_.clear();
+            return outcome;
+        }
+        const double dx = g.x - grabbed->x, dy = g.y - grabbed->y;
+        apply(editor, [&](Document& doc) {
+            for (const GroupStart& s : groupStarts_)
+                if (doc.contains(s.panel)) doc.place(s.panel, s.x + dx, s.y + dy);
+        }, placing(g.phase == DragPhase::Begin), outcome);
+        if (g.phase == DragPhase::End) groupStarts_.clear();
+        return outcome;
+    }
     apply(editor, [&](Document& doc) { doc.place(g.panel, g.x, g.y); }, placing(g.phase == DragPhase::Begin), outcome);
     return outcome;
 }
@@ -278,7 +534,9 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& image) {
     const Document& doc = editor.document();
     bool newStep = false;  // whether this change opens the drag's undo step
     if (!doc.contains(image.panel)) return outcome;
-    const Vec2 own = turned(Vec2{image.dx, image.dy}, -doc.get(image.panel).angle);  // the drag in the panel's own coordinates
+    // Held to one axis, the other coordinate is not moved at all, whatever the pointer does.
+    const double alongX = image.along == Along::Y ? 0.0 : image.dx, alongY = image.along == Along::X ? 0.0 : image.dy;
+    const Vec2 own = turned(Vec2{alongX, alongY}, -doc.get(image.panel).angle);  // the drag in the panel's own coordinates
     const Pattern& shape = editor.shapes()[image.panel];
     std::vector<CornerRef>& chosen = selection.corners;
     const auto isSelected = [&](const CornerRef& c) { return std::find(chosen.begin(), chosen.end(), c) != chosen.end(); };
@@ -416,7 +674,7 @@ Outcome Drafting::on(Editor& editor, const DrawRect& g) {
     apply(editor, [&](Document& doc) {
         const PanelId panel = doc.add(Panel{.name = freeName(doc, "panel"), .x = g.x, .y = g.y});
         doc.add(panel, Rect{.width = Expr(g.width), .height = Expr(g.height)});
-        selection = {panel, {}};
+        selection = {panel, {}, {}};
     }, adding, outcome);
     return outcome;
 }
@@ -426,7 +684,7 @@ Outcome Drafting::on(Editor& editor, const DrawCircle& g) {
     apply(editor, [&](Document& doc) {
         const PanelId panel = doc.add(Panel{.name = freeName(doc, "circle"), .x = g.x, .y = g.y});
         doc.add(panel, Circle{.radius = Expr(g.radius)});
-        selection = {panel, {}};
+        selection = {panel, {}, {}};
     }, adding, outcome);
     return outcome;
 }
@@ -436,7 +694,7 @@ Outcome Drafting::on(Editor& editor, const PlaceRing& g) {
     apply(editor, [&](Document& doc) {
         const PanelId panel = doc.add(Panel{.name = freeName(doc, "skirt"), .x = g.x, .y = g.y});
         doc.add(panel, RingSector{.innerLength = 70_cm, .sweep = 180_deg, .depth = 60_cm});
-        selection = {panel, {}};
+        selection = {panel, {}, {}};
     }, adding, outcome);
     return outcome;
 }
@@ -557,7 +815,8 @@ Outcome Drafting::on(Editor& editor, const MirrorAcross& g) {
 Outcome Drafting::on(Editor& editor, const AddBeside& g) {
     Outcome outcome;
     if (!editor.document().contains(g.source)) return outcome;
-    if (const std::optional<PanelId> added = addLike(editor, g.source, g.how, besideSource(editor, g.source, g.how), outcome)) selection = {added, {}};
+    const std::vector<PanelId> added = addLike(editor, {{g.source, besideSource(editor, g.source, g.how)}}, g.how, outcome);
+    if (!added.empty()) selection = {added.front(), {}, {}};
     return outcome;
 }
 
@@ -565,20 +824,30 @@ Outcome Drafting::on(Editor& editor, const DeletePanel& g) {
     Outcome outcome;
     if (!editor.document().contains(g.panel)) return outcome;
     if (!apply(editor, [&](Document& doc) { doc.remove(g.panel); }, adding, outcome)) return outcome;
-    if (selection.panel == g.panel) selection = {};
+    drop(g.panel);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const DeleteSelection&) {
+Outcome Drafting::on(Editor& editor, const DeleteSelection& g) {
     Outcome outcome;
     const Document& doc = editor.document();
-    if (!selection.panel || !doc.contains(*selection.panel)) {
+    const std::vector<PanelId> panels = selectedInOrder(doc, selection);
+    if (panels.empty()) {
         outcome.notice = "Nothing is selected. Click a panel, or some of its corners, and press Delete again.";
         outcome.refused = true;
         return outcome;
     }
+    if (g.wholePanels || selection.corners.empty() || !selection.panel || !doc.contains(*selection.panel)) {
+        if (panels.size() == 1) return on(editor, DeletePanel{panels.front()});
+        // Several panels go in one undo step. What used one of them stays and shows a problem.
+        if (!apply(editor, [&](Document& d) {
+                for (PanelId panel : panels) d.remove(panel);
+            }, adding, outcome))
+            return outcome;
+        for (PanelId panel : panels) drop(panel);
+        return outcome;
+    }
     const PanelId panel = *selection.panel;
-    if (selection.corners.empty()) return on(editor, DeletePanel{panel});
 
     // A corner can only go with the layer that made it, and only a Point-tool
     // layer is only that corner. Any other corner is part of a shape: say which.
@@ -606,36 +875,69 @@ Outcome Drafting::on(Editor& editor, const DeleteSelection&) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const CopyPanel& g) {
+Outcome Drafting::on(Editor& editor, const CopySelection&) {
     Outcome outcome;
-    if (!editor.document().contains(g.panel)) return outcome;
-    copied_ = g.panel;
-    outcome.notice = "Copied " + editor.document().get(g.panel).name + ". Press Ctrl+V to paste it where the pointer is.";
+    const Document& doc = editor.document();
+    const std::vector<PanelId> panels = selectedInOrder(doc, selection);
+    if (panels.empty()) {
+        outcome.notice = "Nothing to copy. Click a panel first, then press Ctrl+C.";
+        outcome.refused = true;
+        return outcome;
+    }
+    copied_ = panels;
+    outcome.notice = panels.size() == 1 ? "Copied " + doc.get(panels.front()).name + ". Press Ctrl+V to paste it where the pointer is."
+                                        : "Copied " + std::to_string(panels.size()) + " panels. Press Ctrl+V to paste them where the pointer is.";
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const DuplicateSelection&) {
+    Outcome outcome;
+    const std::vector<PanelId> panels = selectedInOrder(editor.document(), selection);
+    if (panels.empty()) {
+        outcome.notice = "Nothing to duplicate. Click a panel first, then press Ctrl+D.";
+        outcome.refused = true;
+        return outcome;
+    }
+    if (panels.size() == 1) return on(editor, AddBeside{panels.front(), Follow::Copy});
+    const std::vector<PanelId> added = addLike(editor, groupPlaces(editor, panels, std::nullopt), Follow::Copy, outcome);
+    if (!added.empty()) selection = {added.front(), {}, {added.begin() + 1, added.end()}};
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const PastePanel& g) {
     Outcome outcome;
-    if (!copied_) {
+    if (copied_.empty()) {
         outcome.notice = "Nothing has been copied. Select a panel and press Ctrl+C first.";
         outcome.refused = true;
         return outcome;
     }
-    const PanelId source = *copied_;
-    if (!editor.document().contains(source)) {
-        copied_.reset();
-        outcome.notice = "The panel that was copied is gone. Select a panel and press Ctrl+C again.";
+    // Panels deleted since they were copied are left out.
+    const std::size_t copiedBefore = copied_.size();
+    std::erase_if(copied_, [&](PanelId panel) { return !editor.document().contains(panel); });
+    if (copied_.empty()) {
+        outcome.notice = copiedBefore == 1 ? "The panel that was copied is gone. Select a panel and press Ctrl+C again."
+                                           : "The panels that were copied are gone. Select a panel and press Ctrl+C again.";
         outcome.refused = true;
         return outcome;
     }
-    Vec2 place = besideSource(editor, source, Follow::Copy);
-    if (g.at) {
-        // The copy's middle goes under the pointer.
-        const std::optional<Bounds> box = bounds(editor.shapes()[source]);
-        const Vec2 middle = box ? Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0} : Vec2{};
-        place = {g.at->x - middle.x, g.at->y - middle.y};
+    std::vector<Placed> places;
+    if (copied_.size() > 1) {
+        places = groupPlaces(editor, copied_, g.at);
+    } else {
+        const PanelId source = copied_.front();
+        Vec2 place = besideSource(editor, source, Follow::Copy);
+        if (g.at) {
+            // The copy's middle goes under the pointer.
+            const std::optional<Bounds> box = bounds(editor.shapes()[source]);
+            const Vec2 middle = box ? Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0} : Vec2{};
+            place = {g.at->x - middle.x, g.at->y - middle.y};
+        }
+        places = {{source, place}};
     }
-    if (const std::optional<PanelId> added = addLike(editor, source, Follow::Copy, place, outcome)) selection = {added, {}};
+    const std::vector<PanelId> added = addLike(editor, places, Follow::Copy, outcome);
+    if (!added.empty()) {
+        selection = {added.front(), {}, {added.begin() + 1, added.end()}};
+    }
     return outcome;
 }
 

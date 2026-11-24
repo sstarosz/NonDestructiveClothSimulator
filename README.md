@@ -12,8 +12,8 @@ the body follows too.
   (the Point tool) to shape a shoulder, a waist or an armhole, free curves, internal
   lines, cuts and splits, mirrors that keep both halves in step, instances
   and mirrored instances, moving single corners or groups of them, and
-  scaling a panel along its own x and y (a Scale layer, made by the scale
-  gizmo).
+  scaling a panel along its own x and y (the scale gizmo changes the lengths
+  of its rectangle, circle or ring, or a Scale layer).
 - **Parameters and formulas**: `waist / 4 + ease`, with limits per field;
   an edit that would break something is refused and says why.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
@@ -31,16 +31,41 @@ the body follows too.
   the square between them or the middle; its z is grey, since a panel has no
   thickness. In 3D they are drawn in flat colours, in front of everything.
   Ctrl: whole centimetres, steps of 15°, steps of 10 %.
-  Moving and turning only place a panel; scaling changes its shape, as a
-  Scale layer that can be edited, switched off or undone like any other.
-- **Editing on the table**, and in 3D on the selected panel: Delete removes
-  the selected panel, or, with corners selected, the ones added with the
-  Point tool; Ctrl+C remembers a panel, Ctrl+V pastes a copy with its middle
-  under the pointer (a copy follows the same parameters), Ctrl+D duplicates
-  it beside the original. Each is one undo step. The table's origin is drawn
+  Moving and turning only place a panel; scaling changes its shape. A panel
+  that starts with a rectangle, a circle or a ring of plain numbers is scaled
+  by those numbers, with no layer added; if a formula sets a length, or the
+  panel starts with an instance, the scale is a Scale layer, which can be
+  edited, switched off or undone like any other. A Scale layer you add by hand
+  stays yours: the gizmo changes it. Whichever way, the middle of the panel's
+  box stays where it was on the table. Several selected panels scale together
+  (evenly) about the middle of the group.
+- **Editing on the table**, and in 3D on the selected panels: Delete removes
+  the selected panels, or, with corners selected, the ones added with the
+  Point tool; Ctrl+C remembers the panels, Ctrl+V pastes copies with their
+  middle under the pointer, each in its place in the group (a copy follows the
+  same parameters), Ctrl+D duplicates the selected panels just right of them.
+  Each is one undo step. The table's origin is drawn
   with its grid: the x axis in red, the y axis in green. The keys work while
   the table (or the 3D view) has the focus, so typing in a field or in the
   Outliner is left alone.
+- **Selecting several panels**: Shift- or Ctrl-click adds a panel to the
+  selection or, on a selected one, takes it out; a box dragged on empty table
+  selects the panels it touches (Shift or Ctrl adds them to the ones
+  selected). Dragging one of the selected panels, or their move gizmo, moves
+  them all, and the rotate gizmo turns them all about the middle of the group;
+  each is one undo step. A click on one of them selects it alone. The last one
+  added is the one the docks show; the others are drawn as selected, and the
+  gizmo stands at the middle of the group.
+- **Selecting corners**: with one panel chosen, a box dragged on empty table
+  that touches only that panel selects its corners inside it (Shift adds them
+  to the ones already selected; Shift-click on a corner adds or takes it out);
+  a click on empty table, or a box over nothing, chooses nothing.
+- **Along one axis**: Shift held while a corner (or the selected corners), a
+  curve handle, or a panel (or the selected panels, by the panel or by the
+  middle of the move gizmo) is dragged keeps it on the table's x or y,
+  whichever the pointer moved furthest along first; a dashed line in that
+  axis's colour shows it. The other coordinate does not change at all. With
+  Ctrl as well, the free one is put on the grid.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Files**: save and open (`.clothcad`, plain text), undo.
@@ -226,11 +251,16 @@ holds and hands it what the user did.
 - Seams join whole edges, one to one.
 - Delete on a corner works only for corners added with the Point tool; any
   other corner is part of a shape, and the help line names the layer to
-  change or remove. Copy and paste work on one panel at a time (several need
-  selecting more than one). Deleting a panel that an instance or a seam uses
+  change or remove. Deleting a panel that an instance or a seam uses
   is allowed: they show a problem until it is put right, and undo brings the
-  panel back. In 3D, Delete takes the whole panel and Paste has no place on
-  the table, so the copy goes beside the original.
+  panel back. In 3D, Delete takes whole panels and Paste has no place on
+  the table, so the copies go beside the originals.
+- Several selected panels are selected, moved, turned, scaled evenly, copied,
+  pasted, duplicated and deleted together, but the docks, corners and lengths
+  work on one panel only: the shown one, or the single panel selected. They
+  cannot be stretched one way together (the help line says so). The 3D view
+  and the Outliner show the shown panel only. A paste or Ctrl+D does not copy
+  seams between panels, and a copy of a turned panel is not turned.
 - A panel grows away from its sewn edges that kept their length. If every
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.
@@ -259,7 +289,8 @@ holds and hands it what the user did.
   front it points at the eye and is too short to show.
 - A Scale layer scales about the middle of the outline's box as it is at
   that layer. On a symmetric panel it scales the drawn half, before the
-  mirror: the whole stays symmetric, but its middle moves on the table. An
+  mirror: the whole stays symmetric, and the gizmo moves the panel so that its
+  middle stays where it was on the table. An
   arc stretched more one way than the other stays a circular arc between its
   moved ends, and a whole circle can only be scaled evenly. A Scale set by a
   formula is not dragged (the gizmo says so); type it in the Attribute

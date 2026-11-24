@@ -443,6 +443,35 @@ TEST_CASE("a corner is dragged on the table; one held by a formula stays and say
     EXPECT((w.window.helpLine().contains("formula")), "and the help line says why");
 }
 
+TEST_CASE("Shift held while a corner is dragged keeps it on the axis it first moved along; Ctrl snaps the other", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const Vec2 top = w.corner(plain, 1, 1);
+    const QPointF from = w.table()->toScreen(top);
+
+    // The hand drifts upwards as well, but the corner only goes sideways.
+    drag(w.table(), from, by(from, w.table(), 6, 2.5), Qt::ShiftModifier);
+    EXPECT((std::abs(w.width(plain) - 36.0) < 0.2), "the corner followed the pointer along x");
+    EXPECT((std::abs(w.corner(plain, 1, 1).y - top.y) < 1e-9), "its y did not change by even 1e-9 cm");
+    EXPECT((w.window.selectedCorners().size() == 1), "and it is selected, as after any drag of a corner");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.width(plain) == 30.0 && w.doc().operations(plain).size() == 1), "one undo takes the whole drag back");
+
+    // Mostly upwards, it goes only up.
+    drag(w.table(), from, by(from, w.table(), 1.5, 5), Qt::ShiftModifier);
+    EXPECT((std::abs(w.corner(plain, 1, 1).x - top.x) < 1e-9 && std::abs(w.corner(plain, 1, 1).y - top.y - 5.0) < 0.2), "dragged mostly upwards, it only goes up");
+    w.window.shelf()->undo()->trigger();
+
+    // With Ctrl as well the free coordinate is on the grid and the other stays exactly where it was.
+    drag(w.table(), from, by(from, w.table(), 7.3, 2.1), Qt::ShiftModifier | Qt::ControlModifier);
+    double step = 0.1;
+    while (step * w.table()->scale() < 12.0) step *= 10.0;
+    const double x = w.corner(plain, 1, 1).x;
+    EXPECT((std::abs(x / step - std::round(x / step)) < 1e-6 && std::abs(w.corner(plain, 1, 1).y - top.y) < 1e-9), "Ctrl snaps x to the grid; y stays");
+}
+
 TEST_CASE("Shift-drag selects corners in a box; dragging one moves them together", "[qt]")
 {
     Table w;
@@ -457,6 +486,34 @@ TEST_CASE("Shift-drag selects corners in a box; dragging one moves them together
     EXPECT((std::abs(w.width(plain) - 36.0) < 0.2), "both move: the panel is wider all the way down");
     click(w.table(), w.table()->toScreen(w.corner(plain, -1, 1)), Qt::ShiftModifier);
     EXPECT((w.window.selectedCorners().size() == 3), "Shift-click adds a corner");
+}
+
+TEST_CASE("a box dragged on empty table selects the chosen panel's corners when it touches only that panel; Shift adds; a click chooses nothing", "[qt]")
+{
+    Table w;
+    Document alone;
+    alone.add(alone.add(Panel{.name = "plain"}), Rect{.width = 30_cm, .height = 10_cm});
+    w.window.open(std::move(alone), "alone");
+    w.window.tick();
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const Vec2 topRight = w.corner(plain, 1, 1), bottomRight = w.corner(plain, 1, -1);
+    const Vec2 topLeft = w.corner(plain, -1, 1);
+    // Pressed outside the panel, so it is a box and not a drag of the panel.
+    drag(w.table(), w.table()->toScreen({topRight.x + 6, topRight.y + 8}), w.table()->toScreen({bottomRight.x - 2, bottomRight.y - 8}));
+    EXPECT((w.window.selectedCorners().size() == 2 && w.window.selected() == plain), "a box over the right side selects its two corners, with no Shift");
+    const std::size_t layers = w.doc().operations(plain).size();
+    EXPECT((layers == 1), "and changes nothing in the document");
+
+    drag(w.table(), w.table()->toScreen({topLeft.x - 6, topLeft.y + 6}), w.table()->toScreen({topLeft.x + 2, topLeft.y - 2}), Qt::ShiftModifier);
+    EXPECT((w.window.selectedCorners().size() == 3), "with Shift a box adds its corner to the ones selected");
+    drag(w.table(), w.table()->toScreen({topLeft.x - 6, topLeft.y + 6}), w.table()->toScreen({topLeft.x + 2, topLeft.y - 2}), Qt::ShiftModifier);
+    EXPECT((w.window.selectedCorners().size() == 3), "and a box over one already selected does not take it out");
+
+    drag(w.table(), w.table()->toScreen({topLeft.x - 6, topLeft.y + 6}), w.table()->toScreen({topLeft.x + 2, topLeft.y - 2}));
+    EXPECT((w.window.selectedCorners().size() == 1), "without Shift a box replaces them");
+    click(w.table(), w.table()->toScreen({-1000, -1000}));
+    EXPECT((!w.window.selected() && w.window.selectedCorners().empty()), "a click on empty table chooses nothing");
 }
 
 TEST_CASE("a double-click on an edge opens its length for typing", "[qt]")
@@ -516,6 +573,67 @@ TEST_CASE("Q, W, E and R choose Select, Move, Rotate and Scale; only the last th
     EXPECT((w.window.shelf()->tool() == Tool::Select && !space.gizmo() && !w.table()->gizmo()), "Q: back to Select, no gizmo");
 }
 
+TEST_CASE("Shift held while a panel is dragged keeps it on the axis it first moved along; Ctrl snaps the other", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const Panel was = w.doc().get(plain);
+    const QPointF at = table->toScreen(w.middle(plain));
+
+    // The hand drifts upwards as well, but the panel only goes sideways.
+    drag(table, at, by(at, table, 12, 2.5), Qt::ShiftModifier);
+    EXPECT((std::abs(w.doc().get(plain).x - (was.x + 12)) < 0.2), "the panel followed the pointer along x");
+    EXPECT((w.doc().get(plain).y == was.y), "and its y did not change at all");
+    EXPECT((w.window.selected() == plain), "it is still selected: Shift on a selected panel is not a click");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().get(plain).x == was.x), "one undo puts it back");
+
+    drag(table, at, by(at, table, 2, -9), Qt::ShiftModifier);
+    EXPECT((w.doc().get(plain).x == was.x && std::abs(w.doc().get(plain).y - (was.y - 9)) < 0.2), "dragged mostly down, it only goes down");
+    w.window.shelf()->undo()->trigger();
+
+    drag(table, at, by(at, table, 7.3, 2.1), Qt::ShiftModifier | Qt::ControlModifier);
+    double step = 0.1;
+    while (step * table->scale() < 12.0) step *= 10.0;
+    const double x = w.doc().get(plain).x;
+    EXPECT((std::abs(x / step - std::round(x / step)) < 1e-6 && w.doc().get(plain).y == was.y), "with Ctrl as well, x is on the grid and y stays");
+    w.window.shelf()->undo()->trigger();
+
+    // The gizmo goes with the panel while it is dragged, not only when the button is let go.
+    choose(w, Tool::Select);
+    choose(w, Tool::Move);
+    const Vec2 centreWas = table->gizmo()->centre;
+    const QPointF arrow = table->toScreen(session::handleEnd(*table->gizmo(), session::TableHandle::AlongX)) - QPointF(25.0, 0.0);
+    send(table, QEvent::MouseButtonPress, arrow, Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseMove, arrow + QPointF(60.0, 0.0), Qt::NoButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseMove, arrow + QPointF(120.0, 0.0), Qt::NoButton, Qt::LeftButton, {});
+    REQUIRE(table->gizmoDrawn());
+    EXPECT((std::abs(table->gizmoDrawn()->centre.x - centreWas.x - 120.0 / table->scale()) < 0.06 && table->gizmoDrawn()->centre.y == centreWas.y),
+           "mid-drag, the gizmo has moved with the pointer along x");
+    EXPECT((std::abs(table->gizmoDrawn()->centre.x - table->gizmo()->centre.x) < 1e-9), "and it stands where the panel's gizmo does");
+    send(table, QEvent::MouseButtonRelease, arrow + QPointF(120.0, 0.0), Qt::LeftButton, Qt::NoButton, {});
+    w.window.shelf()->undo()->trigger();
+
+    // A ring does not move while it turns the panel: the turn is measured about it.
+    choose(w, Tool::Rotate);
+    const QPointF pivotNow = table->toScreen(table->gizmo()->centre);
+    send(table, QEvent::MouseButtonPress, pivotNow + QPointF(session::tableRingPixels, 0.0), Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseMove, pivotNow + QPointF(0.0, -session::tableRingPixels), Qt::NoButton, Qt::LeftButton, {});
+    EXPECT((table->gizmoDrawn() && std::abs(table->gizmoDrawn()->centre.x - table->gizmo()->centre.x) < 1e-9), "the ring stays at the middle of the panel mid-turn");
+    send(table, QEvent::MouseButtonRelease, pivotNow + QPointF(0.0, -session::tableRingPixels), Qt::LeftButton, Qt::NoButton, {});
+    w.window.shelf()->undo()->trigger();
+    choose(w, Tool::Move);
+
+    // The middle of the move gizmo is a free move: Shift holds it too.
+    choose(w, Tool::Move);
+    REQUIRE(table->gizmo());
+    const QPointF middle = table->toScreen(table->gizmo()->centre);
+    drag(table, middle, by(middle, table, 3, 9), Qt::ShiftModifier);
+    EXPECT((w.doc().get(plain).x == was.x && std::abs(w.doc().get(plain).y - (was.y + 9)) < 0.2), "the gizmo's middle goes up only");
+}
+
 TEST_CASE("on the table the move gizmo's arrow moves a panel along x only, its ring turns it, its handle scales it", "[qt]")
 {
     Table w;
@@ -556,11 +674,14 @@ TEST_CASE("on the table the move gizmo's arrow moves a panel along x only, its r
     EXPECT((std::abs(end.x() - centre.x()) < 1e-6 && end.y() < centre.y()), "the x handle points up the screen, along the panel's own x");
     const QPointF unit = (end - centre) / session::tableArrowPixels;
     const std::size_t layers = w.doc().operations(plain).size();
+    const Rect* shape = std::get_if<Rect>(&w.doc().get(w.doc().operations(plain).front()));
+    REQUIRE(shape != nullptr);
+    const std::optional<double> heightBefore = asNumber(shape->height);
     drag(table, centre + unit * 60.0, centre + unit * 90.0);
-    REQUIRE(w.doc().operations(plain).size() == layers + 1);
-    const Scale* scale = std::get_if<Scale>(&w.doc().get(w.doc().operations(plain).back()));
-    REQUIRE(scale != nullptr);
-    EXPECT((asNumber(scale->x) == 1.5 && asNumber(scale->y) == 1.0), "half as far again from the middle: a Scale layer of 150 % along x");
+    EXPECT((w.doc().operations(plain).size() == layers), "a rectangle of plain numbers is scaled itself: no layer is added");
+    shape = std::get_if<Rect>(&w.doc().get(w.doc().operations(plain).front()));
+    REQUIRE(shape != nullptr);
+    EXPECT((asNumber(shape->width) == 45.0 && asNumber(shape->height) == heightBefore), "half as far again from the middle: the width is 150 % along x, the height as it was");
     EXPECT((std::abs(w.width(plain) - 45.0) < 1e-6), "the panel is half as wide again");
     const std::optional<Bounds> scaledBox = bounds(w.window.session().editor().shapes()[plain]);
     const Vec2 scaledMiddle = turned(Vec2{(scaledBox->min.x + scaledBox->max.x) / 2, (scaledBox->min.y + scaledBox->max.y) / 2}, w.doc().get(plain).angle);
@@ -1777,6 +1898,203 @@ TEST_CASE("Delete, Ctrl+C, Ctrl+V and Ctrl+D work in the 3D view on the selected
     w.window.select(std::nullopt);
     space->key(QKeyCombination(Qt::Key_Delete));
     EXPECT((w.doc().panels().size() == panels + 2 && w.window.helpLine().contains("Nothing is selected")), "with nothing selected it says so");
+}
+
+TEST_CASE("Shift- or Ctrl-click adds a panel to the selection or takes it out; a box selects the panels it touches", "[qt]")
+{
+    Table w;
+    Document row;
+    for (int i = 0; i < 3; ++i) {
+        const PanelId panel = row.add(Panel{.name = std::string(1, static_cast<char>('a' + i)), .x = 40.0 * i, .y = 0.0});
+        row.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    }
+    w.window.open(std::move(row), "row");
+    w.window.tick();
+    TableView* table = w.table();
+    const PanelId a = w.panel("a"), b = w.panel("b"), c = w.panel("c");
+    const auto at = [&](PanelId panel) { return table->toScreen(w.middle(panel)); };
+    const auto where = [&](double x, double y) { return table->toScreen({x, y}); };
+
+    click(table, at(a));
+    click(table, at(b), Qt::ControlModifier);
+    EXPECT((w.window.selected() == b && w.window.selectedPanels().size() == 2), "Ctrl-click adds a panel; it is the one shown");
+    click(table, at(b), Qt::ControlModifier);
+    EXPECT((w.window.selected() == a && w.window.selectedPanels().size() == 1), "Ctrl-click on a selected panel takes it out");
+    drag(table, at(a), by(at(a), table, 0, 12), Qt::ControlModifier);
+    EXPECT((w.window.selected() == a && w.doc().get(a).y > 5.0), "Ctrl-drag on a selected panel moves it and keeps it selected");
+    w.window.shelf()->undo()->trigger();
+    click(table, at(b));
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{b}), "a plain click selects only that panel");
+    click(table, at(a), Qt::ShiftModifier);
+    EXPECT((w.window.selectedPanels().size() == 2), "Shift-click adds a panel, as Ctrl-click does");
+    click(table, at(a));
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{a}), "a plain click on one of several selected panels selects only it");
+    click(table, at(b));
+
+    // A box on empty table, with a panel chosen, is for its corners; with Ctrl it is for panels.
+    drag(table, where(-5, 14), where(45, -4), Qt::ControlModifier);
+    EXPECT((w.window.selectedPanels().size() == 2 && w.window.selected() != c), "a box with Ctrl adds the panels it touches (a and b)");
+    drag(table, where(75, 14), where(85, -4), Qt::ControlModifier);
+    EXPECT((w.window.selectedPanels().size() == 3), "another box with Ctrl adds the next");
+    click(table, where(-1000, -1000));
+    EXPECT((w.window.selectedPanels().empty()), "a click on empty table chooses nothing");
+    drag(table, where(-5, 14), where(45, -4));
+    EXPECT((w.window.selectedPanels().size() == 2 && w.window.selected() != c), "with nothing chosen, a plain box selects the panels it touches");
+    drag(table, where(-20, 30), where(-10, 20));
+    EXPECT((w.window.selectedPanels().empty()), "a box over nothing chooses nothing, as a click on empty table does");
+
+    // Several panels at once: copy, paste and delete.
+    w.window.select(a);
+    click(table, at(c), Qt::ControlModifier);
+    REQUIRE(w.window.selectedPanels().size() == 2);
+    pressKey(table, Qt::Key_C, Qt::ControlModifier);
+    EXPECT((w.window.helpLine().contains("Copied 2 panels")), "Ctrl+C says how many panels it copied");
+    moveOver(table, where(300, 100));
+    pressKey(table, Qt::Key_V, Qt::ControlModifier);
+    REQUIRE(w.doc().panels().size() == 5);
+    EXPECT((w.window.selectedPanels().size() == 2 && w.window.selected() == w.doc().panels()[3]), "Ctrl+V pastes both, selected");
+    EXPECT((std::abs(w.doc().get(w.doc().panels()[4]).x - w.doc().get(w.doc().panels()[3]).x - 80.0) < 0.1), "as far apart as the originals");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == 3), "the paste is one undo step");
+
+    w.window.select(a);
+    click(table, at(c), Qt::ControlModifier);
+    pressKey(table, Qt::Key_Delete);
+    EXPECT((w.doc().panels().size() == 1 && w.doc().contains(b) && w.window.selectedPanels().empty()), "Delete takes both selected panels");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == 3), "one undo brings both back");
+}
+
+namespace {
+
+// Three panels, 20 by 10 cm each, at x = 0, 40 and 80.
+void openRow(Table& w) {
+    Document row;
+    for (int i = 0; i < 3; ++i) {
+        const PanelId panel = row.add(Panel{.name = std::string(1, static_cast<char>('a' + i)), .x = 40.0 * i, .y = 0.0});
+        row.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    }
+    w.window.open(std::move(row), "row");
+    w.window.tick();
+}
+
+// Where a panel's own middle is on the table, turned and placed.
+Vec2 tableMiddle(const Table& w, PanelId panel) {
+    const std::optional<Bounds> box = bounds(w.window.session().editor().shapes()[panel]);
+    const Panel& placed = w.doc().get(panel);
+    const Vec2 own = turned(Vec2{(box->min.x + box->max.x) / 2, (box->min.y + box->max.y) / 2}, placed.angle);
+    return {placed.x + own.x, placed.y + own.y};
+}
+
+} // namespace
+
+TEST_CASE("several selected panels are dragged together, as one undo step; a click on one selects it alone", "[qt]")
+{
+    Table w;
+    openRow(w);
+    TableView* table = w.table();
+    const PanelId a = w.panel("a"), b = w.panel("b"), c = w.panel("c");
+    const auto at = [&](PanelId panel) { return table->toScreen(w.middle(panel)); };
+    const Panel aWas = w.doc().get(a), bWas = w.doc().get(b), cWas = w.doc().get(c);
+
+    drag(table, table->toScreen({-5, 14}), table->toScreen({45, -4}));
+    REQUIRE(w.window.selectedPanels().size() == 2);
+    drag(table, at(a), by(at(a), table, 12, -4));
+    EXPECT((std::abs(w.doc().get(a).x - aWas.x - 12.0) < 0.2 && std::abs(w.doc().get(a).y - aWas.y + 4.0) < 0.2), "the panel dragged moves with the pointer");
+    EXPECT((std::abs(w.doc().get(b).x - bWas.x - 12.0) < 0.2 && std::abs(w.doc().get(b).y - bWas.y + 4.0) < 0.2), "and the other selected panel moves as far");
+    EXPECT((w.doc().get(c).x == cWas.x && w.doc().get(c).y == cWas.y), "one that is not selected stays");
+    EXPECT((w.window.selectedPanels().size() == 2), "the drag leaves them selected");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().get(a).x == aWas.x && w.doc().get(b).x == bWas.x && w.doc().get(b).y == bWas.y), "one undo puts both back");
+
+    drag(table, at(b), by(at(b), table, 7.3, 2.1), Qt::ControlModifier);
+    EXPECT((w.window.selectedPanels().size() == 2 && w.doc().get(b).x != bWas.x && w.doc().get(a).x != aWas.x), "Ctrl-dragging one of them moves both too, and keeps them selected");
+    w.window.shelf()->undo()->trigger();
+
+    // Shift holds the group to the axis the pointer first moved along.
+    drag(table, at(a), by(at(a), table, 3, 9), Qt::ShiftModifier);
+    EXPECT((w.doc().get(a).x == aWas.x && w.doc().get(b).x == bWas.x && std::abs(w.doc().get(a).y - aWas.y - 9.0) < 0.2 && std::abs(w.doc().get(b).y - bWas.y - 9.0) < 0.2),
+           "with Shift they all go up, and not sideways at all");
+    EXPECT((w.window.selectedPanels().size() == 2), "and stay selected");
+    w.window.shelf()->undo()->trigger();
+
+    // The move gizmo moves them all, from the middle of the group.
+    choose(w, Tool::Move);
+    REQUIRE(table->gizmo());
+    EXPECT((std::abs(table->gizmo()->centre.x - 30.0) < 1e-6 && std::abs(table->gizmo()->centre.y - 5.0) < 1e-6), "the gizmo stands at the middle of the group");
+    const QPointF onArrow = table->toScreen(session::handleEnd(*table->gizmo(), session::TableHandle::AlongX)) - QPointF(25.0, 0.0);
+    drag(table, onArrow, onArrow + QPointF(40.0, -30.0));
+    EXPECT((std::abs(w.doc().get(a).x - aWas.x - 40.0 / table->scale()) < 0.06 && std::abs(w.doc().get(b).x - bWas.x - 40.0 / table->scale()) < 0.06 &&
+            w.doc().get(a).y == aWas.y && w.doc().get(b).y == bWas.y),
+           "its x arrow moves both along x only");
+    w.window.shelf()->undo()->trigger();
+    choose(w, Tool::Select);
+
+    click(table, at(a));
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{a} && w.doc().get(a).x == aWas.x), "a click on a selected panel selects only it, and moves nothing");
+}
+
+TEST_CASE("several selected panels are turned and scaled together about the middle of the group, and duplicated with Ctrl+D", "[qt]")
+{
+    Table w;
+    openRow(w);
+    TableView* table = w.table();
+    const PanelId a = w.panel("a"), b = w.panel("b");
+    drag(table, table->toScreen({-5, 14}), table->toScreen({45, -4}));
+    REQUIRE(w.window.selectedPanels().size() == 2);
+    const Vec2 aMiddle = tableMiddle(w, a), bMiddle = tableMiddle(w, b);
+
+    choose(w, Tool::Rotate);
+    REQUIRE(table->gizmo());
+    const QPointF pivot = table->toScreen(table->gizmo()->centre);
+    drag(table, pivot + QPointF(session::tableRingPixels, 0.0), pivot + QPointF(0.0, -session::tableRingPixels), Qt::ControlModifier);
+    EXPECT((std::abs(w.doc().get(a).angle - 90.0) < 1e-6 && std::abs(w.doc().get(b).angle - 90.0) < 1e-6), "both turn by the angle swept");
+    const Vec2 aNow = tableMiddle(w, a), bNow = tableMiddle(w, b);
+    EXPECT((std::abs(std::hypot(bNow.x - aNow.x, bNow.y - aNow.y) - std::hypot(bMiddle.x - aMiddle.x, bMiddle.y - aMiddle.y)) < 1e-6), "they stay as far apart as they were");
+    EXPECT((std::abs((aNow.x + bNow.x) / 2 - 30.0) < 1e-6 && std::abs((aNow.y + bNow.y) / 2 - 5.0) < 1e-6), "turned about the middle of the group, which stays where it was");
+    EXPECT((std::abs(aNow.x - 30.0) < 1e-6 && std::abs(aNow.y + 15.0) < 1e-6), "a quarter turn counter-clockwise: the left panel is now below");
+    EXPECT((w.width(a) == 20.0), "turning is not shape");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().get(a).angle == 0.0 && w.doc().get(b).angle == 0.0 && std::abs(tableMiddle(w, a).x - aMiddle.x) < 1e-9), "one undo turns both back");
+
+    choose(w, Tool::Scale);
+    REQUIRE(table->gizmo());
+    const QPointF centre = table->toScreen(table->gizmo()->centre);
+    const QPointF end = table->toScreen(session::handleEnd(*table->gizmo(), session::TableHandle::AlongX));
+    const QPointF unit = (end - centre) / session::tableArrowPixels;
+    const std::size_t layers = w.doc().operations(a).size();
+    drag(table, centre + unit * 60.0, centre + unit * 90.0);
+    EXPECT((w.doc().operations(a).size() == layers && w.width(a) == 20.0 && w.window.helpLine().contains("evenly")), "pulled out one way, they are refused with a sentence, and nothing changes");
+
+    // The middle of the gizmo scales evenly: 50 pixels to the right is half as big again.
+    drag(table, centre, centre + QPointF(50.0, 0.0));
+    EXPECT((std::abs(w.width(a) - 30.0) < 0.1 && std::abs(w.width(b) - 30.0) < 0.1 && w.doc().operations(a).size() == layers), "both are half as big again, and no layer is added");
+    const Vec2 groupMiddle = *session::middleOfPanels(w.doc(), w.window.session().editor().shapes(), {a, b});
+    EXPECT((std::abs(groupMiddle.x - 30.0) < 1e-6 && std::abs(groupMiddle.y - 5.0) < 1e-6), "the middle of the group stays where it was");
+    EXPECT((w.doc().panels().size() == 3), "so far, three panels");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.width(a) == 20.0 && w.width(b) == 20.0), "one undo puts both back");
+
+    pressKey(table, Qt::Key_D, Qt::ControlModifier);
+    EXPECT((w.doc().panels().size() == 5 && w.window.selectedPanels().size() == 2), "Ctrl+D copies both, and the copies are selected");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == 3), "one undo takes both copies away");
+}
+
+TEST_CASE("a box dragged with one panel selected takes its corners if it touches only that panel, and panels otherwise", "[qt]")
+{
+    Table w;
+    openRow(w);
+    TableView* table = w.table();
+    const PanelId a = w.panel("a"), b = w.panel("b");
+    w.window.select(a);
+    // Pressed outside, over a's right side and not touching b (which starts at x = 40).
+    drag(table, table->toScreen({15, 14}), table->toScreen({25, -4}));
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{a} && w.window.selectedCorners().size() == 2), "touching only the selected panel: its two corners");
+    // Touching the selected panel and the next one: panels, a and b, whatever was selected.
+    drag(table, table->toScreen({15, 14}), table->toScreen({45, -4}));
+    EXPECT((w.window.selectedPanels().size() == 2 && w.window.selectedCorners().empty()), "touching a second panel too: both panels are selected");
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{b, a} || w.window.selectedPanels() == std::vector<PanelId>{a, b}), "and only those two");
 }
 
 namespace {

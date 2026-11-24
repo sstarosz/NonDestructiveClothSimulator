@@ -134,6 +134,79 @@ TEST_CASE("a panel turns about the middle of its box; a corner of a turned panel
     EXPECT((std::abs(after.x - before.x - 3.0) < 1e-9 && std::abs(after.y - before.y) < 1e-9), "dragged down the table, the corner moves along the panel's own x");
 }
 
+TEST_CASE("a corner held to one axis does not move along the other, even on a turned panel")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box", .x = 3, .y = 4, .angle = 30.0});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    // Where a corner is on the table.
+    const auto onTable = [&](CornerRef corner) {
+        const Vec2 own = turned(editor.shapes()[box].position(corner), editor.document().get(box).angle);
+        return Vec2{own.x + editor.document().get(box).x, own.y + editor.document().get(box).y};
+    };
+    const Vec2 before = onTable(rect.topRight());
+
+    // The pointer wanders in y as well, but only x counts.
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin, Along::X}, 5.0, 2.7);
+    Vec2 after = onTable(rect.topRight());
+    EXPECT((std::abs(after.x - before.x - 5.0) < 1e-9), "it follows the pointer along x");
+    EXPECT((std::abs(after.y - before.y) < 1e-9), "and its y on the table does not change by even 1e-9 cm");
+    EXPECT((count<AdjustPoint>(editor.document(), box) == 1), "as one layer, in one undo step");
+    EXPECT((editor.undo() && count<AdjustPoint>(editor.document(), box) == 0), "which one undo takes back");
+
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin, Along::Y}, 1.9, -4.0);
+    after = onTable(rect.topRight());
+    EXPECT((std::abs(after.x - before.x) < 1e-9 && std::abs(after.y - before.y + 4.0) < 1e-9), "held to y, only y changes");
+    EXPECT((editor.undo()), "and one undo takes it back");
+
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin}, 1.9, -4.0);
+    after = onTable(rect.topRight());
+    EXPECT((std::abs(after.x - before.x - 1.9) < 1e-9 && std::abs(after.y - before.y + 4.0) < 1e-9), "not held, it goes both ways");
+}
+
+TEST_CASE("selected corners held to one axis all keep their other coordinate")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectCorners{box, {rect.topRight(), rect.bottomRight()}, Pick::Replace});
+    const Vec2 top = editor.shapes()[box].position(rect.topRight()), bottom = editor.shapes()[box].position(rect.bottomRight());
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin, Along::Y}, 3.3, 2.0);
+    const Vec2 top2 = editor.shapes()[box].position(rect.topRight()), bottom2 = editor.shapes()[box].position(rect.bottomRight());
+    EXPECT((top2.x == top.x && bottom2.x == bottom.x), "neither corner moves sideways");
+    EXPECT((std::abs(top2.y - top.y - 2.0) < 1e-9 && std::abs(bottom2.y - bottom.y - 2.0) < 1e-9), "both move up together");
+}
+
+TEST_CASE("the axis a drag went furthest along")
+{
+    EXPECT((axisOf(5.0, 1.0) == Along::X && axisOf(-5.0, 1.0) == Along::X), "sideways, either way, is x");
+    EXPECT((axisOf(1.0, -5.0) == Along::Y && axisOf(0.0, 2.0) == Along::Y), "up or down is y");
+    EXPECT((axisOf(3.0, 3.0) == Along::X), "a tie is x");
+}
+
+TEST_CASE("corners are picked to replace, to add or to toggle what is selected")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    const CornerRef a = rect.topRight(), b = rect.bottomRight(), c = rect.topLeft();
+    drafting.handle(editor, SelectCorners{box, {a}, Pick::Replace});
+    drafting.handle(editor, SelectCorners{box, {b, c}, Pick::Replace});
+    EXPECT((drafting.selection.corners == std::vector<CornerRef>{b, c}), "Replace leaves only what was picked");
+    drafting.handle(editor, SelectCorners{box, {b}, Pick::Add});
+    EXPECT((drafting.selection.corners.size() == 2), "Add of a corner already selected keeps it: a box over one corner does not take it out");
+    drafting.handle(editor, SelectCorners{box, {a, b}, Pick::Add});
+    EXPECT((drafting.selection.corners == std::vector<CornerRef>{b, c, a}), "Add joins the new ones");
+    drafting.handle(editor, SelectCorners{box, {b, rect.bottomLeft()}, Pick::Toggle});
+    EXPECT((drafting.selection.corners == std::vector<CornerRef>{c, a, rect.bottomLeft()}), "Toggle takes out the one selected and puts in the other");
+}
+
 TEST_CASE("selected corners move together, as one undo step")
 {
     Document doc;
@@ -141,13 +214,13 @@ TEST_CASE("selected corners move together, as one undo step")
     const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, false});
-    drafting.handle(editor, SelectCorners{box, {rect.bottomRight()}, true});
+    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, Pick::Replace});
+    drafting.handle(editor, SelectCorners{box, {rect.bottomRight()}, Pick::Add});
     EXPECT((drafting.selection.corners.size() == 2 && drafting.selection.panel == box), "a second corner is added");
     drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin}, 5.0, 0.0);
     EXPECT((count<AdjustPoint>(editor.document(), box) == 2 && std::abs(editor.shapes()[box].length(rect.bottom()) - 25.0) < 1e-9), "dragging one moves both");
     EXPECT((editor.undo() && count<AdjustPoint>(editor.document(), box) == 0), "and one undo takes them both back");
-    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, true});
+    drafting.handle(editor, SelectCorners{box, {rect.topRight()}, Pick::Toggle});
     EXPECT((drafting.selection.corners.size() == 1), "clicking a selected corner with Shift takes it out");
 }
 
@@ -176,32 +249,83 @@ TEST_CASE("two edges are sewn once; a locked corner and a length that is no sett
     EXPECT((!moved.typeLength && !moved.notice.empty()), "once a corner was dragged the length follows the corners, and it says so");
 }
 
-TEST_CASE("the scale gizmo adds a Scale layer, then keeps changing it, one undo step a drag")
+TEST_CASE("the scale gizmo scales a Rect, a Circle or a RingSector itself and adds no layer, one undo step a drag")
 {
     Document doc;
     const PanelId box = doc.add(Panel{.name = "box", .x = 10, .y = 10});
     const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    const auto scaleBy = [&](double x, double y) {
-        drafting.handle(editor, ScalePanel{box, 1.0, 1.0, DragPhase::Begin});
-        drafting.handle(editor, ScalePanel{box, x, y, DragPhase::Continue});
-        return drafting.handle(editor, ScalePanel{box, x, y, DragPhase::End});
+    const auto scaleBy = [&](PanelId panel, double x, double y) {
+        drafting.handle(editor, ScalePanel{panel, 1.0, 1.0, DragPhase::Begin});
+        drafting.handle(editor, ScalePanel{panel, x, y, DragPhase::Continue});
+        return drafting.handle(editor, ScalePanel{panel, x, y, DragPhase::End});
     };
-    scaleBy(1.5, 1.0);
+    scaleBy(box, 1.5, 1.0);
+    EXPECT((count<Scale>(editor.document(), box) == 0), "no Scale layer is added: the rectangle itself changes");
+    EXPECT((asNumber(editor.document().get(rect).width) == 30.0 && asNumber(editor.document().get(rect).height) == 10.0), "half as wide again, as tall");
+    const auto middleOf = [&]() {
+        const Bounds own = *bounds(editor.shapes()[box]);
+        return Vec2{editor.document().get(box).x + (own.min.x + own.max.x) / 2.0, editor.document().get(box).y + (own.min.y + own.max.y) / 2.0};
+    };
+    EXPECT_NEAR((middleOf().x), (20.0), "the middle of the panel's box stays where it was on the table (10 + 10)");
+    EXPECT_NEAR((middleOf().y), (15.0), "in y as well");
+    scaleBy(box, 1.0, 2.0);
+    EXPECT((asNumber(editor.document().get(rect).width) == 30.0 && asNumber(editor.document().get(rect).height) == 20.0), "a second drag goes on from what it had");
+    EXPECT((editor.undo() && asNumber(editor.document().get(rect).height) == 10.0), "one undo takes back the second drag");
+    EXPECT((editor.undo() && asNumber(editor.document().get(rect).width) == 20.0), "and one more the first");
+    EXPECT((editor.document().get(box).x == 10.0 && editor.document().get(box).y == 10.0), "and one undo gave the place back with the shape");
+
+    // A circle's radius, and a ring's two lengths, grow evenly; stretching one way is refused and changes nothing.
+    Document round;
+    const PanelId circle = round.add(Panel{.name = "circle"});
+    const OpRef<Circle> disc = round.add(circle, Circle{.radius = 10_cm});
+    const PanelId skirt = round.add(Panel{.name = "skirt"});
+    const OpRef<RingSector> ring = round.add(skirt, RingSector{.innerLength = 60_cm, .sweep = 180_deg, .depth = 30_cm});
+    Editor roundEditor(round);
+    drafting.handle(roundEditor, ScalePanel{circle, 1.0, 1.0, DragPhase::Begin});
+    const Outcome oval = drafting.handle(roundEditor, ScalePanel{circle, 1.5, 1.0, DragPhase::Continue});
+    EXPECT((oval.refused && oval.notice.find("evenly") != std::string::npos), "a circle is not stretched one way only");
+    EXPECT((count<Scale>(roundEditor.document(), circle) == 0 && asNumber(roundEditor.document().get(disc).radius) == 10.0), "and nothing was changed or added");
+    drafting.handle(roundEditor, ScalePanel{circle, 1.5, 1.5, DragPhase::End});
+    EXPECT((asNumber(roundEditor.document().get(disc).radius) == 15.0 && count<Scale>(roundEditor.document(), circle) == 0), "but it is scaled evenly, by its radius");
+    drafting.handle(roundEditor, ScalePanel{skirt, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(roundEditor, ScalePanel{skirt, 2.0, 2.0, DragPhase::End});
+    EXPECT((asNumber(roundEditor.document().get(ring).innerLength) == 120.0 && asNumber(roundEditor.document().get(ring).depth) == 60.0 && asNumber(roundEditor.document().get(ring).sweep) == 180.0),
+           "a ring's waist and depth double, its sweep stays");
+}
+
+TEST_CASE("a shape that a formula sets, or an instance, is scaled by a Scale layer, which the next drag keeps changing")
+{
+    Document doc;
+    const Param wide = doc.add(Parameter{.name = "wide", .value = 20.0, .unit = Unit::Length});
+    const PanelId box = doc.add(Panel{.name = "box", .x = 10, .y = 10});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = wide, .height = 10_cm});
+    const PanelId twin = doc.add(Panel{.name = "twin"});
+    doc.add(twin, Instance{.source = box});
+    Editor editor(doc);
+    Drafting drafting;
+    const auto scaleBy = [&](PanelId panel, double x, double y) {
+        drafting.handle(editor, ScalePanel{panel, 1.0, 1.0, DragPhase::Begin});
+        drafting.handle(editor, ScalePanel{panel, x, y, DragPhase::Continue});
+        return drafting.handle(editor, ScalePanel{panel, x, y, DragPhase::End});
+    };
+    scaleBy(box, 1.5, 1.0);
     EXPECT((count<Scale>(editor.document(), box) == 1), "the first drag adds a Scale at the end");
+    EXPECT((!asNumber(editor.document().get(rect).width).has_value()), "the formula is still what sets the width");
     EXPECT_NEAR((editor.shapes()[box].length(rect.bottom())), (30.0), "half as wide again");
     EXPECT_NEAR((editor.shapes()[box].position(rect.bottomLeft()).x), (-5.0), "about the middle of its box");
-    scaleBy(1.0, 2.0);
+    EXPECT((editor.document().get(box).x == 10.0), "the layer keeps the middle where it was, so the place stays");
+    scaleBy(box, 1.0, 2.0);
     EXPECT((count<Scale>(editor.document(), box) == 1), "a second drag changes the same Scale");
     EXPECT((asNumber(last<Scale>(editor.document(), box).x) == 1.5 && asNumber(last<Scale>(editor.document(), box).y) == 2.0), "on top of what it had");
     EXPECT((editor.undo() && asNumber(last<Scale>(editor.document(), box).y) == 1.0), "one undo takes back the second drag");
     EXPECT((editor.undo() && count<Scale>(editor.document(), box) == 0), "and one more the first, with its layer");
-    EXPECT((editor.document().get(box).x == 10.0), "scaling is shape, not placement: the panel's place stays");
+    scaleBy(twin, 2.0, 2.0);
+    EXPECT((count<Scale>(editor.document(), twin) == 1), "an instance has no lengths of its own: it is scaled by a layer too");
 
     // A Scale that a formula drives is not dragged.
     Document driven = doc;
-    const Param wide = driven.add(Parameter{.name = "wide", .value = 1.2, .unit = Unit::Fraction});
     driven.add(box, Scale{.x = wide, .y = 1.0});
     Editor locked(driven);
     const Outcome refused = drafting.handle(locked, ScalePanel{box, 2.0, 2.0, DragPhase::Begin});
@@ -209,8 +333,9 @@ TEST_CASE("the scale gizmo adds a Scale layer, then keeps changing it, one undo 
 
     // A change that would break the outline is refused, and says why.
     Document round;
+    const Param radius = round.add(Parameter{.name = "radius", .value = 10.0, .unit = Unit::Length});
     const PanelId circle = round.add(Panel{.name = "circle"});
-    round.add(circle, Circle{.radius = 10_cm});
+    round.add(circle, Circle{.radius = radius});
     Editor circleEditor(round);
     drafting.handle(circleEditor, ScalePanel{circle, 1.0, 1.0, DragPhase::Begin});
     const Outcome oval = drafting.handle(circleEditor, ScalePanel{circle, 1.5, 1.0, DragPhase::Continue});
@@ -223,8 +348,9 @@ TEST_CASE("the scale gizmo adds a Scale layer, then keeps changing it, one undo 
 TEST_CASE("a switched-off Scale is not the one the gizmo changes")
 {
     Document doc;
+    const Param wide = doc.add(Parameter{.name = "wide", .value = 20.0, .unit = Unit::Length});
     const PanelId box = doc.add(Panel{.name = "box"});
-    doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    doc.add(box, Rect{.width = wide, .height = 10_cm});
     const OpRef<Scale> off = doc.add(box, Scale{.x = 1.5, .y = 1.5});
     doc.setEnabled(off.id, false);
     Editor editor(doc);
@@ -277,9 +403,11 @@ TEST_CASE("a symmetric panel is scaled before its mirror, and stays symmetric")
     EXPECT((editor.shapes().ok()), "nothing breaks");
     EXPECT_NEAR((shape.length(half.rect.bottom()) + shape.length(half.fold.image(half.rect.bottom()))), (40.0), "both halves are twice as wide");
     EXPECT_NEAR((shape.length(half.rect.bottom())), (shape.length(half.fold.image(half.rect.bottom()))), "and the same width");
+    const double height = *asNumber(editor.document().get(half.rect).height);
     drafting.handle(editor, ScalePanel{half.panel, 1.0, 1.0, DragPhase::Begin});
     drafting.handle(editor, ScalePanel{half.panel, 1.0, 0.5, DragPhase::End});
-    EXPECT((count<Scale>(editor.document(), half.panel) == 1), "the mirror applied last is looked past: the same Scale changes");
+    EXPECT((count<Scale>(editor.document(), half.panel) == 0 && asNumber(editor.document().get(half.rect).height) == height * 0.5),
+           "the mirror applied last is looked past: the Rect under it is what changes");
 }
 
 TEST_CASE("a panel carried and turned in space is placed, not reshaped, one undo step a drag")
@@ -379,25 +507,25 @@ TEST_CASE("Delete removes corners added with the Point tool and refuses the corn
     const std::vector<OpId> layers = editor.document().operations(front);
     const CornerRef first = OpRef<AddPoint>(layers[1]).corner(), second = OpRef<AddPoint>(layers[2]).corner();
 
-    drafting.handle(editor, SelectCorners{front, {first}, false});
+    drafting.handle(editor, SelectCorners{front, {first}, Pick::Replace});
     const Outcome done = drafting.handle(editor, DeleteSelection{});
     EXPECT((!done.refused && editor.document().operations(front).size() == 2 && editor.document().operations(front)[1] == layers[2]), "that point's layer is dropped");
     EXPECT((drafting.selection.corners.empty() && drafting.selection.panel == front), "no corner is selected now, the panel still is");
     EXPECT((editor.undo() && editor.document().operations(front).size() == 3), "undo brings the point back");
 
-    drafting.handle(editor, SelectCorners{front, {first, second}, false});
+    drafting.handle(editor, SelectCorners{front, {first, second}, Pick::Replace});
     drafting.handle(editor, DeleteSelection{});
     EXPECT((editor.document().operations(front).size() == 1), "two points go together");
     EXPECT((editor.undo() && editor.document().operations(front).size() == 3), "in one undo step");
 
-    drafting.handle(editor, SelectCorners{front, {rect.topLeft()}, false});
+    drafting.handle(editor, SelectCorners{front, {rect.topLeft()}, Pick::Replace});
     const std::size_t steps = editor.version();
     const Outcome refused = drafting.handle(editor, DeleteSelection{});
     EXPECT((refused.refused && refused.notice.find("1. Rectangle") != std::string::npos && refused.notice.find("Remove or change that layer") != std::string::npos),
            "a corner of the rectangle says which layer it belongs to");
     EXPECT((editor.version() == steps && drafting.selection.corners.size() == 1), "and nothing changes");
 
-    drafting.handle(editor, SelectCorners{front, {first, rect.topLeft()}, false});
+    drafting.handle(editor, SelectCorners{front, {first, rect.topLeft()}, Pick::Replace});
     const Outcome mixed = drafting.handle(editor, DeleteSelection{});
     EXPECT((mixed.refused && editor.document().operations(front).size() == 3), "one corner of a shape among the points refuses all of them");
 }
@@ -410,13 +538,16 @@ TEST_CASE("a copied panel is pasted with its middle at the pointer and follows t
     const OpRef<Rect> rect = doc.add(front, Rect{.width = width, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    EXPECT((!drafting.copied().has_value()), "nothing is copied at first");
+    EXPECT((drafting.copied().empty()), "nothing is copied at first");
 
     const Outcome nothing = drafting.handle(editor, PastePanel{Vec2{0, 0}});
     EXPECT((nothing.refused && !nothing.notice.empty() && !editor.canUndo()), "pasting before copying says so");
 
-    const Outcome copied = drafting.handle(editor, CopyPanel{front});
-    EXPECT((!copied.refused && !copied.notice.empty() && drafting.copied() == front && !editor.canUndo()), "copying remembers the panel and changes no document");
+    const Outcome noneChosen = drafting.handle(editor, CopySelection{});
+    EXPECT((noneChosen.refused && !noneChosen.notice.empty() && drafting.copied().empty()), "with nothing selected there is nothing to copy");
+    drafting.handle(editor, SelectPanel{front});
+    const Outcome copied = drafting.handle(editor, CopySelection{});
+    EXPECT((!copied.refused && !copied.notice.empty() && drafting.copied() == std::vector<PanelId>{front} && !editor.canUndo()), "copying remembers the panel and changes no document");
 
     drafting.handle(editor, PastePanel{Vec2{100, 40}});
     const std::vector<PanelId> panels = editor.document().panels();
@@ -444,7 +575,8 @@ TEST_CASE("pasting without a place goes beside the original; a copied panel that
     doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    drafting.handle(editor, CopyPanel{front});
+    drafting.handle(editor, SelectPanel{front});
+    drafting.handle(editor, CopySelection{});
     drafting.handle(editor, PastePanel{std::nullopt});
     const PanelId pasted = editor.document().panels()[1];
     EXPECT((editor.document().get(pasted).x > 20.0 && editor.document().get(pasted).y == 0.0), "just right of the original, as Duplicate does");
@@ -453,7 +585,248 @@ TEST_CASE("pasting without a place goes beside the original; a copied panel that
     const std::uint64_t version = editor.version();
     const Outcome gone = drafting.handle(editor, PastePanel{Vec2{0, 0}});
     EXPECT((gone.refused && !gone.notice.empty() && editor.version() == version), "the panel is gone: a sentence, and no change");
-    EXPECT((!drafting.copied().has_value()), "and nothing stays copied");
+    EXPECT((drafting.copied().empty()), "and nothing stays copied");
+}
+
+namespace {
+
+// Three panels in a row: 20 by 10 cm each, at x = 0, 40 and 80.
+struct Row {
+    Document doc;
+    PanelId a, b, c;
+    Row() {
+        a = doc.add(Panel{.name = "a", .x = 0, .y = 0});
+        b = doc.add(Panel{.name = "b", .x = 40, .y = 0});
+        c = doc.add(Panel{.name = "c", .x = 80, .y = 0});
+        for (PanelId panel : {a, b, c}) doc.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    }
+};
+
+} // namespace
+
+TEST_CASE("several panels are selected by Add and Toggle; the last one added is the one shown")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanel{row.a});
+    drafting.handle(editor, SelectCorners{row.a, {OpRef<Rect>(editor.document().operations(row.a)[0]).topRight()}, Pick::Replace});
+    drafting.handle(editor, SelectPanel{row.b, Pick::Add});
+    EXPECT((drafting.selection.panel == row.b && drafting.selection.others == std::vector<PanelId>{row.a}), "Add makes the clicked panel the shown one and keeps the other");
+    EXPECT((drafting.selection.corners.empty()), "the corners belonged to the panel that is no longer shown");
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.b, row.a} && drafting.selection.has(row.a) && !drafting.selection.has(row.c)), "panels() lists the shown one first");
+
+    drafting.handle(editor, SelectPanel{row.b, Pick::Add});
+    EXPECT((drafting.selection.panels().size() == 2), "Add of a panel already shown changes nothing");
+    drafting.handle(editor, SelectPanel{row.a, Pick::Toggle});
+    EXPECT((drafting.selection.panel == row.b && drafting.selection.others.empty()), "Toggle takes a selected panel out");
+    drafting.handle(editor, SelectPanel{row.b, Pick::Toggle});
+    EXPECT((!drafting.selection.panel && drafting.selection.others.empty()), "and the last one leaves nothing selected");
+
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    EXPECT((drafting.selection.panels().size() == 2 && drafting.selection.has(row.a) && drafting.selection.has(row.b)), "a box over two panels selects both");
+    drafting.handle(editor, SelectPanels{{row.c}, Pick::Add});
+    EXPECT((drafting.selection.panels().size() == 3), "a box with Add joins what is selected");
+    drafting.handle(editor, SelectPanels{{row.a}, Pick::Replace});
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.a}), "a plain box replaces it");
+    drafting.handle(editor, SelectPanels{{}, Pick::Replace});
+    EXPECT((!drafting.selection.panel && drafting.selection.others.empty()), "a box over nothing chooses nothing");
+    drafting.handle(editor, SelectPanels{{row.a, PanelId{999}}, Pick::Replace});
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.a}), "a panel that does not exist is not selected");
+
+    drafting.handle(editor, SelectPanel{row.b});
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.b}), "a plain click on a panel replaces the whole selection");
+    EXPECT((!editor.canUndo()), "selecting changes no document");
+}
+
+TEST_CASE("a selected panel that no longer exists is dropped, and another selected one is shown")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b, row.c}, Pick::Replace});
+    const PanelId shown = *drafting.selection.panel;
+    drafting.handle(editor, DeletePanel{shown});
+    EXPECT((drafting.selection.panels().size() == 2 && !drafting.selection.has(shown) && drafting.selection.panel.has_value()), "a deleted panel leaves the others selected, one of them shown");
+    editor.undo();
+    REQUIRE(editor.change([&](Document& d) { d.remove(row.c); }, {.ifItBreaks = IfItBreaks::Allow}).has_value());
+    drafting.forget(editor.document());
+    EXPECT((!drafting.selection.has(row.c)), "forget drops a panel that is gone from the document");
+}
+
+TEST_CASE("Delete takes all the selected panels in one undo step; with corners selected it still takes only corners")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.c}, Pick::Replace});
+    const Outcome done = drafting.handle(editor, DeleteSelection{});
+    EXPECT((!done.refused && editor.document().panels() == std::vector<PanelId>{row.b}), "both selected panels go; the other stays");
+    EXPECT((!drafting.selection.panel && drafting.selection.others.empty()), "and nothing is selected any more");
+    EXPECT((editor.undo() && editor.document().panels().size() == 3 && !editor.canUndo()), "one undo brings both back");
+
+    // The 3D view shows no corners: Delete there takes the panels, whatever corners the table has selected.
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    drafting.handle(editor, SelectCorners{*drafting.selection.panel, {OpRef<Rect>(editor.document().operations(*drafting.selection.panel)[0]).topRight()}, Pick::Replace});
+    const std::vector<PanelId> before = editor.document().panels();
+    const Outcome corners = drafting.handle(editor, DeleteSelection{});
+    EXPECT((corners.refused && editor.document().panels() == before), "with a corner of a shape selected, Delete refuses it and takes no panel");
+    drafting.handle(editor, DeleteSelection{.wholePanels = true});
+    EXPECT((editor.document().panels() == std::vector<PanelId>{row.c}), "wholePanels takes the panels instead");
+}
+
+TEST_CASE("copied panels are pasted as a group with their places in it kept, selected, in one undo step")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.c}, Pick::Replace});
+    const Outcome copied = drafting.handle(editor, CopySelection{});
+    EXPECT((!copied.refused && drafting.copied() == std::vector<PanelId>{row.a, row.c} && !editor.canUndo()), "both are remembered, in the document's order, and nothing changes");
+
+    drafting.handle(editor, PastePanel{Vec2{200, 50}});
+    const std::vector<PanelId> panels = editor.document().panels();
+    REQUIRE(panels.size() == 5);
+    const Panel& first = editor.document().get(panels[3]);
+    const Panel& second = editor.document().get(panels[4]);
+    EXPECT((first.name == "a copy" && second.name == "c copy"), "each is named for its source");
+    EXPECT_NEAR(second.x - first.x, 80.0, "they are as far apart as the originals were");
+    EXPECT_NEAR(first.x + (80.0 + 20.0) / 2.0, 200.0, "the middle of the group's box is under the pointer in x");
+    EXPECT_NEAR(first.y + 5.0, 50.0, "and in y");
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{panels[3], panels[4]}), "the copies are selected");
+    EXPECT((editor.undo() && editor.document().panels().size() == 3 && !editor.canUndo()), "a paste is one undo step");
+    editor.redo();
+
+    drafting.handle(editor, PastePanel{std::nullopt});
+    const std::vector<PanelId> again = editor.document().panels();
+    REQUIRE(again.size() == 7);
+    EXPECT((editor.document().get(again[5]).x >= 0.0 + 100.0 && editor.document().get(again[5]).y == 0.0), "without a place the group goes just right of the originals");
+    EXPECT((editor.document().get(again[5]).name == "a copy 2"), "with a free name");
+
+    REQUIRE(editor.change([&](Document& d) { d.remove(row.a); }, {.ifItBreaks = IfItBreaks::Allow}).has_value());
+    const std::size_t count = editor.document().panels().size();
+    drafting.handle(editor, PastePanel{std::nullopt});
+    EXPECT((editor.document().panels().size() == count + 1 && drafting.copied() == std::vector<PanelId>{row.c}), "a panel deleted since is left out; the rest are pasted");
+}
+
+TEST_CASE("several selected panels move together by as much as the one taken hold of, as one undo step")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    drafting.handle(editor, MovePanel{row.b, 40.0, 0.0, DragPhase::Begin});
+    drafting.handle(editor, MovePanel{row.b, 52.0, -3.0, DragPhase::Continue});
+    drafting.handle(editor, MovePanel{row.b, 52.0, -3.0, DragPhase::End});
+    const Document& doc = editor.document();
+    EXPECT((doc.get(row.b).x == 52.0 && doc.get(row.b).y == -3.0), "the panel taken hold of is where it was dragged");
+    EXPECT((doc.get(row.a).x == 12.0 && doc.get(row.a).y == -3.0), "the other selected panel moved by the same");
+    EXPECT((doc.get(row.c).x == 80.0 && doc.get(row.c).y == 0.0), "a panel not selected stays");
+    EXPECT((editor.undo() && editor.document().get(row.a).x == 0.0 && editor.document().get(row.b).x == 40.0), "one undo puts both back");
+
+    // A panel that is not selected is moved alone, even if others are selected.
+    drafting.handle(editor, MovePanel{row.c, 80.0, 0.0, DragPhase::Begin});
+    drafting.handle(editor, MovePanel{row.c, 90.0, 0.0, DragPhase::End});
+    EXPECT((editor.document().get(row.c).x == 90.0 && editor.document().get(row.a).x == 0.0 && editor.document().get(row.b).x == 40.0), "a panel outside the selection moves alone");
+}
+
+TEST_CASE("several selected panels turn about the middle of the group; the shapes do not change")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    const std::optional<Vec2> middle = middleOfPanels(editor.document(), editor.shapes(), {row.a, row.b});
+    REQUIRE(middle.has_value());
+    EXPECT((std::abs(middle->x - 30.0) < 1e-9 && std::abs(middle->y - 5.0) < 1e-9), "the middle of the box that holds a (0 to 20) and b (40 to 60)");
+    EXPECT((!middleOfPanels(editor.document(), editor.shapes(), {}).has_value()), "no panels have no middle");
+
+    drafting.handle(editor, RotatePanel{row.a, 0.0, DragPhase::Begin});
+    drafting.handle(editor, RotatePanel{row.a, 90.0, DragPhase::End});
+    const Document& doc = editor.document();
+    EXPECT((std::abs(doc.get(row.a).angle - 90.0) < 1e-9 && std::abs(doc.get(row.b).angle - 90.0) < 1e-9), "both turn by the angle given");
+    // The middle is (30, 5): a's origin is 30 left and 5 below it, and a quarter turn counter-clockwise puts it 5 right and 30 below.
+    EXPECT((std::abs(doc.get(row.a).x - 35.0) < 1e-9 && std::abs(doc.get(row.a).y + 25.0) < 1e-9), "a's origin turned about the middle of the group");
+    EXPECT((std::abs(doc.get(row.b).x - 35.0) < 1e-9 && std::abs(doc.get(row.b).y - 15.0) < 1e-9), "and so is b's");
+    EXPECT((std::abs(editor.shapes()[row.a].length(OpRef<Rect>(doc.operations(row.a)[0]).bottom()) - 20.0) < 1e-9), "turning is not shape");
+    EXPECT((editor.undo() && editor.document().get(row.a).angle == 0.0 && editor.document().get(row.b).x == 40.0), "one undo turns them back");
+
+}
+
+TEST_CASE("several selected panels are scaled together about the middle of the group, evenly, one undo step")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    const auto widthOf = [&](PanelId panel) { return *asNumber(std::get<Rect>(editor.document().get(editor.document().operations(panel).front())).width); };
+
+    drafting.handle(editor, ScalePanel{row.a, 1.0, 1.0, DragPhase::Begin});
+    const Outcome uneven = drafting.handle(editor, ScalePanel{row.a, 1.5, 1.0, DragPhase::Continue});
+    EXPECT((uneven.refused && !uneven.notice.empty() && !editor.canUndo()), "stretched one way, they are refused with a sentence and nothing changes");
+    drafting.handle(editor, ScalePanel{row.a, 1.5, 1.5, DragPhase::Continue});
+    drafting.handle(editor, ScalePanel{row.a, 1.5, 1.5, DragPhase::End});
+    const Document& doc = editor.document();
+    EXPECT((widthOf(row.a) == 30.0 && widthOf(row.b) == 30.0 && widthOf(row.c) == 20.0), "both selected panels are half as big again; the third is left");
+    EXPECT((count<Scale>(doc, row.a) == 0 && count<Scale>(doc, row.b) == 0), "no layer is added to either");
+    // The middle of the group is (30, 5): a's origin was 30 left of it and 5 below, and is now 1.5 times as far.
+    EXPECT((std::abs(doc.get(row.a).x + 15.0) < 1e-9 && std::abs(doc.get(row.a).y + 2.5) < 1e-9), "a's place moved away from the middle of the group");
+    EXPECT((std::abs(doc.get(row.b).x - 45.0) < 1e-9 && std::abs(doc.get(row.b).y + 2.5) < 1e-9), "and so did b's");
+    const std::optional<Vec2> middle = middleOfPanels(doc, editor.shapes(), {row.a, row.b});
+    EXPECT((middle && std::abs(middle->x - 30.0) < 1e-9 && std::abs(middle->y - 5.0) < 1e-9), "the middle of the group stays where it was");
+    EXPECT((editor.undo() && widthOf(row.a) == 20.0 && widthOf(row.b) == 20.0 && editor.document().get(row.b).x == 40.0), "one undo puts both back");
+}
+
+TEST_CASE("a group scales a panel that a formula sets by a layer, and keeps the middle of the group where it was")
+{
+    Document doc;
+    const Param wide = doc.add(Parameter{.name = "wide", .value = 20.0, .unit = Unit::Length});
+    const PanelId a = doc.add(Panel{.name = "a", .x = 0, .y = 0});
+    doc.add(a, Rect{.width = 20_cm, .height = 10_cm});
+    const PanelId b = doc.add(Panel{.name = "b", .x = 40, .y = 0});
+    doc.add(b, Rect{.width = wide, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{a, b}, Pick::Replace});
+    const auto box = [&](PanelId panel) {
+        const Bounds own = *bounds(editor.shapes()[panel]);
+        const Panel& placed = editor.document().get(panel);
+        return Bounds{{own.min.x + placed.x, own.min.y + placed.y}, {own.max.x + placed.x, own.max.y + placed.y}};
+    };
+    const Vec2 before = *middleOfPanels(editor.document(), editor.shapes(), {a, b});
+    drafting.handle(editor, ScalePanel{a, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(editor, ScalePanel{a, 2.0, 2.0, DragPhase::End});
+    EXPECT((count<Scale>(editor.document(), a) == 0 && count<Scale>(editor.document(), b) == 1), "a is scaled itself, b by a layer");
+    const Vec2 after = *middleOfPanels(editor.document(), editor.shapes(), {a, b});
+    EXPECT((std::abs(after.x - before.x) < 1e-9 && std::abs(after.y - before.y) < 1e-9), "the middle of the group does not move");
+    EXPECT((std::abs(box(a).min.x + 30.0) < 1e-9 && std::abs(box(b).max.x - 90.0) < 1e-9), "the whole arrangement is twice as big about it: 0 to 60 becomes -30 to 90");
+    EXPECT((std::abs(box(b).max.x - box(b).min.x - 40.0) < 1e-9), "b is twice as wide");
+}
+
+TEST_CASE("Duplicate copies the selected panels just right of the group, keeping their layout, as one undo step")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    const Outcome nothing = drafting.handle(editor, DuplicateSelection{});
+    EXPECT((nothing.refused && !nothing.notice.empty() && editor.document().panels().size() == 3), "with nothing selected it says what to do and changes nothing");
+
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    drafting.handle(editor, DuplicateSelection{});
+    const Document& doc = editor.document();
+    REQUIRE(doc.panels().size() == 5);
+    const std::vector<PanelId> copies = drafting.selection.panels();
+    REQUIRE(copies.size() == 2);
+    EXPECT((!drafting.selection.has(row.a) && !drafting.selection.has(row.b)), "the copies are the selection now, not the originals");
+    // The originals' box is 0 to 60; the copies go 12 cm beyond it, as far apart as the originals are.
+    const PanelId first = doc.panels()[3], second = doc.panels()[4];
+    EXPECT((std::abs(doc.get(first).x - 72.0) < 1e-9 && std::abs(doc.get(second).x - 112.0) < 1e-9 && doc.get(first).y == 0.0), "just right of the group, at the same distance from each other");
+    EXPECT((doc.get(first).name == "a copy" && doc.get(second).name == "b copy"), "each named after its source");
+    EXPECT((editor.undo() && editor.document().panels().size() == 3), "one undo takes both copies away");
+
+    drafting.handle(editor, SelectPanel{row.c});
+    drafting.handle(editor, DuplicateSelection{});
+    EXPECT((editor.document().panels().size() == 4 && drafting.selection.panel && *drafting.selection.panel != row.c && drafting.selection.others.empty()), "one selected panel is duplicated as Add beside does");
 }
 
 TEST_CASE("Add beside makes a copy, an instance or a mirrored instance just right of the source, selected")

@@ -292,8 +292,10 @@ struct AddPoint {
 
 // Makes the outline so far bigger or smaller along the panel's own x and y
 // axes, about the middle of its box: 1 keeps the size, 1.1 is a tenth
-// bigger. Names and corners stay; lengths change. The scale gizmo (R) adds
-// one, or keeps changing the last one.
+// bigger. Names and corners stay; lengths change. The scale gizmo (R) keeps
+// changing the last one if it is there; otherwise it scales a Rect, a Circle or
+// a RingSector's own lengths when they are plain numbers, and only else adds a
+// Scale. A Scale layer on top of a shape is therefore something you add by hand.
 //
 //   Scale{.x = 1.1, .y = 1.0}   // a tenth wider, as tall
 //

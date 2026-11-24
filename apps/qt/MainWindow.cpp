@@ -617,7 +617,7 @@ void MainWindow::refresh() {
     showAllSteps_->setEnabled(viewUntil_.has_value());
     if (viewUntil_) past_ = evaluateUpTo(doc, *viewUntil_);
     attributes_->show(doc, shapes, selected, viewUntil_);
-    table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners, drafting_.tool);
+    table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners, drafting_.tool, drafting_.selection.others);
     if (space_->isVisible()) space_->show(session_, selected, drafting_.tool, shelf_->mesh()->isChecked(), bodyShown_);
     // A layer's reference being chosen: offer what that layer could use.
     if (picking_ && (!doc.contains(picking_->operation))) picking_.reset();
@@ -654,7 +654,8 @@ void MainWindow::refresh() {
 void MainWindow::on(const session::Gesture& gesture) {
     // Looking back at an earlier step, the pattern does not change; placing panels in space still does.
     const bool placesInSpace = std::holds_alternative<session::MoveInSpace>(gesture) || std::holds_alternative<session::TurnInSpace>(gesture);
-    const bool changesNothing = std::holds_alternative<session::SelectPanel>(gesture) || std::holds_alternative<session::CopyPanel>(gesture);
+    const bool changesNothing = std::holds_alternative<session::SelectPanel>(gesture) || std::holds_alternative<session::SelectPanels>(gesture) ||
+                                std::holds_alternative<session::CopySelection>(gesture);
     if (viewUntil_ && !changesNothing && !placesInSpace) {
         table_->cancel();
         say("Showing an earlier step: press Escape to show all steps and change the pattern again.", true);
@@ -679,22 +680,18 @@ void MainWindow::on(const session::Gesture& gesture) {
 }
 
 // Delete, Ctrl+C, Ctrl+V and Ctrl+D typed in the 3D view do what they do on the
-// table, to the selected panel. The 3D view shows no corners, so Delete takes
-// the whole panel; Paste has no place on the table to use, so it goes beside the original.
+// table, to the selected panels. The 3D view shows no corners, so Delete takes
+// whole panels; Paste has no place on the table to use, so it goes beside the originals.
 bool MainWindow::editInSpace(QKeyCombination pressed) {
-    const std::optional<PanelId> panel = drafting_.selection.panel;
     const QKeySequence typed(pressed);
     if (pressed == QKeyCombination(Qt::Key_Delete) || pressed == QKeyCombination(Qt::Key_Backspace)) {
-        if (panel) on(session::DeletePanel{*panel});
-        else on(session::DeleteSelection{});  // says that nothing is selected
+        on(session::DeleteSelection{.wholePanels = true});  // says so when nothing is selected
     } else if (typed == QKeySequence(QKeySequence::Copy)) {
-        if (panel) on(session::CopyPanel{*panel});
-        else say("Nothing to copy. Click a panel first, then press Ctrl+C.", true);
+        on(session::CopySelection{});
     } else if (typed == QKeySequence(QKeySequence::Paste)) {
         on(session::PastePanel{std::nullopt});
     } else if (pressed == QKeyCombination(Qt::ControlModifier, Qt::Key_D)) {
-        if (panel) on(session::AddBeside{*panel, session::Follow::Copy});
-        else say("Nothing to duplicate. Click a panel first, then press Ctrl+D.", true);
+        on(session::DuplicateSelection{});
     } else {
         return false;
     }
