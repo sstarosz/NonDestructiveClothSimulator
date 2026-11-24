@@ -1045,8 +1045,7 @@ void TableView::keyPressEvent(QKeyEvent* event) {
         // Where the pointer is; with the pointer away from the table there is no place, so beside the original.
         emit gestured(session::PastePanel{pointerInside_ ? std::optional<Vec2>(toTable(pointer_)) : std::nullopt});
     } else if (event->key() == Qt::Key_D && event->modifiers() == Qt::ControlModifier) {
-        if (selected_) emit gestured(session::AddBeside{*selected_, session::Follow::Copy});
-        else emit told("Nothing to duplicate. Click a panel first, then press Ctrl+D.");
+        emit gestured(session::DuplicateSelection{});
     } else QWidget::keyPressEvent(event);
 }
 

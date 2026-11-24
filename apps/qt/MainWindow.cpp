@@ -683,7 +683,6 @@ void MainWindow::on(const session::Gesture& gesture) {
 // table, to the selected panels. The 3D view shows no corners, so Delete takes
 // whole panels; Paste has no place on the table to use, so it goes beside the originals.
 bool MainWindow::editInSpace(QKeyCombination pressed) {
-    const std::optional<PanelId> panel = drafting_.selection.panel;
     const QKeySequence typed(pressed);
     if (pressed == QKeyCombination(Qt::Key_Delete) || pressed == QKeyCombination(Qt::Key_Backspace)) {
         on(session::DeleteSelection{.wholePanels = true});  // says so when nothing is selected
@@ -692,8 +691,7 @@ bool MainWindow::editInSpace(QKeyCombination pressed) {
     } else if (typed == QKeySequence(QKeySequence::Paste)) {
         on(session::PastePanel{std::nullopt});
     } else if (pressed == QKeyCombination(Qt::ControlModifier, Qt::Key_D)) {
-        if (panel) on(session::AddBeside{*panel, session::Follow::Copy});
-        else say("Nothing to duplicate. Click a panel first, then press Ctrl+D.", true);
+        on(session::DuplicateSelection{});
     } else {
         return false;
     }

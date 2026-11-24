@@ -13,6 +13,7 @@
 // On a symmetric panel (a mirror applied last), what is done on the mirrored
 // side is done on the drawn side, the mirrored way.
 
+#include <expected>
 #include <functional>
 #include <optional>
 #include <string>
@@ -85,9 +86,18 @@ struct RotatePanel {
     DragPhase phase;
 };
 // A panel scaled by the scale gizmo, along its own x and y: how many times as
-// big as when the drag began (1 is as it was). It is a Scale layer at the end
-// of the panel: the last one, if it is already there and holds plain
-// numbers; else a new one.
+// big as when the drag began (1 is as it was). What changes depends on the panel:
+//   - a Scale layer at its end, if one is there and holds plain numbers (a layer
+//     the user added stays the one that is changed);
+//   - else the lengths of its starting shape, if that is a Rect, a Circle or a
+//     RingSector whose lengths are plain numbers (so no layer is added);
+//   - else a new Scale layer at the end (a formula that sets a length is never
+//     overwritten, and an Instance has no lengths of its own).
+// A Scale layer set by a formula refuses the drag and says where to change it.
+// Whichever way, the middle of the panel's box stays where it was on the table
+// (the panel's place moves to keep it there). If it is one of several selected
+// panels, they are all scaled by as much, evenly (x and y the same), about the
+// middle of the group: each panel's middle moves away from it by as much.
 struct ScalePanel {
     PanelId panel;
     double x, y;
@@ -181,6 +191,9 @@ struct DeleteSelection {
 };
 // The selected panels are what Paste will copy: only remembered, nothing in the document changes.
 struct CopySelection {};
+// What Ctrl+D does: the selected panels copied just right of where they are,
+// keeping their layout; the copies become the selection, one undo step.
+struct DuplicateSelection {};
 // The copied panels, copied again as a group with its middle at `at` on the
 // table, each keeping its place in the group; with no place (the 3D view has
 // none), just right of the originals. The copies are selected.
@@ -190,7 +203,7 @@ struct PastePanel {
 
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
                              DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
-                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, PastePanel, SelectPanels>;
+                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, DuplicateSelection, PastePanel, SelectPanels>;
 
 // What a gesture came to, beyond the document: words for the help line, and
 // what the window should do next.
@@ -265,6 +278,7 @@ private:
     Outcome on(Editor&, const DeletePanel&);
     Outcome on(Editor&, const DeleteSelection&);
     Outcome on(Editor&, const CopySelection&);
+    Outcome on(Editor&, const DuplicateSelection&);
     Outcome on(Editor&, const PastePanel&);
     // `panel` joins the selection as the one shown, or goes out of it; the others stay.
     void join(PanelId panel);
@@ -284,14 +298,24 @@ private:
         OpId operation;    // the adjustment it is written to
     };
     std::vector<CornerDrag> cornerDrags_;  // while a group of corners is dragged
-    // A panel being scaled by the gizmo. The layer is only added with the first
-    // change that is accepted, so a refused drag leaves nothing behind.
+    // Panels being scaled by the gizmo, each in the way that adds the least to the
+    // document (see ScalePanel). A layer is only added with the first change that is
+    // accepted, so a refused drag leaves nothing behind.
+    struct ScalePart {
+        PanelId panel;
+        std::optional<OpId> layer;  // the Scale layer changed or added; empty until added
+        std::optional<OpId> shape;  // the starting operation whose lengths are scaled instead of a layer
+        double baseA = 1.0, baseB = 1.0;  // the layer's x and y, or the shape's two lengths, when the drag began
+        Vec2 middle;                // the middle of its box on the table when the drag began
+    };
     struct Scaling {
-        std::optional<OpId> layer;  // empty until the drag has added its own
-        double baseX, baseY;
-        bool stepOpen;              // whether an accepted change has opened the undo step
+        std::vector<ScalePart> parts;
+        Vec2 pivot;                 // what a group is scaled about
+        bool several = false;
+        bool stepOpen = false;      // whether an accepted change has opened the undo step
     };
     std::optional<Scaling> scaling_;
+    std::expected<ScalePart, std::string> scalePartOf(const Editor& editor, PanelId panel) const;
     // A panel being turned by the gizmo turns about the table position of its box's centre.
     struct Turning {
         Vec2 centre;  // in its own coordinates

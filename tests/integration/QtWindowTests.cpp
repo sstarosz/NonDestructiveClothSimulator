@@ -674,11 +674,14 @@ TEST_CASE("on the table the move gizmo's arrow moves a panel along x only, its r
     EXPECT((std::abs(end.x() - centre.x()) < 1e-6 && end.y() < centre.y()), "the x handle points up the screen, along the panel's own x");
     const QPointF unit = (end - centre) / session::tableArrowPixels;
     const std::size_t layers = w.doc().operations(plain).size();
+    const Rect* shape = std::get_if<Rect>(&w.doc().get(w.doc().operations(plain).front()));
+    REQUIRE(shape != nullptr);
+    const std::optional<double> heightBefore = asNumber(shape->height);
     drag(table, centre + unit * 60.0, centre + unit * 90.0);
-    REQUIRE(w.doc().operations(plain).size() == layers + 1);
-    const Scale* scale = std::get_if<Scale>(&w.doc().get(w.doc().operations(plain).back()));
-    REQUIRE(scale != nullptr);
-    EXPECT((asNumber(scale->x) == 1.5 && asNumber(scale->y) == 1.0), "half as far again from the middle: a Scale layer of 150 % along x");
+    EXPECT((w.doc().operations(plain).size() == layers), "a rectangle of plain numbers is scaled itself: no layer is added");
+    shape = std::get_if<Rect>(&w.doc().get(w.doc().operations(plain).front()));
+    REQUIRE(shape != nullptr);
+    EXPECT((asNumber(shape->width) == 45.0 && asNumber(shape->height) == heightBefore), "half as far again from the middle: the width is 150 % along x, the height as it was");
     EXPECT((std::abs(w.width(plain) - 45.0) < 1e-6), "the panel is half as wide again");
     const std::optional<Bounds> scaledBox = bounds(w.window.session().editor().shapes()[plain]);
     const Vec2 scaledMiddle = turned(Vec2{(scaledBox->min.x + scaledBox->max.x) / 2, (scaledBox->min.y + scaledBox->max.y) / 2}, w.doc().get(plain).angle);
@@ -2031,7 +2034,7 @@ TEST_CASE("several selected panels are dragged together, as one undo step; a cli
     EXPECT((w.window.selectedPanels() == std::vector<PanelId>{a} && w.doc().get(a).x == aWas.x), "a click on a selected panel selects only it, and moves nothing");
 }
 
-TEST_CASE("several selected panels are turned together about the middle of the group; they cannot be scaled together yet", "[qt]")
+TEST_CASE("several selected panels are turned and scaled together about the middle of the group, and duplicated with Ctrl+D", "[qt]")
 {
     Table w;
     openRow(w);
@@ -2061,7 +2064,21 @@ TEST_CASE("several selected panels are turned together about the middle of the g
     const QPointF unit = (end - centre) / session::tableArrowPixels;
     const std::size_t layers = w.doc().operations(a).size();
     drag(table, centre + unit * 60.0, centre + unit * 90.0);
-    EXPECT((w.doc().operations(a).size() == layers && w.window.helpLine().contains("Several panels")), "scaling them together is refused with a sentence, and changes nothing");
+    EXPECT((w.doc().operations(a).size() == layers && w.width(a) == 20.0 && w.window.helpLine().contains("evenly")), "pulled out one way, they are refused with a sentence, and nothing changes");
+
+    // The middle of the gizmo scales evenly: 50 pixels to the right is half as big again.
+    drag(table, centre, centre + QPointF(50.0, 0.0));
+    EXPECT((std::abs(w.width(a) - 30.0) < 0.1 && std::abs(w.width(b) - 30.0) < 0.1 && w.doc().operations(a).size() == layers), "both are half as big again, and no layer is added");
+    const Vec2 groupMiddle = *session::middleOfPanels(w.doc(), w.window.session().editor().shapes(), {a, b});
+    EXPECT((std::abs(groupMiddle.x - 30.0) < 1e-6 && std::abs(groupMiddle.y - 5.0) < 1e-6), "the middle of the group stays where it was");
+    EXPECT((w.doc().panels().size() == 3), "so far, three panels");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.width(a) == 20.0 && w.width(b) == 20.0), "one undo puts both back");
+
+    pressKey(table, Qt::Key_D, Qt::ControlModifier);
+    EXPECT((w.doc().panels().size() == 5 && w.window.selectedPanels().size() == 2), "Ctrl+D copies both, and the copies are selected");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == 3), "one undo takes both copies away");
 }
 
 TEST_CASE("a box dragged with one panel selected takes its corners if it touches only that panel, and panels otherwise", "[qt]")
