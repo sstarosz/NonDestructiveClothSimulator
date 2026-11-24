@@ -11,8 +11,12 @@
 // Ring is a click, Point, Curve, Mirror and Sew click edges, Line clicks
 // two points on one outline, Cut and Split click an internal line.
 // Holding Ctrl snaps to the grid; F frames every panel; Esc drops what is
-// half done. It only reports what the user did: the
-// window hands each gesture to session::Drafting.
+// half done. Delete removes the selected corners that were added with the
+// Point tool, or, with no corner selected, the selected panel; Ctrl+C
+// remembers the selected panel, Ctrl+V pastes a copy with its middle under
+// the pointer, and Ctrl+D duplicates it beside the original. The keys work
+// while the table has the focus (a click on it gives it). It only reports
+// what the user did: the window hands each gesture to session::Drafting.
 //
 //   table->show(doc, shapes, selected, corners, drafting.tool);
 //   connect(table, &TableView::gestured, [&](const session::Gesture& g) { ... });
@@ -91,6 +95,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseDoubleClickEvent(QMouseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void leaveEvent(QEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
@@ -195,6 +200,7 @@ private:
     std::optional<session::TableHandle> gizmoOffered_;  // the gizmo's handle the pointer is over, to light it
     QString readout_;                 // what a drag is doing: "+1.5, -2.0 cm", "30.0°"
     QPointF pointer_;
+    bool pointerInside_ = false;  // the pointer has moved over the table and not left it since
 
     // A layer's reference being chosen: the candidates placed on the table.
     struct Choosing {

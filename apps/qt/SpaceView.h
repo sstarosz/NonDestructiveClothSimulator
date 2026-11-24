@@ -92,7 +92,7 @@ signals:
     void clothPulled(clothcad::PanelId panel, std::uint32_t point, clothcad::sim::Vec3 to, clothcad::session::DragPhase phase);
     // What the handle under the mouse does.
     void hinted(const QString& next);
-    // A key the view does not use itself (Q, W, E, R, Space ...): the window's shortcuts may.
+    // A key the view does not use itself (Q, W, E, R, Space, Delete, Ctrl+C ...): the window may.
     void keyed(QKeyCombination pressed);
 
 private:

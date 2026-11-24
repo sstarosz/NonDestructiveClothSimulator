@@ -56,6 +56,51 @@ bool panelNamed(const Document& doc, const std::string& name) {
     return false;
 }
 
+// "front copy", or "front copy 2" if that is taken.
+std::string firstFreeName(const Document& doc, const std::string& wanted) {
+    if (!panelNamed(doc, wanted)) return wanted;
+    for (int n = 2;; ++n)
+        if (!panelNamed(doc, wanted + " " + std::to_string(n))) return wanted + " " + std::to_string(n);
+}
+
+// Where a panel that follows `source` goes: just right of it, with room to
+// spare. A mirrored panel's own left edge is the source's right one.
+Vec2 besideSource(const Editor& editor, PanelId source, Follow how) {
+    const Panel& from = editor.document().get(source);
+    const Result& shapes = editor.shapes();
+    double x = from.x + 30_cm;
+    if (const std::optional<Bounds> box = bounds(shapes[source])) {
+        const double newLeft = how == Follow::MirroredInstance ? -box->max.x : box->min.x;
+        const std::optional<Bounds> placed = bounds(turned(shapes[source], from.angle));
+        x = from.x + (placed ? placed->max.x : box->max.x) + 12_cm - newLeft;
+    }
+    return {x, from.y};
+}
+
+// A new panel like `source`, at `place` on the table. Selected if the change is taken.
+std::optional<PanelId> addLike(Editor& editor, PanelId source, Follow how, Vec2 place, Outcome& outcome) {
+    const std::string suffix = how == Follow::Copy ? " copy" : how == Follow::Instance ? " instance" : " mirrored";
+    const auto particleDistance = editor.document().get(source).particleDistance;
+    std::optional<PanelId> added;
+    apply(editor, [&](Document& doc) {
+        const std::string name = firstFreeName(doc, doc.get(source).name + suffix);
+        if (how == Follow::Copy) {
+            added = doc.copy(source, Panel{.name = name, .x = place.x, .y = place.y, .particleDistance = particleDistance});
+        } else {
+            added = doc.add(Panel{.name = name, .x = place.x, .y = place.y});
+            doc.add(*added, Instance{.source = source, .mirrored = how == Follow::MirroredInstance});
+        }
+    }, adding, outcome);
+    return outcome.refused ? std::nullopt : added;
+}
+
+// "2. Curve": a layer by its place in its panel and its label, as the window names it.
+std::string layerName(const Document& doc, OpId layer) {
+    const std::vector<OpId> siblings = doc.operations(doc.panelOf(layer));
+    const auto index = static_cast<std::size_t>(std::find(siblings.begin(), siblings.end(), layer) - siblings.begin());
+    return std::to_string(index + 1) + ". " + std::string(label(doc.get(layer)));
+}
+
 } // namespace
 
 std::string Drafting::freeName(const Document& doc, const std::string& base) {
@@ -506,6 +551,91 @@ Outcome Drafting::on(Editor& editor, const MirrorAcross& g) {
     Outcome outcome{.toolDone = true};
     selection.panel = g.panel;
     apply(editor, [&](Document& d) { d.add(g.panel, Mirror{.across = g.edge}); }, adding, outcome);
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const AddBeside& g) {
+    Outcome outcome;
+    if (!editor.document().contains(g.source)) return outcome;
+    if (const std::optional<PanelId> added = addLike(editor, g.source, g.how, besideSource(editor, g.source, g.how), outcome)) selection = {added, {}};
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const DeletePanel& g) {
+    Outcome outcome;
+    if (!editor.document().contains(g.panel)) return outcome;
+    if (!apply(editor, [&](Document& doc) { doc.remove(g.panel); }, adding, outcome)) return outcome;
+    if (selection.panel == g.panel) selection = {};
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const DeleteSelection&) {
+    Outcome outcome;
+    const Document& doc = editor.document();
+    if (!selection.panel || !doc.contains(*selection.panel)) {
+        outcome.notice = "Nothing is selected. Click a panel, or some of its corners, and press Delete again.";
+        outcome.refused = true;
+        return outcome;
+    }
+    const PanelId panel = *selection.panel;
+    if (selection.corners.empty()) return on(editor, DeletePanel{panel});
+
+    // A corner can only go with the layer that made it, and only a Point-tool
+    // layer is only that corner. Any other corner is part of a shape: say which.
+    std::vector<OpId> points;
+    for (const CornerRef& corner : selection.corners) {
+        const OpId made = drawnSide(doc, panel, corner).corner.op;
+        if (!doc.contains(made)) continue;
+        if (!(doc.panelOf(made) == panel)) {
+            outcome.notice = "This corner comes from the panel " + doc.get(doc.panelOf(made)).name + ". Change that panel instead.";
+        } else if (!std::holds_alternative<AddPoint>(doc.get(made))) {
+            outcome.notice = "This corner belongs to the " + layerName(doc, made) + " layer. Remove or change that layer instead.";
+        } else {
+            if (std::find(points.begin(), points.end(), made) == points.end()) points.push_back(made);
+            continue;
+        }
+        outcome.refused = true;
+        return outcome;
+    }
+    if (points.empty()) return outcome;
+    if (!apply(editor, [&](Document& d) {
+            for (OpId point : points) d.remove(point);
+        }, adding, outcome))
+        return outcome;
+    selection.corners.clear();
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const CopyPanel& g) {
+    Outcome outcome;
+    if (!editor.document().contains(g.panel)) return outcome;
+    copied_ = g.panel;
+    outcome.notice = "Copied " + editor.document().get(g.panel).name + ". Press Ctrl+V to paste it where the pointer is.";
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const PastePanel& g) {
+    Outcome outcome;
+    if (!copied_) {
+        outcome.notice = "Nothing has been copied. Select a panel and press Ctrl+C first.";
+        outcome.refused = true;
+        return outcome;
+    }
+    const PanelId source = *copied_;
+    if (!editor.document().contains(source)) {
+        copied_.reset();
+        outcome.notice = "The panel that was copied is gone. Select a panel and press Ctrl+C again.";
+        outcome.refused = true;
+        return outcome;
+    }
+    Vec2 place = besideSource(editor, source, Follow::Copy);
+    if (g.at) {
+        // The copy's middle goes under the pointer.
+        const std::optional<Bounds> box = bounds(editor.shapes()[source]);
+        const Vec2 middle = box ? Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0} : Vec2{};
+        place = {g.at->x - middle.x, g.at->y - middle.y};
+    }
+    if (const std::optional<PanelId> added = addLike(editor, source, Follow::Copy, place, outcome)) selection = {added, {}};
     return outcome;
 }
 
