@@ -842,8 +842,15 @@ void TableView::pressWithTool(QPointF screen, bool snapping) {
     update();
 }
 
+std::optional<session::TableGizmo> TableView::gizmoDrawn() const {
+    // A ring or a scale handle that is dragged stays as it was taken hold of, so that the drag is measured
+    // from the same place; a move goes with the panel, so the gizmo follows the pointer.
+    const bool held = drag_ && drag_->gizmo && drag_->gizmo->mode != session::GizmoMode::Move;
+    return held ? drag_->gizmo : gizmo();
+}
+
 void TableView::paintGizmo(QPainter& p) const {
-    const std::optional<session::TableGizmo> shown = drag_ && drag_->gizmo ? drag_->gizmo : gizmo();
+    const std::optional<session::TableGizmo> shown = gizmoDrawn();
     if (!shown) return;
     const std::optional<session::TableHandle> lit = drag_ && drag_->grab.kind == Grab::Kind::Gizmo ? std::optional(drag_->grab.handle) : gizmoOffered_;
     const auto colourOf = [&](session::TableHandle handle, QColor own) { return lit == handle ? theme::selected : own; };

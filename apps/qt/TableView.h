@@ -88,6 +88,9 @@ public:
     // The selected panel's gizmo as it stands now, in table cm; empty with
     // Select, a drawing tool, or nothing selected. For tests.
     std::optional<session::TableGizmo> gizmo() const;
+    // The gizmo as it is painted now: while its handle is dragged, one that moves goes with the panel
+    // and one that turns or scales stays where it was taken hold of. For tests.
+    std::optional<session::TableGizmo> gizmoDrawn() const;
 
 signals:
     void gestured(const clothcad::session::Gesture& gesture);

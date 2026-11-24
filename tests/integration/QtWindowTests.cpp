@@ -601,6 +601,31 @@ TEST_CASE("Shift held while a panel is dragged keeps it on the axis it first mov
     EXPECT((std::abs(x / step - std::round(x / step)) < 1e-6 && w.doc().get(plain).y == was.y), "with Ctrl as well, x is on the grid and y stays");
     w.window.shelf()->undo()->trigger();
 
+    // The gizmo goes with the panel while it is dragged, not only when the button is let go.
+    choose(w, Tool::Select);
+    choose(w, Tool::Move);
+    const Vec2 centreWas = table->gizmo()->centre;
+    const QPointF arrow = table->toScreen(session::handleEnd(*table->gizmo(), session::TableHandle::AlongX)) - QPointF(25.0, 0.0);
+    send(table, QEvent::MouseButtonPress, arrow, Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseMove, arrow + QPointF(60.0, 0.0), Qt::NoButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseMove, arrow + QPointF(120.0, 0.0), Qt::NoButton, Qt::LeftButton, {});
+    REQUIRE(table->gizmoDrawn());
+    EXPECT((std::abs(table->gizmoDrawn()->centre.x - centreWas.x - 120.0 / table->scale()) < 0.06 && table->gizmoDrawn()->centre.y == centreWas.y),
+           "mid-drag, the gizmo has moved with the pointer along x");
+    EXPECT((std::abs(table->gizmoDrawn()->centre.x - table->gizmo()->centre.x) < 1e-9), "and it stands where the panel's gizmo does");
+    send(table, QEvent::MouseButtonRelease, arrow + QPointF(120.0, 0.0), Qt::LeftButton, Qt::NoButton, {});
+    w.window.shelf()->undo()->trigger();
+
+    // A ring does not move while it turns the panel: the turn is measured about it.
+    choose(w, Tool::Rotate);
+    const QPointF pivotNow = table->toScreen(table->gizmo()->centre);
+    send(table, QEvent::MouseButtonPress, pivotNow + QPointF(session::tableRingPixels, 0.0), Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseMove, pivotNow + QPointF(0.0, -session::tableRingPixels), Qt::NoButton, Qt::LeftButton, {});
+    EXPECT((table->gizmoDrawn() && std::abs(table->gizmoDrawn()->centre.x - table->gizmo()->centre.x) < 1e-9), "the ring stays at the middle of the panel mid-turn");
+    send(table, QEvent::MouseButtonRelease, pivotNow + QPointF(0.0, -session::tableRingPixels), Qt::LeftButton, Qt::NoButton, {});
+    w.window.shelf()->undo()->trigger();
+    choose(w, Tool::Move);
+
     // The middle of the move gizmo is a free move: Shift holds it too.
     choose(w, Tool::Move);
     REQUIRE(table->gizmo());
