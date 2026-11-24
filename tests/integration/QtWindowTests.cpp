@@ -573,6 +573,42 @@ TEST_CASE("Q, W, E and R choose Select, Move, Rotate and Scale; only the last th
     EXPECT((w.window.shelf()->tool() == Tool::Select && !space.gizmo() && !w.table()->gizmo()), "Q: back to Select, no gizmo");
 }
 
+TEST_CASE("Shift held while a panel is dragged keeps it on the axis it first moved along; Ctrl snaps the other", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const Panel was = w.doc().get(plain);
+    const QPointF at = table->toScreen(w.middle(plain));
+
+    // The hand drifts upwards as well, but the panel only goes sideways.
+    drag(table, at, by(at, table, 12, 2.5), Qt::ShiftModifier);
+    EXPECT((std::abs(w.doc().get(plain).x - (was.x + 12)) < 0.2), "the panel followed the pointer along x");
+    EXPECT((w.doc().get(plain).y == was.y), "and its y did not change at all");
+    EXPECT((w.window.selected() == plain), "it is still selected: Shift on a selected panel is not a click");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().get(plain).x == was.x), "one undo puts it back");
+
+    drag(table, at, by(at, table, 2, -9), Qt::ShiftModifier);
+    EXPECT((w.doc().get(plain).x == was.x && std::abs(w.doc().get(plain).y - (was.y - 9)) < 0.2), "dragged mostly down, it only goes down");
+    w.window.shelf()->undo()->trigger();
+
+    drag(table, at, by(at, table, 7.3, 2.1), Qt::ShiftModifier | Qt::ControlModifier);
+    double step = 0.1;
+    while (step * table->scale() < 12.0) step *= 10.0;
+    const double x = w.doc().get(plain).x;
+    EXPECT((std::abs(x / step - std::round(x / step)) < 1e-6 && w.doc().get(plain).y == was.y), "with Ctrl as well, x is on the grid and y stays");
+    w.window.shelf()->undo()->trigger();
+
+    // The middle of the move gizmo is a free move: Shift holds it too.
+    choose(w, Tool::Move);
+    REQUIRE(table->gizmo());
+    const QPointF middle = table->toScreen(table->gizmo()->centre);
+    drag(table, middle, by(middle, table, 3, 9), Qt::ShiftModifier);
+    EXPECT((w.doc().get(plain).x == was.x && std::abs(w.doc().get(plain).y - (was.y + 9)) < 0.2), "the gizmo's middle goes up only");
+}
+
 TEST_CASE("on the table the move gizmo's arrow moves a panel along x only, its ring turns it, its handle scales it", "[qt]")
 {
     Table w;
@@ -1945,6 +1981,13 @@ TEST_CASE("several selected panels are dragged together, as one undo step; a cli
 
     drag(table, at(b), by(at(b), table, 7.3, 2.1), Qt::ControlModifier);
     EXPECT((w.window.selectedPanels().size() == 2 && w.doc().get(b).x != bWas.x && w.doc().get(a).x != aWas.x), "Ctrl-dragging one of them moves both too, and keeps them selected");
+    w.window.shelf()->undo()->trigger();
+
+    // Shift holds the group to the axis the pointer first moved along.
+    drag(table, at(a), by(at(a), table, 3, 9), Qt::ShiftModifier);
+    EXPECT((w.doc().get(a).x == aWas.x && w.doc().get(b).x == bWas.x && std::abs(w.doc().get(a).y - aWas.y - 9.0) < 0.2 && std::abs(w.doc().get(b).y - bWas.y - 9.0) < 0.2),
+           "with Shift they all go up, and not sideways at all");
+    EXPECT((w.window.selectedPanels().size() == 2), "and stay selected");
     w.window.shelf()->undo()->trigger();
 
     // The move gizmo moves them all, from the middle of the group.

@@ -54,11 +54,12 @@ the body follows too.
   that touches only that panel selects its corners inside it (Shift adds them
   to the ones already selected; Shift-click on a corner adds or takes it out);
   a click on empty table, or a box over nothing, chooses nothing.
-- **A corner along one axis**: Shift held while a corner (or the selected
-  corners) is dragged keeps it on the table's x or y, whichever the pointer
-  moved furthest along first; a dashed line in that axis's colour shows it.
-  The other coordinate does not change at all. With Ctrl as well, the free
-  one is put on the grid.
+- **Along one axis**: Shift held while a corner (or the selected corners), a
+  curve handle, or a panel (or the selected panels, by the panel or by the
+  middle of the move gizmo) is dragged keeps it on the table's x or y,
+  whichever the pointer moved furthest along first; a dashed line in that
+  axis's colour shows it. The other coordinate does not change at all. With
+  Ctrl as well, the free one is put on the grid.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Files**: save and open (`.clothcad`, plain text), undo.

@@ -5,8 +5,8 @@
 // dragged (a drag from empty table draws a box that selects the corners in
 // it, Shift adds them to the ones selected, and a click on empty table
 // chooses nothing; Shift held while a corner is dragged keeps it on the x
-// or y it first moved along, Ctrl snaps the other to the grid). Shift- or
-// Ctrl-click adds a panel to the selection or takes it out. A box dragged on
+// or y it first moved along, Ctrl snaps the other to the grid; so do a
+// panel, a curve handle and the move gizmo's middle). Shift- or Ctrl-click adds a panel to the selection or takes it out. A box dragged on
 // empty table selects the panels it touches (Shift or Ctrl adds them), or, if
 // one panel is selected and the box touches only that one, its corners. Drag
 // one of several selected panels, or their gizmo, and they all move or turn. A
@@ -145,7 +145,7 @@ private:
         double angleWas = 0;
         bool moved = false;
         std::optional<session::TableGizmo> gizmo;  // the gizmo as it stood when it was taken hold of
-        session::Along along = session::Along::Both;  // a corner held to one axis (Shift), once the pointer has chosen it
+        session::Along along = session::Along::Both;  // what is dragged held to one axis (Shift), once the pointer has chosen it
         // A press on a panel that is selected leaves the selection alone, so that a drag moves them all; what
         // a click (no drag) then does is told on release: Toggle takes the panel out (Shift or Ctrl), Replace
         // selects it alone.

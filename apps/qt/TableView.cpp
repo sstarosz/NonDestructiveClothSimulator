@@ -477,16 +477,17 @@ void TableView::paintEvent(QPaintEvent*) {
             p.setBrush(offered);
             p.drawEllipse(toScreen(drag_->gizmo->centre), 4, 4);
         } else if (drag_->grab.kind != Grab::Kind::Panel && drag_->grab.kind != Grab::Kind::Gizmo) {
-            const QPointF was = toScreen(drag_->grab.thingWasAt);
-            if (drag_->grab.kind == Grab::Kind::Corner && drag_->along != session::Along::Both) {
-                // The line the corner is held to, in the colour of its axis.
-                const bool alongX = drag_->along == session::Along::X;
-                p.setPen(QPen(alongX ? theme::axisX : theme::axisY, 1.0, Qt::DashLine));
-                if (alongX) p.drawLine(QPointF(0, was.y()), QPointF(width(), was.y()));
-                else p.drawLine(QPointF(was.x(), 0), QPointF(was.x(), height()));
-            }
             p.setPen(QPen(theme::quiet, 1.5));
-            p.drawEllipse(was, 5, 5);  // where it was
+            p.drawEllipse(toScreen(drag_->grab.thingWasAt), 5, 5);  // where it was
+        }
+        if (drag_->along != session::Along::Both) {
+            // The line it is held to, in the colour of its axis: through the corner, or through where a panel was taken hold of.
+            const bool ofPanel = drag_->grab.kind == Grab::Kind::Panel || drag_->grab.kind == Grab::Kind::Gizmo;
+            const QPointF was = toScreen(ofPanel ? drag_->pressedAt : drag_->grab.thingWasAt);
+            const bool alongX = drag_->along == session::Along::X;
+            p.setPen(QPen(alongX ? theme::axisX : theme::axisY, 1.0, Qt::DashLine));
+            if (alongX) p.drawLine(QPointF(0, was.y()), QPointF(width(), was.y()));
+            else p.drawLine(QPointF(was.x(), 0), QPointF(was.x(), height()));
         }
         if (!readout_.isEmpty()) {
             p.setPen(offered);
@@ -553,6 +554,16 @@ void TableView::dragTo(QPointF screen, bool snapping, bool oneAxis, bool release
     drag.moved = true;
     const Vec2 at = toTable(screen);
     const Grab grab = drag.grab;  // the handler below may redraw the table
+    // Shift: what is dragged goes along the axis the pointer first moved furthest along, and stays
+    // where it is until it has. Letting go of Shift frees it again.
+    const auto holdToAxis = [&](double& dx, double& dy) {
+        if (!oneAxis) drag.along = session::Along::Both;
+        else if (drag.along == session::Along::Both && distance(screen, drag.pressedOnScreen) >= axisChosenAfter)
+            drag.along = session::axisOf(at.x - drag.pressedAt.x, at.y - drag.pressedAt.y);
+        if (oneAxis && drag.along == session::Along::Both) dx = dy = 0.0;
+        if (drag.along == session::Along::X) dy = 0.0;
+        if (drag.along == session::Along::Y) dx = 0.0;
+    };
     switch (grab.kind) {
     case Grab::Kind::Box: break;  // only drawn; the corners are chosen on release
     case Grab::Kind::Gizmo: {
@@ -563,8 +574,9 @@ void TableView::dragTo(QPointF screen, bool snapping, bool oneAxis, bool release
             // As a drag of the panel, along one axis only for an arrow.
             const Vec2 by = session::moveBy(held, grab.handle, drag.pressedAt, at);
             const Vec2 target = snapped({grab.thingWasAt.x + by.x, grab.thingWasAt.y + by.y}, snapping);
-            const double dx = grab.handle == session::TableHandle::AlongY ? 0.0 : roundTo(target.x - grab.thingWasAt.x, snapping ? 1e-6 : 0.1);
-            const double dy = grab.handle == session::TableHandle::AlongX ? 0.0 : roundTo(target.y - grab.thingWasAt.y, snapping ? 1e-6 : 0.1);
+            double dx = grab.handle == session::TableHandle::AlongY ? 0.0 : roundTo(target.x - grab.thingWasAt.x, snapping ? 1e-6 : 0.1);
+            double dy = grab.handle == session::TableHandle::AlongX ? 0.0 : roundTo(target.y - grab.thingWasAt.y, snapping ? 1e-6 : 0.1);
+            if (grab.handle == session::TableHandle::Middle) holdToAxis(dx, dy);  // the arrows are held to their axis already
             readout_ = signedCm(dx) + ", " + signedCm(dy) + " cm";
             emit gestured(session::MovePanel{grab.panel, grab.thingWasAt.x + dx, grab.thingWasAt.y + dy, phase});
         } else if (held.mode == session::GizmoMode::Rotate) {
@@ -588,16 +600,7 @@ void TableView::dragTo(QPointF screen, bool snapping, bool oneAxis, bool release
         const Vec2 target = snapped({grab.thingWasAt.x + at.x - drag.pressedAt.x, grab.thingWasAt.y + at.y - drag.pressedAt.y}, snapping);
         double dx = roundTo(target.x - grab.thingWasAt.x, snapping ? 1e-6 : 0.1);
         double dy = roundTo(target.y - grab.thingWasAt.y, snapping ? 1e-6 : 0.1);
-        // Shift on a corner: it goes along the axis the pointer first moved furthest along, and stays
-        // where it is until it has. Letting go of Shift frees it again.
-        if (grab.kind == Grab::Kind::Corner) {
-            if (!oneAxis) drag.along = session::Along::Both;
-            else if (drag.along == session::Along::Both && distance(screen, drag.pressedOnScreen) >= axisChosenAfter)
-                drag.along = session::axisOf(at.x - drag.pressedAt.x, at.y - drag.pressedAt.y);
-            if (oneAxis && drag.along == session::Along::Both) dx = dy = 0.0;
-            if (drag.along == session::Along::X) dy = 0.0;
-            if (drag.along == session::Along::Y) dx = 0.0;
-        }
+        holdToAxis(dx, dy);
         readout_ = signedCm(dx) + ", " + signedCm(dy) + " cm";
         if (grab.kind == Grab::Kind::Panel) emit gestured(session::MovePanel{grab.panel, grab.thingWasAt.x + dx, grab.thingWasAt.y + dy, phase});
         if (grab.kind == Grab::Kind::Corner) emit gestured(session::MoveCorner{grab.panel, grab.corner, dx, dy, phase, drag.along});
