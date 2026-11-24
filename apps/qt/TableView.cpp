@@ -149,6 +149,18 @@ double distanceToSegment(QPointF p, QPointF a, QPointF b) {
 
 double roundTo(double value, double step) { return std::round(value / step) * step; }
 
+// A thick smoothed line is slow when it is long and drawn as one polygon or
+// polyline, or with round caps: 10 ms for the four sides of a panel that fills
+// a 4K table. The same segments drawn one by one with square caps (which also
+// fill the outer corner where two meet) cost a twentieth of that.
+void strokeSegments(QPainter& painter, const QPolygonF& points, bool closed) {
+    QVector<QLineF> segments;
+    segments.reserve(points.size());
+    for (qsizetype i = 1; i < points.size(); ++i) segments.append(QLineF(points[i - 1], points[i]));
+    if (closed && points.size() > 2) segments.append(QLineF(points.back(), points.front()));
+    painter.drawLines(segments);
+}
+
 QString signedCm(double v) { return (v >= 0 ? "+" : "") + QString::number(v, 'f', 1); }
 
 } // namespace
@@ -237,29 +249,48 @@ Vec2 TableView::snapped(Vec2 point, bool snapping) const {
     return {roundTo(point.x, step), roundTo(point.y, step)};
 }
 
+void TableView::paintFloor(QPainter& painter) {
+    const qreal ratio = devicePixelRatioF();
+    const bool current = !floor_.image.isNull() && floor_.size == size() && floor_.ratio == ratio && floor_.centre.x == centre_.x && floor_.centre.y == centre_.y &&
+                         floor_.scale == scale_ && floor_.grid == gridShown_;
+    if (!current) {
+        floor_ = {QImage(size() * ratio, QImage::Format_RGB32), size(), ratio, centre_, scale_, gridShown_};
+        floor_.image.setDevicePixelRatio(ratio);
+        // The grid, in real measurements; every tenth line stronger. Each
+        // pixel row of the picture is copied from one of three prepared rows
+        // (no line, a fine line, a strong line), so the picture is written
+        // once: stroking hundreds of lines took most of a frame.
+        const int wide = floor_.image.width(), tall = floor_.image.height();
+        const QRgb background = theme::table.rgb(), fineColour = QColor(32, 34, 39).rgb(), strongColour = QColor(44, 47, 54).rgb();
+        std::vector<QRgb> plain(static_cast<std::size_t>(wide), background), fineRow(static_cast<std::size_t>(wide), fineColour), strongRow(static_cast<std::size_t>(wide), strongColour);
+        std::vector<std::uint8_t> kind(static_cast<std::size_t>(tall), 0);  // of each pixel row: 0 no line, 1 a fine one, 2 a strong one
+        if (gridShown_) {
+            const double step = gridStep();
+            const Vec2 low = toTable({0, static_cast<double>(height())}), high = toTable({static_cast<double>(width()), 0});
+            const int thickness = std::max(1, static_cast<int>(std::lround(ratio)));
+            const auto onGrid = [&](double at) { return std::abs(roundTo(at, step * 10) - at) < step * 0.01; };
+            for (double x = std::floor(low.x / step) * step; x <= high.x; x += step) {
+                const int column = static_cast<int>(std::lround(std::round(toScreen({x, 0}).x()) * ratio));
+                for (int t = 0; t < thickness; ++t)
+                    if (column + t >= 0 && column + t < wide) plain[static_cast<std::size_t>(column + t)] = fineRow[static_cast<std::size_t>(column + t)] = onGrid(x) ? strongColour : fineColour;
+            }
+            for (double y = std::floor(low.y / step) * step; y <= high.y; y += step) {
+                const int row = static_cast<int>(std::lround(std::round(toScreen({0, y}).y()) * ratio));
+                for (int t = 0; t < thickness; ++t)
+                    if (row + t >= 0 && row + t < tall) kind[static_cast<std::size_t>(row + t)] = std::max<std::uint8_t>(kind[static_cast<std::size_t>(row + t)], onGrid(y) ? 2 : 1);
+            }
+        }
+        for (int y = 0; y < tall; ++y) {
+            const std::vector<QRgb>& from = kind[static_cast<std::size_t>(y)] == 2 ? strongRow : kind[static_cast<std::size_t>(y)] == 1 ? fineRow : plain;
+            std::copy(from.begin(), from.end(), reinterpret_cast<QRgb*>(floor_.image.scanLine(y)));
+        }
+    }
+    painter.drawImage(QPointF(0, 0), floor_.image);
+}
+
 void TableView::paintEvent(QPaintEvent*) {
     QPainter p(this);
-    p.fillRect(rect(), theme::table);
-    // The grid, in real measurements; every tenth line stronger. Straight
-    // lines on whole pixels need no smoothing, and go in two batches.
-    const double step = gridStep();
-    const Vec2 low = toTable({0, static_cast<double>(height())}), high = toTable({static_cast<double>(width()), 0});
-    if (gridShown_) {
-        QVector<QLineF> fine, strong;
-        const auto onGrid = [&](double at) { return std::abs(roundTo(at, step * 10) - at) < step * 0.01; };
-        for (double x = std::floor(low.x / step) * step; x <= high.x; x += step) {
-            const double column = std::round(toScreen({x, 0}).x()) + 0.5;
-            (onGrid(x) ? strong : fine).append(QLineF(column, 0, column, height()));
-        }
-        for (double y = std::floor(low.y / step) * step; y <= high.y; y += step) {
-            const double row = std::round(toScreen({0, y}).y()) + 0.5;
-            (onGrid(y) ? strong : fine).append(QLineF(0, row, width(), row));
-        }
-        p.setPen(QPen(QColor(32, 34, 39), 1));
-        p.drawLines(fine);
-        p.setPen(QPen(QColor(44, 47, 54), 1));
-        p.drawLines(strong);
-    }
+    paintFloor(p);
     p.setRenderHint(QPainter::Antialiasing);
 
     for (const Drawn& d : drawn_) {
@@ -269,9 +300,17 @@ void TableView::paintEvent(QPaintEvent*) {
         const QColor line = isChosen ? theme::selected : d.instance ? theme::instance : QColor(196, 199, 206);
         QColor fill = line;
         fill.setAlpha(isChosen ? 40 : 22);
-        p.setPen(QPen(line, isChosen ? 2.5 : 1.8));
+        // The fill without smoothing, and the outline over its edge with it:
+        // smoothing a fill of millions of pixels takes tens of milliseconds
+        // when the panel fills a 4K table.
+        p.setRenderHint(QPainter::Antialiasing, false);
+        p.setPen(Qt::NoPen);
         p.setBrush(fill);
         p.drawPolygon(outline);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(QPen(line, isChosen ? 2.5 : 1.8, Qt::SolidLine, Qt::SquareCap));
+        p.setBrush(Qt::NoBrush);
+        strokeSegments(p, outline, true);
         // The cloth mesh: triangle sides, or why there are none.
         if (const sim::PanelMesh* mesh = mesh_ ? mesh_->find(d.panel) : nullptr) {
             std::vector<QPointF> at;
@@ -301,11 +340,11 @@ void TableView::paintEvent(QPaintEvent*) {
         for (const InternalLine& internal : d.pattern.lines) p.drawLine(toScreen(internal.start), toScreen(internal.end));
         p.setPen(QPen(theme::symmetry, 1.5, Qt::DashLine));
         for (const auto& [from, to] : d.axes) p.drawLine(toScreen(from), toScreen(to));
-        p.setPen(QPen(theme::seam, 4, Qt::SolidLine, Qt::RoundCap));
+        p.setPen(QPen(theme::seam, 4, Qt::SolidLine, Qt::SquareCap));
         for (const std::vector<Vec2>& edge : d.sewn) {
             QPolygonF along;
             for (const Vec2& v : edge) along << toScreen(v);
-            p.drawPolyline(along);
+            strokeSegments(p, along, false);
         }
         p.setPen(isChosen ? QColor(255, 210, 122) : theme::text);
         if (const std::optional<Bounds> b = bounds(d.pattern)) {

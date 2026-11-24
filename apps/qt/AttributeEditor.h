@@ -130,6 +130,19 @@ private:
     QVBoxLayout* seamRows_;
     std::vector<SeamId> seams_;
     std::string shownSeams_;  // what the seam rows were made from
+    // The words on a seam's card that change with a number alone: these are
+    // set again in place, so that the card is not made again for each step of a drag.
+    struct SeamCard {
+        QLabel* lengths;
+        QLabel* gathered;
+    };
+    std::vector<SeamCard> seamCards_;  // in the order of seams_
+    // A layer's summary (its first value, as the row shows it), for the same reason.
+    struct LayerSummary {
+        OpId layer;
+        QLabel* label;
+    };
+    std::vector<LayerSummary> summaries_;
     std::vector<ValueField*> space_;  // x y z turn tilt roll wrap
     std::vector<ValueField*> table_;  // x y angle
     struct OpenField {

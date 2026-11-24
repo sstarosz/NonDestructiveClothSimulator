@@ -65,6 +65,12 @@ QString summaryOf(const OpData& op, const Document& doc, const Result& shapes) {
     return text;
 }
 
+// The colour of a layer's summary: a value set by a formula is in the formula colour.
+QString summaryStyleOf(const OpData& op) {
+    const bool driven = !fields(op).empty() && !asNumber(fields(op)[0].value);
+    return QString("color: %1").arg((driven ? theme::formula : theme::quiet).name());
+}
+
 // What a layer uses and chooses, in words: when it changes (undo, a choice),
 // the rows are made again so that they show it.
 std::string choicesOf(const OpData& op, const Document& doc) {
@@ -325,13 +331,21 @@ void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
                 row.uneven = true;
             }
         }
-        signature += "," + std::to_string(id.value) + row.partner.toStdString() + row.edges.toStdString() + row.lengths.toStdString() + (row.reversed ? "r" : "");
+        // The numbers are not in it: a card whose only change is its numbers is set in place.
+        signature += "," + std::to_string(id.value) + row.partner.toStdString() + row.edges.toStdString() + (row.reversed ? "r" : "") + (row.broken ? "b" : "") + (row.uneven ? "u" : "");
         rows.push_back(row);
     }
     seamsSection_->setVisible(!rows.empty());
-    if (signature == shownSeams_) return;
+    if (signature == shownSeams_) {
+        for (std::size_t i = 0; i < rows.size() && i < seamCards_.size(); ++i) {
+            if (seamCards_[i].lengths->text() != rows[i].lengths) seamCards_[i].lengths->setText(rows[i].lengths);
+            if (seamCards_[i].gathered->text() != rows[i].gathered) seamCards_[i].gathered->setText(rows[i].gathered);
+        }
+        return;
+    }
     shownSeams_ = signature;
     seams_ = mine;
+    seamCards_.clear();
     while (QLayoutItem* item = seamRows_->takeAt(0)) {
         delete item->widget();
         delete item;
@@ -380,6 +394,7 @@ void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
         grid->addLayout(numbers, 1, 1);
         grid->setColumnStretch(1, 1);
         seamRows_->addWidget(card);
+        seamCards_.push_back({lengths, gathered});
     }
 }
 
@@ -422,6 +437,7 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
             delete item;
         }
         openFields_.clear();
+        summaries_.clear();
         const OpId base = made.empty() ? OpId{} : made.front();
         const auto indexOf = [&](OpId op) { return static_cast<int>(std::find(made.begin(), made.end(), op) - made.begin()); };
         const int viewedIndex = viewed_ ? indexOf(*viewed_) : static_cast<int>(made.size());
@@ -478,8 +494,8 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                 else toggleLayer(op);
             });
             auto* summary = new QLabel(summaryOf(operation, doc, shapes), box);
-            const bool driven = !fields(operation).empty() && !asNumber(fields(operation)[0].value);
-            summary->setStyleSheet(QString("color: %1").arg((driven ? theme::formula : theme::quiet).name()));
+            summary->setStyleSheet(summaryStyleOf(operation));
+            summaries_.push_back({op, summary});
             // The base shape stays first and stays.
             QToolButton* bin = smallButton(Icon::Delete, theme::quiet, "Remove this layer", box);
             bin->setObjectName("remove");
@@ -587,6 +603,12 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
         // Same rows: only the values change, and the open fields keep what is being typed.
         for (const OpenField& open : openFields_)
             if (doc.contains(open.layer)) open.value->show(fields(doc.get(open.layer))[open.id.index].value, doc, shapes);
+        for (const LayerSummary& one : summaries_) {
+            if (!doc.contains(one.layer)) continue;
+            const QString words = summaryOf(doc.get(one.layer), doc, shapes), style = summaryStyleOf(doc.get(one.layer));
+            if (one.label->text() != words) one.label->setText(words);
+            if (one.label->styleSheet() != style) one.label->setStyleSheet(style);
+        }
     }
 }
 

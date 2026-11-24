@@ -140,8 +140,31 @@ void Outliner::showBody(const Body& body) {
 QString Outliner::bodyShown() const { return body_->text(0); }
 
 void Outliner::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const Body& body) {
-    showing_ = true;
     showBody(body);
+    // Everything the rows say. The window shows the document again after every
+    // change, each step of a drag included; rows that would come out the same
+    // are left alone, so that nothing is made or painted again.
+    const std::vector<PanelId> panels = doc.panels();
+    std::string signature = selected ? std::to_string(selected->value) : "-";
+    for (PanelId panel : panels) {
+        QColor colour;
+        const Icon picture = iconOf(doc, panel, colour);
+        bool failed = false;
+        for (OpId op : doc.operations(panel)) failed = failed || shapes.failed(op);
+        signature += "|p" + std::to_string(panel.value) + doc.get(panel).name + "," + std::to_string(doc.operations(panel).size()) + "," + std::to_string(static_cast<int>(picture)) +
+                     colour.name().toStdString() + (doc.get(panel).construction ? "c" : "") + (failed ? "f" : "");
+    }
+    for (SeamId id : doc.seams()) {
+        const Seam& seam = doc.get(id);
+        signature += "|s" + std::to_string(id.value) + nameOf(Reference(seam.a.edge), doc) + nameOf(Reference(seam.b.edge), doc);
+        for (const SeamSide& side : {seam.a, seam.b}) signature += doc.contains(side.panel) ? doc.get(side.panel).name : "?";
+    }
+    // Rows the user has been typing in, or has selected, are not as the document has them.
+    bool asShown = signature == shown_ && panels_->childCount() == static_cast<int>(panels.size()) && (selected ? panelOf(currentItem()) == selected : currentItem() == nullptr);
+    for (int i = 0; asShown && i < panels_->childCount(); ++i) asShown = panels_->child(i)->text(0) == QString::fromStdString(doc.get(panels[static_cast<std::size_t>(i)]).name);
+    if (asShown) return;
+    shown_ = signature;
+    showing_ = true;
     qDeleteAll(panels_->takeChildren());
     qDeleteAll(seams_->takeChildren());
     for (PanelId panel : doc.panels()) {

@@ -116,8 +116,9 @@ baselines from an optimised build and commit them with the change:
     clothcad_core_and_sim_benchmarks tests/benchmarks/baselines/CoreAndSim.txt --update
     clothcad_qt_window_benchmarks    tests/benchmarks/baselines/QtWindow.txt --update
 
-The budgets, and the times on the machine the window's baselines were
-taken on (Linux, GCC 12, Vulkan in software, no screen):
+The budgets, and the times measured. This first table is from a Linux machine
+(GCC 12, Vulkan in software, no screen); the window's baselines in
+`QtWindow.txt` were written later on Windows 11 with MSVC, also without a screen:
 
 | What | Limit | Now |
 | --- | --- | --- |
@@ -129,6 +130,25 @@ taken on (Linux, GCC 12, Vulkan in software, no screen):
 | A frame with a cloth step in it, 3D shown | 40 ms | 30 ms |
 | One cloth step, 2,800 particles, on a body | 16 ms | 11-15 ms |
 | Meshing a skirt at 2 cm | 25 ms | 8 ms |
+
+What working at 4K and on a T-shirt costs, per frame, mean of 40 frames spaced as a 60 Hz screen
+would (Windows 11, MSVC, no screen, an idle machine; the 3D view's picture is
+read back here, which the real window does not do):
+
+| What | Limit | Now |
+| --- | --- | --- |
+| The table paints itself, 3840 x 2160 | 8 ms | 3-4 ms |
+| Dragging a panel on the table at 4K | 16 ms | 4-6 ms |
+| Dragging a corner at 4K, 3D shown | 16 ms | 4-5 ms |
+| Dragging a corner at 4K, table only | 16 ms | 7 ms |
+| Zooming the table at 4K (its floor is drawn again every frame) | 16 ms | 12 ms |
+| Dragging a corner at 4K, a panel filling the table | 16 ms | 9 ms |
+| Carrying a T-shirt panel in 3D with the gizmo | 24 ms | 7 ms |
+| Dragging a length parameter on the T-shirt | 16 ms | 8-9 ms |
+
+A drag also reports its slowest 1 frame in 20 (held to twice the limit) and its
+worst frame, because what a drag feels like is its slow frames. Not measured
+yet: the real window (#56).
 
 How it is kept fast:
 
@@ -144,8 +164,17 @@ How it is kept fast:
   is done, always made from the newest outlines; a frame never waits for it.
 - **The 3D view is drawn by the graphics card** (`libs/render`, Vulkan), and
   its scene is made again only when what it shows has changed.
-- **The table paints its grid and the mesh's thousands of lines in batches**,
-  without smoothing; only outlines and labels are smoothed.
+- **The table keeps its floor.** The background and grid are drawn once into
+  a picture and copied until the view moves (`TableView::paintFloor`): at 4K
+  the grid's lines cost more than everything else on the table together. The
+  mesh's thousands of lines go in one batch, without smoothing; only outlines
+  and labels are smoothed, and a long thick outline is drawn side by side
+  with square caps, because Qt strokes it as a polygon or with round caps
+  twenty times slower.
+- **The docks are set in place.** After every change, each step of a drag
+  included, the window shows the document again. A seam's card, a layer's
+  summary, an Outliner row and a field are made or set again only when what
+  they say changed, not when only a number moved.
 
 `-DCLOTHCAD_WINDOW=OFF` builds everything but the window program;
 `libs/core` alone has no dependencies.
