@@ -1639,6 +1639,146 @@ TEST_CASE("an empty table says how to start; the grid's step is written in its c
     EXPECT((w.window.table()->gridKey() != near), "zoomed far out, the grid's lines are farther apart and it says so");
 }
 
+// ---- Delete, copy, paste and duplicate; the origin ----
+
+namespace {
+
+// A key sent to a widget, as the keyboard does to the one that has the focus.
+void pressKey(QWidget* widget, Qt::Key key, Qt::KeyboardModifiers keys = {}) {
+    QKeyEvent down(QEvent::KeyPress, key, keys);
+    QApplication::sendEvent(widget, &down);
+}
+
+void moveOver(TableView* table, QPointF at) { send(table, QEvent::MouseMove, at, Qt::NoButton, Qt::NoButton, {}); }
+
+bool canUndo(Window& w) { return w.window.shelf()->undo()->isEnabled(); }
+
+} // namespace
+
+TEST_CASE("Delete on the table takes the selected panel, or the corners the Point tool added; each is one undo step", "[qt]")
+{
+    Table w;
+    TableView* table = w.table();
+    const PanelId plain = w.panel("plain");
+    const Vec2 bottomLeft = w.corner(plain, -1, -1), bottomRight = w.corner(plain, 1, -1);
+
+    pressKey(table, Qt::Key_Delete);
+    EXPECT((w.doc().panels().size() == 2 && w.window.helpLine().contains("Nothing is selected")), "with nothing selected, Delete says so and removes nothing");
+
+    w.window.select(plain);
+    click(table, table->toScreen(w.corner(plain, 1, 1)));
+    REQUIRE(w.window.selectedCorners().size() == 1);
+    pressKey(table, Qt::Key_Delete);
+    EXPECT((w.doc().panels().size() == 2 && w.window.helpLine().contains("1. Rectangle")), "a corner of the rectangle is refused, and the help line names its layer");
+    EXPECT((!canUndo(w)), "nothing was changed");
+
+    choose(w, Tool::Point);
+    click(table, table->toScreen(between(bottomLeft, bottomRight, 0.4)));
+    REQUIRE(lastIs<AddPoint>(w.doc(), plain));
+    click(table, table->toScreen(between(bottomLeft, bottomRight, 0.4)));
+    REQUIRE(w.window.selectedCorners().size() == 1);
+    pressKey(table, Qt::Key_Delete);
+    EXPECT((!lastIs<AddPoint>(w.doc(), plain) && w.doc().operations(plain).size() == 1 && w.doc().panels().size() == 2), "Delete takes the corner the Point tool added, and keeps the panel");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((lastIs<AddPoint>(w.doc(), plain)), "one undo brings the corner back");
+
+    click(table, table->toScreen(w.middle(plain)));
+    REQUIRE((w.window.selected() == plain && w.window.selectedCorners().empty()));
+    pressKey(table, Qt::Key_Delete);
+    EXPECT((w.doc().panels().size() == 1 && !w.window.selected()), "with no corner selected, Delete takes the panel");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == 2 && lastIs<AddPoint>(w.doc(), w.panel("plain"))), "and one undo brings it back with its layers");
+}
+
+TEST_CASE("Ctrl+C remembers a panel, Ctrl+V pastes it under the pointer, Ctrl+D duplicates it beside; the copy follows the same parameter", "[qt]")
+{
+    Table w;
+    TableView* table = w.table();
+    const PanelId driven = w.panel("driven");
+
+    pressKey(table, Qt::Key_V, Qt::ControlModifier);
+    EXPECT((w.doc().panels().size() == 2 && w.window.helpLine().contains("Nothing has been copied")), "pasting before copying says so");
+
+    click(table, table->toScreen(w.middle(driven)));
+    REQUIRE(w.window.selected() == driven);
+    pressKey(table, Qt::Key_C, Qt::ControlModifier);
+    EXPECT((w.doc().panels().size() == 2 && w.window.helpLine().contains("Copied")), "Ctrl+C changes no document and says what was copied");
+
+    moveOver(table, table->toScreen({200, 150}));
+    pressKey(table, Qt::Key_V, Qt::ControlModifier);
+    REQUIRE(w.doc().panels().size() == 3);
+    const PanelId pasted = w.doc().panels().back();
+    EXPECT((w.window.selected() == pasted), "the pasted panel is selected");
+    EXPECT((std::abs(w.middle(pasted).x - 200.0) < 0.1 && std::abs(w.middle(pasted).y - 150.0) < 0.1), "with its middle under the pointer");
+    moveOver(table, table->toScreen({-100, 150}));
+    pressKey(table, Qt::Key_V, Qt::ControlModifier);
+    REQUIRE(w.doc().panels().size() == 4);
+    EXPECT((std::abs(w.middle(w.doc().panels().back()).x + 100.0) < 0.1), "pasting again puts another copy where the pointer is now");
+
+    type(w.window.parameters()->field(w.widthParameter), "30 cm");
+    EXPECT((w.width(driven) == 30.0 && w.width(pasted) == 30.0), "the copy follows the parameter, as the original does");
+
+    w.window.shelf()->undo()->trigger();  // the parameter
+    w.window.shelf()->undo()->trigger();  // the second paste
+    EXPECT((w.doc().panels().size() == 3), "each paste is one undo step");
+
+    click(table, table->toScreen(w.middle(driven)));
+    pressKey(table, Qt::Key_D, Qt::ControlModifier);
+    REQUIRE(w.doc().panels().size() == 4);
+    const PanelId beside = w.doc().panels().back();
+    EXPECT((w.window.selected() == beside && w.doc().get(beside).name == "driven copy 2" && w.doc().get(beside).x > w.doc().get(driven).x + 20.0),
+           "Ctrl+D puts a copy of the selected panel beside it, selected");
+}
+
+TEST_CASE("a pasted panel is refused once the copied one is gone, and nothing is copied in a new document", "[qt]")
+{
+    Table w;
+    TableView* table = w.table();
+    const PanelId plain = w.panel("plain");
+    click(table, table->toScreen(w.middle(plain)));
+    pressKey(table, Qt::Key_C, Qt::ControlModifier);
+    pressKey(table, Qt::Key_Delete);
+    REQUIRE(w.doc().panels().size() == 1);
+    pressKey(table, Qt::Key_V, Qt::ControlModifier);
+    EXPECT((w.doc().panels().size() == 1 && w.window.helpLine().contains("gone")), "the copied panel is gone: the help line says so, and nothing is pasted");
+
+    click(table, table->toScreen(w.middle(w.panel("driven"))));
+    pressKey(table, Qt::Key_C, Qt::ControlModifier);
+    w.window.open(Document{}, "another");
+    pressKey(w.window.table(), Qt::Key_V, Qt::ControlModifier);
+    EXPECT((w.doc().panels().empty() && w.window.helpLine().contains("Nothing has been copied")), "another document starts with nothing copied");
+
+    pressKey(w.window.table(), Qt::Key_C, Qt::ControlModifier);
+    EXPECT((w.window.helpLine().contains("Nothing to copy")), "Ctrl+C with no panel selected says so");
+}
+
+TEST_CASE("Delete, Ctrl+C, Ctrl+V and Ctrl+D work in the 3D view on the selected panel, as on the table", "[qt]")
+{
+    Window w;
+    SpaceView* space = w.window.space();
+    const PanelId front = w.panel("front");
+    const std::size_t panels = w.doc().panels().size();
+    w.window.select(front);
+
+    space->key(QKeyCombination(Qt::ControlModifier, Qt::Key_C));
+    EXPECT((w.doc().panels().size() == panels && w.window.helpLine().contains("Copied")), "Ctrl+C remembers the panel");
+    space->key(QKeyCombination(Qt::ControlModifier, Qt::Key_V));
+    EXPECT((w.doc().panels().size() == panels + 1 && w.window.selected() != front), "Ctrl+V pastes a copy, selected");
+    w.window.select(front);
+    space->key(QKeyCombination(Qt::ControlModifier, Qt::Key_D));
+    EXPECT((w.doc().panels().size() == panels + 2 && w.window.selected() != front), "Ctrl+D duplicates the selected panel");
+
+    w.window.select(front);
+    space->key(QKeyCombination(Qt::Key_Delete));
+    EXPECT((w.doc().panels().size() == panels + 1 && !w.window.selected()), "Delete removes the selected panel");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == panels + 2 && w.doc().contains(front)), "one undo brings it back");
+
+    w.window.select(std::nullopt);
+    space->key(QKeyCombination(Qt::Key_Delete));
+    EXPECT((w.doc().panels().size() == panels + 2 && w.window.helpLine().contains("Nothing is selected")), "with nothing selected it says so");
+}
+
 // ---- Files, the avatar, and random input ----
 
 TEST_CASE("every sample saves and opens unchanged; a file that cannot be read says why", "[qt]")

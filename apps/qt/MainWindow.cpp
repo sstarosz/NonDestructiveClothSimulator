@@ -130,6 +130,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(space_, &SpaceView::panelClicked, this, &MainWindow::select);
     connect(space_, &SpaceView::gestured, this, &MainWindow::on);
     connect(space_, &SpaceView::keyed, this, [this](QKeyCombination pressed) {
+        if (editInSpace(pressed)) return;
         // Keys typed while the 3D view's own window has the focus do not reach
         // the window's shortcuts by themselves.
         const QKeySequence typed(pressed);
@@ -653,7 +654,8 @@ void MainWindow::refresh() {
 void MainWindow::on(const session::Gesture& gesture) {
     // Looking back at an earlier step, the pattern does not change; placing panels in space still does.
     const bool placesInSpace = std::holds_alternative<session::MoveInSpace>(gesture) || std::holds_alternative<session::TurnInSpace>(gesture);
-    if (viewUntil_ && !std::holds_alternative<session::SelectPanel>(gesture) && !placesInSpace) {
+    const bool changesNothing = std::holds_alternative<session::SelectPanel>(gesture) || std::holds_alternative<session::CopyPanel>(gesture);
+    if (viewUntil_ && !changesNothing && !placesInSpace) {
         table_->cancel();
         say("Showing an earlier step: press Escape to show all steps and change the pattern again.", true);
         return;
@@ -674,6 +676,29 @@ void MainWindow::on(const session::Gesture& gesture) {
         }
         say(QString::fromStdString("Type the " + done.typeLength->label + "."));
     }
+}
+
+// Delete, Ctrl+C, Ctrl+V and Ctrl+D typed in the 3D view do what they do on the
+// table, to the selected panel. The 3D view shows no corners, so Delete takes
+// the whole panel; Paste has no place on the table to use, so it goes beside the original.
+bool MainWindow::editInSpace(QKeyCombination pressed) {
+    const std::optional<PanelId> panel = drafting_.selection.panel;
+    const QKeySequence typed(pressed);
+    if (pressed == QKeyCombination(Qt::Key_Delete) || pressed == QKeyCombination(Qt::Key_Backspace)) {
+        if (panel) on(session::DeletePanel{*panel});
+        else on(session::DeleteSelection{});  // says that nothing is selected
+    } else if (typed == QKeySequence(QKeySequence::Copy)) {
+        if (panel) on(session::CopyPanel{*panel});
+        else say("Nothing to copy. Click a panel first, then press Ctrl+C.", true);
+    } else if (typed == QKeySequence(QKeySequence::Paste)) {
+        on(session::PastePanel{std::nullopt});
+    } else if (pressed == QKeyCombination(Qt::ControlModifier, Qt::Key_D)) {
+        if (panel) on(session::AddBeside{*panel, session::Follow::Copy});
+        else say("Nothing to duplicate. Click a panel first, then press Ctrl+D.", true);
+    } else {
+        return false;
+    }
+    return true;
 }
 
 void MainWindow::useTool(Tool tool) {

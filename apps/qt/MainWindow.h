@@ -95,6 +95,8 @@ private:
     void showMeshCounts();
     // What a gesture on the table changes: decided by the rules both windows share.
     void on(const session::Gesture& gesture);
+    // Delete, copy, paste and duplicate typed in the 3D view; false for any other key.
+    bool editInSpace(QKeyCombination pressed);
     // The tool in use: kept by Drafting, shown by the shelf and both views.
     void useTool(Tool tool);
 

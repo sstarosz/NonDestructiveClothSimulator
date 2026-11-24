@@ -2,6 +2,7 @@
 
 #include <QFontMetricsF>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QMouseEvent>
 #include <QToolTip>
 #include <QPainter>
@@ -264,10 +265,10 @@ void TableView::paintFloor(QPainter& painter) {
         const QRgb background = theme::table.rgb(), fineColour = QColor(32, 34, 39).rgb(), strongColour = QColor(44, 47, 54).rgb();
         std::vector<QRgb> plain(static_cast<std::size_t>(wide), background), fineRow(static_cast<std::size_t>(wide), fineColour), strongRow(static_cast<std::size_t>(wide), strongColour);
         std::vector<std::uint8_t> kind(static_cast<std::size_t>(tall), 0);  // of each pixel row: 0 no line, 1 a fine one, 2 a strong one
+        const int thickness = std::max(1, static_cast<int>(std::lround(ratio)));
         if (gridShown_) {
             const double step = gridStep();
             const Vec2 low = toTable({0, static_cast<double>(height())}), high = toTable({static_cast<double>(width()), 0});
-            const int thickness = std::max(1, static_cast<int>(std::lround(ratio)));
             const auto onGrid = [&](double at) { return std::abs(roundTo(at, step * 10) - at) < step * 0.01; };
             for (double x = std::floor(low.x / step) * step; x <= high.x; x += step) {
                 const int column = static_cast<int>(std::lround(std::round(toScreen({x, 0}).x()) * ratio));
@@ -552,6 +553,7 @@ void TableView::dragTo(QPointF screen, bool snapping, bool released) {
 
 void TableView::mouseMoveEvent(QMouseEvent* event) {
     pointer_ = event->position();
+    pointerInside_ = true;
     if (event->buttons() & (Qt::RightButton | Qt::MiddleButton)) {
         const QPointF moved = event->position() - panFrom_;
         centre_ = {centre_.x - moved.x() / scale_, centre_.y + moved.y() / scale_};
@@ -952,8 +954,21 @@ void TableView::keyPressEvent(QKeyEvent* event) {
         emit choosingDropped();
     } else if (event->key() == Qt::Key_Escape) cancel();
     else if (event->key() == Qt::Key_F) fit();  // as in Maya
-    else QWidget::keyPressEvent(event);
+    else if (choosing_ || drag_) QWidget::keyPressEvent(event);  // a click is wanted, or a drag is in the hands: no editing now
+    else if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) emit gestured(session::DeleteSelection{});
+    else if (event->matches(QKeySequence::Copy)) {
+        if (selected_) emit gestured(session::CopyPanel{*selected_});
+        else emit told("Nothing to copy. Click a panel first, then press Ctrl+C.");
+    } else if (event->matches(QKeySequence::Paste)) {
+        // Where the pointer is; with the pointer away from the table there is no place, so beside the original.
+        emit gestured(session::PastePanel{pointerInside_ ? std::optional<Vec2>(toTable(pointer_)) : std::nullopt});
+    } else if (event->key() == Qt::Key_D && event->modifiers() == Qt::ControlModifier) {
+        if (selected_) emit gestured(session::AddBeside{*selected_, session::Follow::Copy});
+        else emit told("Nothing to duplicate. Click a panel first, then press Ctrl+D.");
+    } else QWidget::keyPressEvent(event);
 }
+
+void TableView::leaveEvent(QEvent*) { pointerInside_ = false; }
 
 void TableView::wheelEvent(QWheelEvent* event) {
     // Zoom about the point under the mouse, so it stays under it.
