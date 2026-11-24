@@ -67,6 +67,35 @@ inline double yardstickMilliseconds() {
         9);
 }
 
+// The times of a run of frames, one by one. What a drag feels like is its slow
+// frames, not its average and not its best: one frame in twenty that takes
+// three times as long is what a lag is.
+//
+//   perf::Frames frames;
+//   for (...) frames.add(perf::bestMilliseconds([&] { oneFrame(); }, 1));
+//   report.frames("dragging a corner", 16.0, frames);
+class Frames {
+public:
+    void add(double milliseconds) { times_.push_back(milliseconds); }
+    std::size_t count() const { return times_.size(); }
+    double mean() const {
+        double sum = 0.0;
+        for (const double t : times_) sum += t;
+        return times_.empty() ? 0.0 : sum / static_cast<double>(times_.size());
+    }
+    // The time that one frame in twenty is slower than.
+    double slowestOneInTwenty() const {
+        if (times_.empty()) return 0.0;
+        std::vector<double> sorted = times_;
+        std::sort(sorted.begin(), sorted.end());
+        return sorted[static_cast<std::size_t>(static_cast<double>(sorted.size() - 1) * 0.95)];
+    }
+    double worst() const { return times_.empty() ? 0.0 : *std::max_element(times_.begin(), times_.end()); }
+
+private:
+    std::vector<double> times_;
+};
+
 // The yardstick on the machine the limits in milliseconds were set on.
 inline constexpr double referenceYardstick = 10.0;
 
@@ -111,12 +140,14 @@ public:
         return record(name, limit, bestMilliseconds(work, runs));
     }
 
-    // Judges a time that was measured some other way.
-    double record(const std::string& name, double limit, double milliseconds) {
+    // Judges a time that was measured some other way. `againstBaseline` false:
+    // held to the limit alone, and not kept in the baseline (a statistic of
+    // the worst frames moves too much from run to run for a ratio to mean anything).
+    double record(const std::string& name, double limit, double milliseconds, bool againstBaseline = true) {
         const double units = milliseconds / yardstick_;
         const double scaledLimit = limit * std::max(yardstick_ / referenceYardstick, 1.0);
         const auto before = baseline_.find(name);
-        const double ratio = before == baseline_.end() || before->second <= 0.0 ? 0.0 : units / before->second;
+        const double ratio = !againstBaseline || before == baseline_.end() || before->second <= 0.0 ? 0.0 : units / before->second;
         // Very short times are mostly noise: they are held to the limit alone.
         const bool regressed = ratio > tolerance && milliseconds > 0.05;
         const bool over = milliseconds > scaledLimit;
@@ -125,9 +156,19 @@ public:
         if (ratio > 0.0) std::snprintf(ratioText, sizeof ratioText, "%9.2f", ratio);
         std::printf("%-46s %9.3f %9.2f %s  %s\n", name.c_str(), milliseconds, scaledLimit, ratioText,
                     failed ? (over ? "FAIL: over its limit" : "FAIL: slower than before") : "ok");
-        measured_.push_back({name, units});
+        if (againstBaseline) measured_.push_back({name, units});
         if (failed) ++failures_;
         return milliseconds;
+    }
+
+    // Judges a run of frames: their mean against `limit` and the baseline, and
+    // the time one frame in twenty is slower than against twice the limit (a
+    // row of its own, so that a stutter is caught that the mean hides). The
+    // worst frame is shown.
+    void frames(const std::string& name, double limit, const Frames& frames) {
+        record(name, limit, frames.mean());
+        record(name + ", slowest 1 in 20", limit * 2.0, frames.slowestOneInTwenty(), false);
+        std::printf("%-46s %9.3f   (worst of %zu frames)\n", "", frames.worst(), frames.count());
     }
 
     // A plain condition, for things that must hold whatever the machine.

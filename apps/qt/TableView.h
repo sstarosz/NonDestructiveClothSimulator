@@ -17,6 +17,7 @@
 //   table->show(doc, shapes, selected, corners, drafting.tool);
 //   connect(table, &TableView::gestured, [&](const session::Gesture& g) { ... });
 
+#include <QImage>
 #include <QWidget>
 class QPainter;
 #include <memory>
@@ -159,6 +160,20 @@ private:
     Vec2 snapped(Vec2 point, bool snapping) const;
     double gridStep() const;
     bool gridShown_ = true;
+    // The table's floor: the background and the grid. Drawn once and painted
+    // again as long as the view does not move. Its hundreds of lines cost more
+    // than everything else on the table together (16 ms on a 4K table), and
+    // every mouse move paints the table again.
+    struct Floor {
+        QImage image;
+        QSize size;
+        qreal ratio = 0.0;
+        Vec2 centre{0, 0};
+        double scale = 0.0;
+        bool grid = false;
+    };
+    void paintFloor(QPainter& painter);
+    Floor floor_;
     void dragTo(QPointF screen, bool snapping, bool released);
 
     std::vector<Drawn> drawn_;

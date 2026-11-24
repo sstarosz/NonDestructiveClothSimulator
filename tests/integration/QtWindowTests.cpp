@@ -1195,6 +1195,59 @@ TEST_CASE("a seam whose edges differ in length shows its lengths in orange; an e
     EXPECT((!colourOf(even).contains(theme::uneven.name())), "10 cm sewn to 10 cm is not");
 }
 
+TEST_CASE("a change of a number updates the docks in place: seam cards, layer summaries and Outliner rows are not made again", "[qt]")
+{
+    Window w;
+    Document doc;
+    const Param waist = doc.add(Parameter{.name = "waist", .value = 60_cm});
+    const PanelId wide = doc.add(Panel{.name = "wide"});
+    const OpRef<Rect> wideRect = doc.add(wide, Rect{.width = waist / 2, .height = 10_cm});
+    const PanelId narrow = doc.add(Panel{.name = "narrow"});
+    const OpRef<Rect> narrowRect = doc.add(narrow, Rect{.width = 20_cm, .height = 10_cm});
+    const SeamId seam = doc.add(Seam{.a = {wide, wideRect.top()}, .b = {narrow, narrowRect.top()}});
+    w.window.open(std::move(doc), "numbers");
+    w.window.tick();
+    w.window.select(wide);
+
+    // Each of them is marked, to tell whether it is the same one afterwards:
+    // a new widget can be given the old one's address, so addresses prove nothing.
+    bool cardRemade = false;
+    QWidget* card = w.window.attributes()->findChild<QWidget*>(QString("seam%1").arg(seam.value));
+    REQUIRE(card != nullptr);
+    QObject::connect(card, &QObject::destroyed, [&] { cardRemade = true; });
+    QLabel* lengths = card->findChild<QLabel*>("seamLengths");
+    REQUIRE(lengths != nullptr);
+    const QString lengthsBefore = lengths->text();
+    const auto summary = [&]() -> QLabel* {
+        for (QLabel* label : w.window.attributes()->findChildren<QLabel*>())
+            if (label->text().contains(QChar(0x00D7))) return label;  // "30 × 10 cm": the Rectangle's layer
+        return nullptr;
+    };
+    bool summaryRemade = false;
+    REQUIRE(summary() != nullptr);
+    QObject::connect(summary(), &QObject::destroyed, [&] { summaryRemade = true; });
+    const QString summaryBefore = summary()->text();
+    const QList<QTreeWidgetItem*> rows = w.window.outliner()->findItems("wide", Qt::MatchExactly | Qt::MatchRecursive);
+    REQUIRE(rows.size() == 1);
+    rows[0]->setData(0, Qt::UserRole + 99, 12345);
+
+    emit w.window.parameters()->valueTyped(waist, "64 cm");
+    w.window.tick();
+
+    EXPECT((!cardRemade), "the seam's card is the same one");
+    const QWidget* cardNow = w.window.attributes()->findChild<QWidget*>(QString("seam%1").arg(seam.value));
+    const QLabel* lengthsNow = cardNow ? cardNow->findChild<QLabel*>("seamLengths") : nullptr;
+    EXPECT((lengthsNow != nullptr && lengthsNow->text() != lengthsBefore && lengthsNow->text().contains("32")), "and shows the new lengths");
+    EXPECT((!summaryRemade), "the layer's row is the same one");
+    EXPECT((summary() != nullptr && summary()->text() != summaryBefore && summary()->text().contains("32")), "and its summary shows the new number, not the old");
+    const QList<QTreeWidgetItem*> rowsAfter = w.window.outliner()->findItems("wide", Qt::MatchExactly | Qt::MatchRecursive);
+    EXPECT((rowsAfter.size() == 1 && rowsAfter[0]->data(0, Qt::UserRole + 99).toInt() == 12345), "the Outliner's row is the same one");
+
+    // What does change the docks' structure still does: a new name is a new row.
+    w.window.outliner()->rename(wide, "bodice");
+    EXPECT((w.window.outliner()->findItems("bodice", Qt::MatchExactly | Qt::MatchRecursive).size() == 1), "a rename shows in the Outliner");
+}
+
 TEST_CASE("a panel is renamed, made base only and deleted in the Outliner", "[qt]")
 {
     Window w;
@@ -1482,6 +1535,43 @@ TEST_CASE("the body is hidden in 3D and taken out of the simulation together; th
 
     w.window.table()->setGridShown(false);
     EXPECT((!w.window.table()->gridShown()), "the grid can be hidden");
+}
+
+// ---- The table's floor ----
+
+namespace {
+
+// The columns of the table's picture where a grid line crosses its second row
+// (the grid's own colours, as TableView draws them).
+std::vector<int> gridColumns(TableView* table) {
+    const QImage picture = table->grab().toImage();
+    std::vector<int> columns;
+    for (int x = 0; x < picture.width(); ++x) {
+        const QColor at = picture.pixelColor(x, 2);
+        if (at == QColor(32, 34, 39) || at == QColor(44, 47, 54)) columns.push_back(x);
+    }
+    return columns;
+}
+
+} // namespace
+
+TEST_CASE("the table's floor is kept, and drawn again when the view or the grid changes", "[qt]")
+{
+    Table w;
+    TableView* table = w.table();
+    const std::vector<int> before = gridColumns(table);
+    EXPECT((before.size() > 5), "the grid's lines are drawn");
+    EXPECT((gridColumns(table) == before), "painted again without a change, the same picture");
+
+    QWheelEvent zoom(QPointF(100, 100), table->mapToGlobal(QPointF(100, 100)), QPoint(), QPoint(0, 240), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(table, &zoom);
+    const std::vector<int> zoomed = gridColumns(table);
+    EXPECT((!zoomed.empty() && zoomed != before), "zoomed, the lines are where the new view puts them, not where they were");
+
+    table->setGridShown(false);
+    EXPECT((gridColumns(table).empty()), "a hidden grid is not painted from the picture that had it");
+    table->setGridShown(true);
+    EXPECT((gridColumns(table) == zoomed), "shown again, it is as it was");
 }
 
 // ---- Lengths, seam ends, placing from the table, hints ----

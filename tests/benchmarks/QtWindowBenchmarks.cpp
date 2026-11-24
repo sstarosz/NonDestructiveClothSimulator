@@ -3,6 +3,12 @@
 // orbited and while the cloth runs. Judged against baselines/QtWindow.txt;
 // see Perf.h.
 //
+// The rows after "the cloth runs on its own thread" look for what the owner
+// feels as slow: where one change's time goes (each dock, the table, the 3D
+// scene, one by one), a 4K picture, a panel carried in 3D, a parameter
+// dragged. A drag reports its slow frames too (Perf.h, `Frames`), and splits
+// each frame into the change, the session's tick and Qt's painting.
+//
 // The window runs without a screen (Qt's off-screen platform). There the 3D
 // view draws off screen and reads the picture back each time it changes,
 // which costs more than showing it in a window: the limits allow for that.
@@ -10,17 +16,28 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QImage>
+#include <QPaintEvent>
+#include <algorithm>
+#include <map>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <chrono>
 #include <thread>
 
 #include "AttributeEditor.h"
 #include "Avatar.h"
 #include "MainWindow.h"
+#include "ParametersPanel.h"
 #include "Perf.h"
 #include "SpaceView.h"
 #include "TableView.h"
 #include "Theme.h"
+#include "clothcad/render/Camera.h"
+#include "clothcad/render/Gizmo.h"
+#include "clothcad/render/SceneOf.h"
+#include "clothcad/session/Samples.h"
+#include "clothcad/sim/Mesh.h"
 
 using namespace clothcad;
 using namespace clothcad::ui;
@@ -50,6 +67,313 @@ void frame(MainWindow& window) {
 void mouse(QWidget* widget, QEvent::Type type, QPointF at, Qt::MouseButtons held) {
     QMouseEvent event(type, at, widget->mapToGlobal(at), type == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton, held, Qt::NoModifier);
     QApplication::sendEvent(widget, &event);
+}
+
+// Which widgets are painted, how often and how big: what a change makes Qt paint.
+class PaintCounter : public QObject {
+public:
+    struct Seen {
+        int times = 0;
+        long long pixels = 0;
+    };
+    std::map<std::string, Seen> seen;
+    bool eventFilter(QObject* object, QEvent* event) override {
+        if (event->type() == QEvent::Paint && object->isWidgetType()) {
+            const QRect area = static_cast<QPaintEvent*>(event)->region().boundingRect();
+            Seen& one = seen[std::string(object->metaObject()->className()) + "#" + object->objectName().toStdString()];
+            ++one.times;
+            one.pixels += static_cast<long long>(area.width()) * area.height();
+        }
+        return false;
+    }
+    void print(const char* title, int frames) const {
+        std::vector<std::pair<std::string, Seen>> rows(seen.begin(), seen.end());
+        std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.second.pixels > b.second.pixels; });
+        std::printf("paint events per frame while %s:\n", title);
+        for (std::size_t i = 0; i < rows.size() && i < 12; ++i)
+            std::printf("   %-44s %5.1f paints, %9.0f pixels\n", rows[i].first.c_str(), rows[i].second.times / double(frames), rows[i].second.pixels / double(frames));
+    }
+};
+
+// A drag as a screen shows it: every frame is timed alone and spaced out as a
+// 60 Hz screen would, and the first few pixels (not yet a drag) are left out.
+// `split`, if given, also gets each frame's two halves: the pointer's move,
+// which changes the document and shows it in every dock (`change`), and the
+// frame that follows, itself in two: `tick` (the session catches up and
+// everything shown follows) and `paint` (Qt paints what was marked).
+struct Halves {
+    perf::Frames change, tick, paint;
+};
+template <class Move>
+perf::Frames dragged(MainWindow& window, int frames, Move move, Halves* split = nullptr) {
+    perf::Frames spent;
+    for (int i = 0; i < frames + 3; ++i) {
+        double moving = 0.0, ticking = 0.0, painting = 0.0;
+        const double one = perf::bestMilliseconds(
+            [&] {
+                moving = perf::bestMilliseconds([&] { move(i); }, 1);
+                ticking = perf::bestMilliseconds([&] { window.tick(); }, 1);
+                painting = perf::bestMilliseconds([&] { QApplication::processEvents(); }, 1);
+            },
+            1);
+        if (i >= 3) {
+            spent.add(one);
+            if (split) {
+                split->change.add(moving);
+                split->tick.add(ticking);
+                split->paint.add(painting);
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(12));
+    }
+    return spent;
+}
+
+// A run of frames with its halves, and the best of several: a busy machine
+// only ever makes a drag slower (Perf.h), and the drags that draw in 3D vary
+// by half between runs on one quiet machine.
+struct Run {
+    perf::Frames frames;
+    Halves halves;
+};
+template <class Once>
+Run bestOf(int runs, Once once) {
+    Run best = once();
+    for (int i = 1; i < runs; ++i)
+        if (Run now = once(); now.frames.mean() < best.frames.mean()) best = std::move(now);
+    return best;
+}
+
+// The halves of a drag as rows of their own. The move (the change and showing
+// it in every dock) is what the docks' work shows in, so it is held to the
+// baseline; the other two only to a limit.
+void reportHalves(perf::Report& report, const std::string& of, const Halves& halves, double moveLimit) {
+    report.record(of + ": the move, the change shown in every dock", moveLimit, halves.change.mean());
+    report.record(of + ": the frame's tick, the session catches up", 16.0, halves.tick.mean(), false);
+    report.record(of + ": the frame's painting", 16.0, halves.paint.mean(), false);
+}
+
+// A corner of the front panel, dragged on the table. Its frames; the document
+// must have changed on most of them, or the drag missed the corner.
+perf::Frames cornerDragged(MainWindow& window, perf::Report& report, const std::string& what, Halves* split = nullptr) {
+    TableView* table = window.table();
+    const PanelId front = window.session().document().panels().front();
+    window.select(front);
+    frame(window);
+    const Panel& placed = window.session().document().get(front);
+    QPointF corner = table->toScreen({placed.x + 60, placed.y + 80});
+    mouse(table, QEvent::MouseButtonPress, corner, Qt::LeftButton);
+    const std::uint64_t versionAtGrab = window.session().editor().version();
+    const perf::Frames spent = dragged(
+        window, 40,
+        [&](int) {
+            corner += QPointF(3, -3);
+            mouse(table, QEvent::MouseMove, corner, Qt::LeftButton);
+        },
+        split);
+    mouse(table, QEvent::MouseButtonRelease, corner, Qt::NoButton);
+    report.expect(window.session().editor().version() - versionAtGrab >= 20, what + ": the corner follows the pointer");
+    window.shelf()->undo()->trigger();
+    return spent;
+}
+
+// A panel dragged on the table.
+perf::Frames panelDragged(MainWindow& window, perf::Report& report, const std::string& what) {
+    TableView* table = window.table();
+    const PanelId front = window.session().document().panels().front();
+    window.select(front);
+    frame(window);
+    const double xBefore = window.session().document().get(front).x;
+    QPointF on = table->toScreen({xBefore + 30, window.session().document().get(front).y + 40});
+    mouse(table, QEvent::MouseButtonPress, on, Qt::LeftButton);
+    const perf::Frames spent = dragged(window, 40, [&](int) {
+        on += QPointF(4, 0);
+        mouse(table, QEvent::MouseMove, on, Qt::LeftButton);
+    });
+    mouse(table, QEvent::MouseButtonRelease, on, Qt::NoButton);
+    report.expect(window.session().document().get(front).x != xBefore, what + ": the panel moves");
+    window.shelf()->undo()->trigger();
+    return spent;
+}
+
+// Where one change's time goes. After every change of the document the window
+// shows it again in each dock, the table and the 3D view; each is timed here
+// as the window calls it, so that the dearest can be found. They are not
+// added up: some are not made again when nothing they show has changed.
+void phases(MainWindow& window, perf::Report& report, const std::string& of) {
+    std::printf("-- where the time of one change goes: %s, 1600 x 900 --\n", of.c_str());
+    window.resize(1600, 900);
+    window.shelf()->layout(ViewLayout::SideBySide)->trigger();
+    const PanelId front = window.session().document().panels().front();
+    window.select(front);
+    for (int i = 0; i < 5; ++i) frame(window);
+    const std::string phase = "phase (" + of + "): ";
+    const Document& doc = window.session().document();
+    const Result& shapes = window.session().editor().shapes();
+    const Outliner::Body body{.name = "avatar", .shown = true, .ready = true};
+    const int runs = 20;
+    report.record(phase + "the Outliner shows the document", 8.0, perf::bestMilliseconds([&] { window.outliner()->show(doc, shapes, front, body); }, runs));
+    report.record(phase + "the Parameters dock shows the document", 8.0, perf::bestMilliseconds([&] { window.parameters()->show(doc, shapes); }, runs));
+    report.record(phase + "the Attribute Editor shows a panel", 8.0, perf::bestMilliseconds([&] { window.attributes()->show(doc, shapes, front); }, runs));
+    report.record(phase + "the table is given a document", 8.0, perf::bestMilliseconds([&] { window.table()->show(doc, shapes, front, {}, session::Tool::Select); }, runs));
+    report.record(phase + "the document is evaluated to outlines", 8.0, perf::bestMilliseconds([&] { (void)evaluate(doc); }, runs));
+    report.record(phase + "the outlines are meshed at 2 cm", 40.0, perf::bestMilliseconds([&] { (void)sim::meshOf(doc, shapes, {.particleDistance = 2_cm}); }, 5));
+    QImage image(window.table()->size(), QImage::Format_ARGB32_Premultiplied);
+    report.record(phase + "the table paints itself", 8.0, perf::bestMilliseconds([&] { window.table()->render(&image); }, runs));
+    SpaceView& space = *window.space();
+    report.record(phase + "the 3D scene is made from the session", 8.0,
+                  perf::bestMilliseconds([&] { (void)render::sceneOf(window.session(), space.camera(), 1.0, {.selected = front, .body = true, .mesh = false}); }, runs));
+    if (space.drawing() != SpaceView::Drawing::Nothing && space.renderer()) {
+        const int width = std::max(1, space.width()), height = std::max(1, space.height());
+        report.record(phase + "the scene is copied for a drawing (with the gizmo)", 8.0, perf::bestMilliseconds([&] { (void)space.sceneFor(width, height); }, runs));
+        const render::Scene scene = space.sceneFor(width, height);
+        report.record(phase + "the renderer draws it and reads it back", 60.0, perf::bestMilliseconds([&] { (void)space.renderer()->draw(scene, width, height); }, runs));
+    }
+}
+
+// The same things on a 4K picture (3840 x 2160 pixels: the owner's display).
+// The off-screen platform has a device pixel ratio of 1, so the size is set in
+// pixels, which costs the picture the same.
+void atFourK(MainWindow& window, perf::Report& report) {
+    std::printf("-- 4K (3840 x 2160) --\n");
+    window.resize(3840, 2160);
+    window.shelf()->layout(ViewLayout::SideBySide)->trigger();
+    for (int i = 0; i < 5; ++i) frame(window);
+    report.record("4K: frame, both views, nothing changing", 2.0, perf::bestMilliseconds([&] { frame(window); }, 40));
+    QImage image(window.table()->size(), QImage::Format_ARGB32_Premultiplied);
+    report.record("4K: the table paints itself", 8.0, perf::bestMilliseconds([&] { window.table()->render(&image); }, 10));
+    SpaceView& space = *window.space();
+    if (space.drawing() != SpaceView::Drawing::Nothing) {
+        QPointF at(400, 600);
+        space.press(at, Qt::LeftButton, Qt::AltModifier);
+        const perf::Frames orbit = dragged(window, 30, [&](int) {
+            at += QPointF(4, 0);
+            space.moveTo(at, Qt::LeftButton, Qt::AltModifier);
+        });
+        space.release();
+        report.frames("4K: frames while the 3D view is orbited (read back)", 120.0, orbit);
+    }
+    window.setThreading(session::Threading::OwnThread);
+    const auto panelRun = [&] { return Run{panelDragged(window, report, "4K"), {}}; };
+    const auto cornerRun = [&](const std::string& what) {
+        return bestOf(2, [&] {
+            Run run;
+            run.frames = cornerDragged(window, report, what, &run.halves);
+            return run;
+        });
+    };
+    report.frames("4K: frames while dragging a panel on the table", 16.0, bestOf(2, panelRun).frames);
+    report.frames("4K: frames while dragging a corner, 3D shown", 16.0, cornerRun("4K").frames);
+    window.shelf()->layout(ViewLayout::TableOnly)->trigger();
+    for (int i = 0; i < 3; ++i) frame(window);
+    report.frames("4K: frames while dragging a corner, table only", 16.0, cornerRun("4K, table only").frames);
+    // Zooming moves the grid, so the table's floor is drawn again every frame.
+    {
+        TableView* table = window.table();
+        const QPointF middle(table->width() / 2.0, table->height() / 2.0);
+        const Run zoomed = bestOf(2, [&] {
+            Run run;
+            run.frames = dragged(window, 30, [&](int i) {
+                QWheelEvent wheel(middle, table->mapToGlobal(middle), QPoint(), QPoint(0, i % 2 ? -60 : 60), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+                QApplication::sendEvent(table, &wheel);
+            });
+            return run;
+        });
+        report.frames("4K: frames while the table is zoomed, table only", 16.0, zoomed.frames);
+        table->fit();  // the panels now fill the table: what follows is zoomed in
+    }
+    // Zoomed in on a panel, the table's shapes are many pixels, not just its grid.
+    const Run filled = cornerRun("4K, zoomed in");
+    report.frames("4K: frames while dragging a corner, panel fills the table", 16.0, filled.frames);
+    reportHalves(report, "4K, panel fills the table", filled.halves, 16.0);
+    window.setThreading(session::Threading::OneStepPerAdvance);
+    window.resize(1600, 900);
+    window.shelf()->layout(ViewLayout::SideBySide)->trigger();
+    for (int i = 0; i < 3; ++i) frame(window);
+}
+
+// A T-shirt body (the sample) as the owner works on it: a panel carried in 3D
+// with the move gizmo, and a parameter dragged.
+void tshirt(MainWindow& window, perf::Report& report) {
+    std::printf("-- a T-shirt, as it is worked on --\n");
+    Document shirt = session::samples()[5].build();
+    session::layOutOnTheTable(shirt);
+    window.open(std::move(shirt), "T-shirt");
+    for (int i = 0; i < 400 && (window.session().mesh()->panels.empty() || !window.session().bodyReady()); ++i) {
+        frame(window);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    window.shelf()->layout(ViewLayout::SideBySide)->trigger();
+    window.shelf()->action(session::Tool::Move)->trigger();
+    const PanelId panel = window.session().document().panels().front();
+    window.select(panel);
+    for (int i = 0; i < 5; ++i) frame(window);
+    phases(window, report, "T-shirt");
+    window.select(panel);
+    window.shelf()->action(session::Tool::Move)->trigger();
+    for (int i = 0; i < 5; ++i) frame(window);
+
+    // ---- A panel carried in 3D by the middle of its move gizmo ----
+    SpaceView& space = *window.space();
+    if (space.drawing() != SpaceView::Drawing::Nothing && space.picture() && render::gizmoOf(window.session(), panel, session::GizmoMode::Move, 1.0)) {
+        const Run carried = bestOf(3, [&] {
+            const render::Gizmo gizmo = *render::gizmoOf(window.session(), panel, session::GizmoMode::Move, 1.0);
+            const render::Picture& picture = *space.picture();
+            const render::Projected centre = render::project(space.camera().viewProjection(picture.width / static_cast<double>(picture.height)), gizmo.centre);
+            QPointF at((centre.x + 1.0) / 2.0 * picture.width, (centre.y + 1.0) / 2.0 * picture.height);
+            const std::uint64_t sceneBefore = window.session().sceneVersion();
+            space.press(at, Qt::LeftButton, Qt::NoModifier);
+            Run run;
+            run.frames = dragged(
+                window, 40,
+                [&](int) {
+                    at += QPointF(3, 0);
+                    space.moveTo(at, Qt::LeftButton, Qt::NoModifier);
+                },
+                &run.halves);
+            space.release();
+            report.expect(window.session().sceneVersion() - sceneBefore >= 20, "carrying a panel in 3D changes the scene on most frames");
+            window.shelf()->undo()->trigger();
+            for (int i = 0; i < 5; ++i) frame(window);
+            return run;
+        });
+        report.frames("frames while a panel is carried in 3D", 24.0, carried.frames);
+        reportHalves(report, "carried in 3D", carried.halves, 16.0);
+    } else {
+        std::printf("(no Vulkan, or no gizmo: carrying a panel in 3D is not timed) %s\n", space.problem().toStdString().c_str());
+    }
+
+    // ---- A length parameter dragged: every dock, both views and the mesh follow ----
+    window.setThreading(session::Threading::OwnThread);
+    const Document& doc = window.session().document();
+    for (const Param parameter : doc.parameters()) {
+        if (doc.get(parameter).unit != Unit::Length) continue;
+        // CLOTHCAD_BENCH_PAINT=1 also lists which widgets Qt paints, and how much, per frame.
+        const bool counting = qEnvironmentVariableIsSet("CLOTHCAD_BENCH_PAINT");
+        const Run changed = bestOf(3, [&] {
+            const std::uint64_t versionBefore = window.session().editor().version();
+            int step = 0;
+            emit window.parameters()->valueDragged(parameter, 40.0, session::DragPhase::Begin);
+            PaintCounter counter;
+            if (counting) qApp->installEventFilter(&counter);
+            Run run;
+            run.frames = dragged(
+                window, 40, [&](int) { emit window.parameters()->valueDragged(parameter, 40.0 + 0.1 * ++step, session::DragPhase::Continue); }, &run.halves);
+            if (counting) {
+                qApp->removeEventFilter(&counter);
+                counter.print("a parameter is dragged", 43);
+            }
+            emit window.parameters()->valueDragged(parameter, 40.0 + 0.1 * step, session::DragPhase::End);
+            report.expect(window.session().editor().version() - versionBefore >= 20, "dragging a parameter changes the document on most frames");
+            window.shelf()->undo()->trigger();
+            for (int i = 0; i < 5; ++i) frame(window);
+            return run;
+        });
+        report.frames("frames while a parameter is dragged, 3D shown", 16.0, changed.frames);
+        reportHalves(report, "parameter dragged", changed.halves, 8.0);
+        break;
+    }
+    window.setThreading(session::Threading::OneStepPerAdvance);
 }
 
 } // namespace
@@ -187,6 +511,14 @@ int main(int argc, char** argv) {
         report.record("frame while the cloth runs on its own thread, 3D shown", 16.0, sum / watched);
         report.expect(window.session().clothShown() && window.session().cloth().time > timeBefore, "the cloth moves without the frames stepping it");
         window.shelf()->simulate()->setChecked(false);
+
+        // What follows is what the owner feels: the slow frames, not the best
+        // ones; a 4K picture; moving a panel in 3D; changing a parameter.
+        window.setThreading(session::Threading::OneStepPerAdvance);
+        for (int i = 0; i < 3; ++i) frame(window);
+        phases(window, report, "skirt");
+        atFourK(window, report);
+        tshirt(window, report);
     }
     return report.finish();
 }

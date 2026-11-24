@@ -46,15 +46,17 @@ void ValueField::show(const Expr& value, const Document& doc, const Result& shap
     const std::optional<double> number = asNumber(value);
     const bool formula = !number.has_value();
     number_ = number;
+    QString tip;
     if (formula) {
         shown_ = QString::fromStdString("= " + formatExpr(value, doc));
         const std::optional<double> worked = valueOf(value, shapes);
-        setToolTip(worked ? QString::fromStdString(formatValue(*worked, unit_)) : QString());
+        if (worked) tip = QString::fromStdString(formatValue(*worked, unit_));
     } else {
         shown_ = QString::fromStdString(formatValue(*number, unit_));
-        setToolTip({});
     }
-    setText(shown_);
+    // What is already shown is left alone: setting it again paints the field again.
+    if (toolTip() != tip) setToolTip(tip);
+    if (text() != shown_) setText(shown_);
     setModified(false);
     mark(*this, "formula", formula);
     mark(*this, "refused", false);

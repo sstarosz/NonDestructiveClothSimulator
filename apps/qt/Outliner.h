@@ -12,6 +12,7 @@
 
 #include <QTreeWidget>
 #include <optional>
+#include <string>
 
 #include "clothcad/core/Document.h"
 #include "clothcad/core/Evaluate.h"
@@ -68,6 +69,7 @@ private:
     QTreeWidgetItem* panels_;
     QTreeWidgetItem* seams_;
     bool showing_ = false;  // set while the tree is filled, so that it reports nothing
+    std::string shown_;     // what the rows were made from: they are made again only when it changes
 };
 
 } // namespace clothcad::ui
