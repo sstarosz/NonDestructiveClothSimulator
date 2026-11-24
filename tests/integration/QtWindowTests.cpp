@@ -443,6 +443,35 @@ TEST_CASE("a corner is dragged on the table; one held by a formula stays and say
     EXPECT((w.window.helpLine().contains("formula")), "and the help line says why");
 }
 
+TEST_CASE("Shift held while a corner is dragged keeps it on the axis it first moved along; Ctrl snaps the other", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const Vec2 top = w.corner(plain, 1, 1);
+    const QPointF from = w.table()->toScreen(top);
+
+    // The hand drifts upwards as well, but the corner only goes sideways.
+    drag(w.table(), from, by(from, w.table(), 6, 2.5), Qt::ShiftModifier);
+    EXPECT((std::abs(w.width(plain) - 36.0) < 0.2), "the corner followed the pointer along x");
+    EXPECT((std::abs(w.corner(plain, 1, 1).y - top.y) < 1e-9), "its y did not change by even 1e-9 cm");
+    EXPECT((w.window.selectedCorners().size() == 1), "and it is selected, as after any drag of a corner");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.width(plain) == 30.0 && w.doc().operations(plain).size() == 1), "one undo takes the whole drag back");
+
+    // Mostly upwards, it goes only up.
+    drag(w.table(), from, by(from, w.table(), 1.5, 5), Qt::ShiftModifier);
+    EXPECT((std::abs(w.corner(plain, 1, 1).x - top.x) < 1e-9 && std::abs(w.corner(plain, 1, 1).y - top.y - 5.0) < 0.2), "dragged mostly upwards, it only goes up");
+    w.window.shelf()->undo()->trigger();
+
+    // With Ctrl as well the free coordinate is on the grid and the other stays exactly where it was.
+    drag(w.table(), from, by(from, w.table(), 7.3, 2.1), Qt::ShiftModifier | Qt::ControlModifier);
+    double step = 0.1;
+    while (step * w.table()->scale() < 12.0) step *= 10.0;
+    const double x = w.corner(plain, 1, 1).x;
+    EXPECT((std::abs(x / step - std::round(x / step)) < 1e-6 && std::abs(w.corner(plain, 1, 1).y - top.y) < 1e-9), "Ctrl snaps x to the grid; y stays");
+}
+
 TEST_CASE("Shift-drag selects corners in a box; dragging one moves them together", "[qt]")
 {
     Table w;

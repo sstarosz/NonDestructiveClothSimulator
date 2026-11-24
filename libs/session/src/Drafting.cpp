@@ -103,6 +103,8 @@ std::string layerName(const Document& doc, OpId layer) {
 
 } // namespace
 
+Along axisOf(double dx, double dy) { return std::abs(dx) >= std::abs(dy) ? Along::X : Along::Y; }
+
 std::string Drafting::freeName(const Document& doc, const std::string& base) {
     for (int number = 1;; ++number) {
         const std::string name = base + std::to_string(number);
@@ -278,7 +280,9 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& image) {
     const Document& doc = editor.document();
     bool newStep = false;  // whether this change opens the drag's undo step
     if (!doc.contains(image.panel)) return outcome;
-    const Vec2 own = turned(Vec2{image.dx, image.dy}, -doc.get(image.panel).angle);  // the drag in the panel's own coordinates
+    // Held to one axis, the other coordinate is not moved at all, whatever the pointer does.
+    const double alongX = image.along == Along::Y ? 0.0 : image.dx, alongY = image.along == Along::X ? 0.0 : image.dy;
+    const Vec2 own = turned(Vec2{alongX, alongY}, -doc.get(image.panel).angle);  // the drag in the panel's own coordinates
     const Pattern& shape = editor.shapes()[image.panel];
     std::vector<CornerRef>& chosen = selection.corners;
     const auto isSelected = [&](const CornerRef& c) { return std::find(chosen.begin(), chosen.end(), c) != chosen.end(); };

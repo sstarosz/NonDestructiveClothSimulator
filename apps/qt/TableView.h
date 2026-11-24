@@ -2,7 +2,9 @@
 // The 2D table: every panel's outline where the table has it, seams in
 // blue, the selected panel in amber, mirror axes in pink. With the Select
 // tool (Q) a panel is chosen and dragged, its corners and curve handles are
-// dragged (Shift adds corners, Shift-drag selects corners in a box), and a
+// dragged (Shift adds corners, Shift-drag selects corners in a box; Shift
+// held while a corner is dragged keeps it on the x or y it first moved
+// along, Ctrl snaps the other to the grid), and a
 // double-click on an edge types its length. Move (W), Rotate (E) and Scale
 // (R) do the same and show their gizmo on the selected panel
 // (session/TableGizmo): its arrows move it, its ring turns it about its
@@ -136,6 +138,7 @@ private:
         double angleWas = 0;
         bool moved = false;
         std::optional<session::TableGizmo> gizmo;  // the gizmo as it stood when it was taken hold of
+        session::Along along = session::Along::Both;  // a corner held to one axis (Shift), once the pointer has chosen it
     };
 
     // What a drawing tool would act on, under the pointer.
@@ -179,7 +182,8 @@ private:
     };
     void paintFloor(QPainter& painter);
     Floor floor_;
-    void dragTo(QPointF screen, bool snapping, bool released);
+    // `oneAxis`: Shift is down, so a corner goes along x or y only.
+    void dragTo(QPointF screen, bool snapping, bool oneAxis, bool released);
 
     std::vector<Drawn> drawn_;
     // The ends of each seam's edges that meet, on the table: crossed links show a twist.

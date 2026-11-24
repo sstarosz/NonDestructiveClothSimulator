@@ -40,11 +40,18 @@ struct MovePanel {
     double x, y;  // where the panel's origin should now be on the table
     DragPhase phase;
 };
+// Which way a dragged corner may go on the table: both ways, or only along its x or its y.
+enum class Along { Both, X, Y };
+// The axis a drag has gone furthest along (X when it went further sideways than up or down;
+// a tie is X). It is for a window to decide once, when a drag with Shift has gone far enough.
+Along axisOf(double dx, double dy);
+
 struct MoveCorner {
     PanelId panel;
     CornerRef corner;
     double dx, dy;  // how far it has been dragged since the drag began, on the table
     DragPhase phase;
+    Along along = Along::Both;  // X or Y: the other coordinate does not change at all
 };
 struct MoveHandle {
     PanelId panel;

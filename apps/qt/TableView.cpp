@@ -138,6 +138,7 @@ Vec2 TableView::toTable(QPointF s) const {
 namespace {
 
 constexpr double reach = 10.0;   // how close, in pixels, the pointer must be to take hold of something
+constexpr double axisChosenAfter = 6.0;  // how far, in pixels, a corner is dragged with Shift before x or y is chosen
 
 double distance(QPointF a, QPointF b) { return std::hypot(a.x() - b.x(), a.y() - b.y()); }
 
@@ -464,8 +465,16 @@ void TableView::paintEvent(QPaintEvent*) {
             p.setBrush(offered);
             p.drawEllipse(toScreen(drag_->gizmo->centre), 4, 4);
         } else if (drag_->grab.kind != Grab::Kind::Panel && drag_->grab.kind != Grab::Kind::Gizmo) {
+            const QPointF was = toScreen(drag_->grab.thingWasAt);
+            if (drag_->grab.kind == Grab::Kind::Corner && drag_->along != session::Along::Both) {
+                // The line the corner is held to, in the colour of its axis.
+                const bool alongX = drag_->along == session::Along::X;
+                p.setPen(QPen(alongX ? theme::axisX : theme::axisY, 1.0, Qt::DashLine));
+                if (alongX) p.drawLine(QPointF(0, was.y()), QPointF(width(), was.y()));
+                else p.drawLine(QPointF(was.x(), 0), QPointF(was.x(), height()));
+            }
             p.setPen(QPen(theme::quiet, 1.5));
-            p.drawEllipse(toScreen(drag_->grab.thingWasAt), 5, 5);  // where it was
+            p.drawEllipse(was, 5, 5);  // where it was
         }
         if (!readout_.isEmpty()) {
             p.setPen(offered);
@@ -512,7 +521,7 @@ void TableView::mousePressEvent(QMouseEvent* event) {
     update();
 }
 
-void TableView::dragTo(QPointF screen, bool snapping, bool released) {
+void TableView::dragTo(QPointF screen, bool snapping, bool oneAxis, bool released) {
     Drag& drag = *drag_;
     if (!drag.moved && !released && distance(screen, drag.pressedOnScreen) < 3.0) return;  // a click, so far
     if (released && !drag.moved) return;
@@ -553,11 +562,21 @@ void TableView::dragTo(QPointF screen, bool snapping, bool released) {
         // Where the thing ends up: on the grid when snapping; otherwise whole
         // millimetres, so the recorded numbers stay readable.
         const Vec2 target = snapped({grab.thingWasAt.x + at.x - drag.pressedAt.x, grab.thingWasAt.y + at.y - drag.pressedAt.y}, snapping);
-        const double dx = roundTo(target.x - grab.thingWasAt.x, snapping ? 1e-6 : 0.1);
-        const double dy = roundTo(target.y - grab.thingWasAt.y, snapping ? 1e-6 : 0.1);
+        double dx = roundTo(target.x - grab.thingWasAt.x, snapping ? 1e-6 : 0.1);
+        double dy = roundTo(target.y - grab.thingWasAt.y, snapping ? 1e-6 : 0.1);
+        // Shift on a corner: it goes along the axis the pointer first moved furthest along, and stays
+        // where it is until it has. Letting go of Shift frees it again.
+        if (grab.kind == Grab::Kind::Corner) {
+            if (!oneAxis) drag.along = session::Along::Both;
+            else if (drag.along == session::Along::Both && distance(screen, drag.pressedOnScreen) >= axisChosenAfter)
+                drag.along = session::axisOf(at.x - drag.pressedAt.x, at.y - drag.pressedAt.y);
+            if (oneAxis && drag.along == session::Along::Both) dx = dy = 0.0;
+            if (drag.along == session::Along::X) dy = 0.0;
+            if (drag.along == session::Along::Y) dx = 0.0;
+        }
         readout_ = signedCm(dx) + ", " + signedCm(dy) + " cm";
         if (grab.kind == Grab::Kind::Panel) emit gestured(session::MovePanel{grab.panel, grab.thingWasAt.x + dx, grab.thingWasAt.y + dy, phase});
-        if (grab.kind == Grab::Kind::Corner) emit gestured(session::MoveCorner{grab.panel, grab.corner, dx, dy, phase});
+        if (grab.kind == Grab::Kind::Corner) emit gestured(session::MoveCorner{grab.panel, grab.corner, dx, dy, phase, drag.along});
         if (grab.kind == Grab::Kind::Handle) emit gestured(session::MoveHandle{grab.panel, grab.edge, grab.endHandle, dx, dy, phase});
     }
     }
@@ -582,7 +601,7 @@ void TableView::mouseMoveEvent(QMouseEvent* event) {
         setCursor(offer_ && (offer_->edge || offer_->point || offer_->line) ? Qt::PointingHandCursor : Qt::CrossCursor);
         update();
     } else if (drag_ && (event->buttons() & Qt::LeftButton)) {
-        dragTo(event->position(), event->modifiers() & Qt::ControlModifier, false);
+        dragTo(event->position(), event->modifiers() & Qt::ControlModifier, event->modifiers() & Qt::ShiftModifier, false);
     } else {
         // Ring what the pointer would take hold of, or light the gizmo's handle.
         std::string locked;
@@ -633,7 +652,8 @@ void TableView::mouseReleaseEvent(QMouseEvent* event) {
             emit gestured(session::SelectCorners{drag.grab.panel, std::move(inside), true});
         }
     } else if (drag.moved) {
-        dragTo(event->position(), event->modifiers() & Qt::ControlModifier, true);
+        // Shift let go a moment before the button must not make the corner jump at the last event.
+        dragTo(event->position(), event->modifiers() & Qt::ControlModifier, shift || drag.along != session::Along::Both, true);
     } else if (drag.grab.kind == Grab::Kind::Corner) {
         drag_.reset();
         emit gestured(session::SelectCorners{drag.grab.panel, {drag.grab.corner}, shift});  // a click on a corner selects it

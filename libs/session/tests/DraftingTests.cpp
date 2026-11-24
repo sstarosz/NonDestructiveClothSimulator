@@ -134,6 +134,60 @@ TEST_CASE("a panel turns about the middle of its box; a corner of a turned panel
     EXPECT((std::abs(after.x - before.x - 3.0) < 1e-9 && std::abs(after.y - before.y) < 1e-9), "dragged down the table, the corner moves along the panel's own x");
 }
 
+TEST_CASE("a corner held to one axis does not move along the other, even on a turned panel")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box", .x = 3, .y = 4, .angle = 30.0});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    // Where a corner is on the table.
+    const auto onTable = [&](CornerRef corner) {
+        const Vec2 own = turned(editor.shapes()[box].position(corner), editor.document().get(box).angle);
+        return Vec2{own.x + editor.document().get(box).x, own.y + editor.document().get(box).y};
+    };
+    const Vec2 before = onTable(rect.topRight());
+
+    // The pointer wanders in y as well, but only x counts.
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin, Along::X}, 5.0, 2.7);
+    Vec2 after = onTable(rect.topRight());
+    EXPECT((std::abs(after.x - before.x - 5.0) < 1e-9), "it follows the pointer along x");
+    EXPECT((std::abs(after.y - before.y) < 1e-9), "and its y on the table does not change by even 1e-9 cm");
+    EXPECT((count<AdjustPoint>(editor.document(), box) == 1), "as one layer, in one undo step");
+    EXPECT((editor.undo() && count<AdjustPoint>(editor.document(), box) == 0), "which one undo takes back");
+
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin, Along::Y}, 1.9, -4.0);
+    after = onTable(rect.topRight());
+    EXPECT((std::abs(after.x - before.x) < 1e-9 && std::abs(after.y - before.y + 4.0) < 1e-9), "held to y, only y changes");
+    EXPECT((editor.undo()), "and one undo takes it back");
+
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin}, 1.9, -4.0);
+    after = onTable(rect.topRight());
+    EXPECT((std::abs(after.x - before.x - 1.9) < 1e-9 && std::abs(after.y - before.y + 4.0) < 1e-9), "not held, it goes both ways");
+}
+
+TEST_CASE("selected corners held to one axis all keep their other coordinate")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    const OpRef<Rect> rect = doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectCorners{box, {rect.topRight(), rect.bottomRight()}, false});
+    const Vec2 top = editor.shapes()[box].position(rect.topRight()), bottom = editor.shapes()[box].position(rect.bottomRight());
+    drag(drafting, editor, MoveCorner{box, rect.topRight(), 0, 0, DragPhase::Begin, Along::Y}, 3.3, 2.0);
+    const Vec2 top2 = editor.shapes()[box].position(rect.topRight()), bottom2 = editor.shapes()[box].position(rect.bottomRight());
+    EXPECT((top2.x == top.x && bottom2.x == bottom.x), "neither corner moves sideways");
+    EXPECT((std::abs(top2.y - top.y - 2.0) < 1e-9 && std::abs(bottom2.y - bottom.y - 2.0) < 1e-9), "both move up together");
+}
+
+TEST_CASE("the axis a drag went furthest along")
+{
+    EXPECT((axisOf(5.0, 1.0) == Along::X && axisOf(-5.0, 1.0) == Along::X), "sideways, either way, is x");
+    EXPECT((axisOf(1.0, -5.0) == Along::Y && axisOf(0.0, 2.0) == Along::Y), "up or down is y");
+    EXPECT((axisOf(3.0, 3.0) == Along::X), "a tie is x");
+}
+
 TEST_CASE("selected corners move together, as one undo step")
 {
     Document doc;

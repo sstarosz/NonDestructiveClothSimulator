@@ -41,6 +41,11 @@ the body follows too.
   with its grid: the x axis in red, the y axis in green. The keys work while
   the table (or the 3D view) has the focus, so typing in a field or in the
   Outliner is left alone.
+- **A corner along one axis**: Shift held while a corner (or the selected
+  corners) is dragged keeps it on the table's x or y, whichever the pointer
+  moved furthest along first; a dashed line in that axis's colour shows it.
+  The other coordinate does not change at all. With Ctrl as well, the free
+  one is put on the grid.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Files**: save and open (`.clothcad`, plain text), undo.
