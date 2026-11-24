@@ -32,8 +32,22 @@ namespace clothcad::session {
 // and End when the button is released.
 enum class DragPhase { Begin, Continue, End };
 
+// How what a click or a box picks joins what is selected already.
+enum class Pick {
+    Replace,  // only these are selected
+    Add,      // these join the others; one already selected stays
+    Toggle,   // each of these goes in, or out if it was in (Shift-click on a corner, Ctrl-click on a panel)
+};
+// A click on a panel. With Add or Toggle it joins the panels selected already, and
+// becomes the one the docks and the gizmo show.
 struct SelectPanel {
     std::optional<PanelId> panel;  // empty: clicked on nothing
+    Pick how = Pick::Replace;
+};
+// A box dragged over panels. Replace with none inside chooses nothing.
+struct SelectPanels {
+    std::vector<PanelId> panels;
+    Pick how;
 };
 struct MovePanel {
     PanelId panel;
@@ -74,12 +88,6 @@ struct ScalePanel {
     PanelId panel;
     double x, y;
     DragPhase phase;
-};
-// How what a click or a box picks joins what is selected already.
-enum class Pick {
-    Replace,  // only these are selected
-    Add,      // these join the others; one already selected stays
-    Toggle,   // each of these goes in, or out if it was in (Shift-click)
 };
 // A click or a box dragged over corners of one panel.
 struct SelectCorners {
@@ -162,21 +170,23 @@ struct DeletePanel {
     PanelId panel;
 };
 // What Delete does: the selected corners that were added with the Point tool
-// go (their layer is dropped); with no corner selected, the selected panel goes.
-struct DeleteSelection {};
-// The panel Paste will copy: it is only remembered, nothing in the document changes.
-struct CopyPanel {
-    PanelId panel;
+// go (their layer is dropped); with no corner selected, the selected panels go,
+// all in one undo step.
+struct DeleteSelection {
+    bool wholePanels = false;  // ignore selected corners: the 3D view shows none
 };
-// The copied panel, copied again with its middle at `at` on the table; with
-// no place (the 3D view has none), just right of the original.
+// The selected panels are what Paste will copy: only remembered, nothing in the document changes.
+struct CopySelection {};
+// The copied panels, copied again as a group with its middle at `at` on the
+// table, each keeping its place in the group; with no place (the 3D view has
+// none), just right of the originals. The copies are selected.
 struct PastePanel {
     std::optional<Vec2> at;
 };
 
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
                              DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
-                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopyPanel, PastePanel>;
+                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, PastePanel, SelectPanels>;
 
 // What a gesture came to, beyond the document: words for the help line, and
 // what the window should do next.
@@ -199,24 +209,31 @@ public:
     // selection that no longer exists goes.
     void forget(const Document& doc);
 
-    // What is selected. Windows read and set it as they please.
+    // What is selected. Windows read and set it as they please. `panel` is the
+    // one the docks show, the gizmo stands at and the corners belong to; `others`
+    // are the panels selected with it (Ctrl-click, a box with Ctrl).
     struct Selection {
         std::optional<PanelId> panel;
-        std::vector<CornerRef> corners;  // of that panel
+        std::vector<CornerRef> corners;  // of `panel`
+        std::vector<PanelId> others;
+        // Every selected panel, `panel` first.
+        std::vector<PanelId> panels() const;
+        bool has(PanelId candidate) const;
     };
     Selection selection;
     // The tool in use. Windows set it; a drawing tool that has done its work
     // goes back to Select by itself.
     Tool tool = Tool::Select;
-    // The panel Paste would copy, if one was copied. A new Drafting (a new
+    // The panels Paste would copy, if any were copied. A new Drafting (a new
     // document) has none.
-    std::optional<PanelId> copied() const { return copied_; }
+    const std::vector<PanelId>& copied() const { return copied_; }
 
     // "panel1", "panel2" ...: the first panel name that is free.
     static std::string freeName(const Document& doc, const std::string& base);
 
 private:
     Outcome on(Editor&, const SelectPanel&);
+    Outcome on(Editor&, const SelectPanels&);
     Outcome on(Editor&, const MovePanel&);
     Outcome on(Editor&, const MoveCorner&);
     Outcome on(Editor&, const MoveHandle&);
@@ -239,8 +256,11 @@ private:
     Outcome on(Editor&, const AddBeside&);
     Outcome on(Editor&, const DeletePanel&);
     Outcome on(Editor&, const DeleteSelection&);
-    Outcome on(Editor&, const CopyPanel&);
+    Outcome on(Editor&, const CopySelection&);
     Outcome on(Editor&, const PastePanel&);
+    // `panel` joins the selection as the one shown, or goes out of it; the others stay.
+    void join(PanelId panel);
+    void drop(PanelId panel);
     // A drag in space: the arrangement `now` works out from the one the panel had when the drag began.
     Outcome arrangeByDrag(Editor&, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now);
 
@@ -271,7 +291,7 @@ private:
     };
     std::optional<Turning> turning_;
     std::optional<Arrangement> arrangedFrom_;  // a panel's arrangement when a drag in space began
-    std::optional<PanelId> copied_;            // what CopyPanel remembered
+    std::vector<PanelId> copied_;              // what CopySelection remembered
 };
 
 } // namespace clothcad::session

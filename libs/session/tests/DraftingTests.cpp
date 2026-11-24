@@ -483,13 +483,16 @@ TEST_CASE("a copied panel is pasted with its middle at the pointer and follows t
     const OpRef<Rect> rect = doc.add(front, Rect{.width = width, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    EXPECT((!drafting.copied().has_value()), "nothing is copied at first");
+    EXPECT((drafting.copied().empty()), "nothing is copied at first");
 
     const Outcome nothing = drafting.handle(editor, PastePanel{Vec2{0, 0}});
     EXPECT((nothing.refused && !nothing.notice.empty() && !editor.canUndo()), "pasting before copying says so");
 
-    const Outcome copied = drafting.handle(editor, CopyPanel{front});
-    EXPECT((!copied.refused && !copied.notice.empty() && drafting.copied() == front && !editor.canUndo()), "copying remembers the panel and changes no document");
+    const Outcome noneChosen = drafting.handle(editor, CopySelection{});
+    EXPECT((noneChosen.refused && !noneChosen.notice.empty() && drafting.copied().empty()), "with nothing selected there is nothing to copy");
+    drafting.handle(editor, SelectPanel{front});
+    const Outcome copied = drafting.handle(editor, CopySelection{});
+    EXPECT((!copied.refused && !copied.notice.empty() && drafting.copied() == std::vector<PanelId>{front} && !editor.canUndo()), "copying remembers the panel and changes no document");
 
     drafting.handle(editor, PastePanel{Vec2{100, 40}});
     const std::vector<PanelId> panels = editor.document().panels();
@@ -517,7 +520,8 @@ TEST_CASE("pasting without a place goes beside the original; a copied panel that
     doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
     Editor editor(doc);
     Drafting drafting;
-    drafting.handle(editor, CopyPanel{front});
+    drafting.handle(editor, SelectPanel{front});
+    drafting.handle(editor, CopySelection{});
     drafting.handle(editor, PastePanel{std::nullopt});
     const PanelId pasted = editor.document().panels()[1];
     EXPECT((editor.document().get(pasted).x > 20.0 && editor.document().get(pasted).y == 0.0), "just right of the original, as Duplicate does");
@@ -526,7 +530,128 @@ TEST_CASE("pasting without a place goes beside the original; a copied panel that
     const std::uint64_t version = editor.version();
     const Outcome gone = drafting.handle(editor, PastePanel{Vec2{0, 0}});
     EXPECT((gone.refused && !gone.notice.empty() && editor.version() == version), "the panel is gone: a sentence, and no change");
-    EXPECT((!drafting.copied().has_value()), "and nothing stays copied");
+    EXPECT((drafting.copied().empty()), "and nothing stays copied");
+}
+
+namespace {
+
+// Three panels in a row: 20 by 10 cm each, at x = 0, 40 and 80.
+struct Row {
+    Document doc;
+    PanelId a, b, c;
+    Row() {
+        a = doc.add(Panel{.name = "a", .x = 0, .y = 0});
+        b = doc.add(Panel{.name = "b", .x = 40, .y = 0});
+        c = doc.add(Panel{.name = "c", .x = 80, .y = 0});
+        for (PanelId panel : {a, b, c}) doc.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    }
+};
+
+} // namespace
+
+TEST_CASE("several panels are selected by Add and Toggle; the last one added is the one shown")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanel{row.a});
+    drafting.handle(editor, SelectCorners{row.a, {OpRef<Rect>(editor.document().operations(row.a)[0]).topRight()}, Pick::Replace});
+    drafting.handle(editor, SelectPanel{row.b, Pick::Add});
+    EXPECT((drafting.selection.panel == row.b && drafting.selection.others == std::vector<PanelId>{row.a}), "Add makes the clicked panel the shown one and keeps the other");
+    EXPECT((drafting.selection.corners.empty()), "the corners belonged to the panel that is no longer shown");
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.b, row.a} && drafting.selection.has(row.a) && !drafting.selection.has(row.c)), "panels() lists the shown one first");
+
+    drafting.handle(editor, SelectPanel{row.b, Pick::Add});
+    EXPECT((drafting.selection.panels().size() == 2), "Add of a panel already shown changes nothing");
+    drafting.handle(editor, SelectPanel{row.a, Pick::Toggle});
+    EXPECT((drafting.selection.panel == row.b && drafting.selection.others.empty()), "Toggle takes a selected panel out");
+    drafting.handle(editor, SelectPanel{row.b, Pick::Toggle});
+    EXPECT((!drafting.selection.panel && drafting.selection.others.empty()), "and the last one leaves nothing selected");
+
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    EXPECT((drafting.selection.panels().size() == 2 && drafting.selection.has(row.a) && drafting.selection.has(row.b)), "a box over two panels selects both");
+    drafting.handle(editor, SelectPanels{{row.c}, Pick::Add});
+    EXPECT((drafting.selection.panels().size() == 3), "a box with Add joins what is selected");
+    drafting.handle(editor, SelectPanels{{row.a}, Pick::Replace});
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.a}), "a plain box replaces it");
+    drafting.handle(editor, SelectPanels{{}, Pick::Replace});
+    EXPECT((!drafting.selection.panel && drafting.selection.others.empty()), "a box over nothing chooses nothing");
+    drafting.handle(editor, SelectPanels{{row.a, PanelId{999}}, Pick::Replace});
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.a}), "a panel that does not exist is not selected");
+
+    drafting.handle(editor, SelectPanel{row.b});
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{row.b}), "a plain click on a panel replaces the whole selection");
+    EXPECT((!editor.canUndo()), "selecting changes no document");
+}
+
+TEST_CASE("a selected panel that no longer exists is dropped, and another selected one is shown")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b, row.c}, Pick::Replace});
+    const PanelId shown = *drafting.selection.panel;
+    drafting.handle(editor, DeletePanel{shown});
+    EXPECT((drafting.selection.panels().size() == 2 && !drafting.selection.has(shown) && drafting.selection.panel.has_value()), "a deleted panel leaves the others selected, one of them shown");
+    editor.undo();
+    REQUIRE(editor.change([&](Document& d) { d.remove(row.c); }, {.ifItBreaks = IfItBreaks::Allow}).has_value());
+    drafting.forget(editor.document());
+    EXPECT((!drafting.selection.has(row.c)), "forget drops a panel that is gone from the document");
+}
+
+TEST_CASE("Delete takes all the selected panels in one undo step; with corners selected it still takes only corners")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.c}, Pick::Replace});
+    const Outcome done = drafting.handle(editor, DeleteSelection{});
+    EXPECT((!done.refused && editor.document().panels() == std::vector<PanelId>{row.b}), "both selected panels go; the other stays");
+    EXPECT((!drafting.selection.panel && drafting.selection.others.empty()), "and nothing is selected any more");
+    EXPECT((editor.undo() && editor.document().panels().size() == 3 && !editor.canUndo()), "one undo brings both back");
+
+    // The 3D view shows no corners: Delete there takes the panels, whatever corners the table has selected.
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    drafting.handle(editor, SelectCorners{*drafting.selection.panel, {OpRef<Rect>(editor.document().operations(*drafting.selection.panel)[0]).topRight()}, Pick::Replace});
+    const std::vector<PanelId> before = editor.document().panels();
+    const Outcome corners = drafting.handle(editor, DeleteSelection{});
+    EXPECT((corners.refused && editor.document().panels() == before), "with a corner of a shape selected, Delete refuses it and takes no panel");
+    drafting.handle(editor, DeleteSelection{.wholePanels = true});
+    EXPECT((editor.document().panels() == std::vector<PanelId>{row.c}), "wholePanels takes the panels instead");
+}
+
+TEST_CASE("copied panels are pasted as a group with their places in it kept, selected, in one undo step")
+{
+    Row row;
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.c}, Pick::Replace});
+    const Outcome copied = drafting.handle(editor, CopySelection{});
+    EXPECT((!copied.refused && drafting.copied() == std::vector<PanelId>{row.a, row.c} && !editor.canUndo()), "both are remembered, in the document's order, and nothing changes");
+
+    drafting.handle(editor, PastePanel{Vec2{200, 50}});
+    const std::vector<PanelId> panels = editor.document().panels();
+    REQUIRE(panels.size() == 5);
+    const Panel& first = editor.document().get(panels[3]);
+    const Panel& second = editor.document().get(panels[4]);
+    EXPECT((first.name == "a copy" && second.name == "c copy"), "each is named for its source");
+    EXPECT_NEAR(second.x - first.x, 80.0, "they are as far apart as the originals were");
+    EXPECT_NEAR(first.x + (80.0 + 20.0) / 2.0, 200.0, "the middle of the group's box is under the pointer in x");
+    EXPECT_NEAR(first.y + 5.0, 50.0, "and in y");
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{panels[3], panels[4]}), "the copies are selected");
+    EXPECT((editor.undo() && editor.document().panels().size() == 3 && !editor.canUndo()), "a paste is one undo step");
+    editor.redo();
+
+    drafting.handle(editor, PastePanel{std::nullopt});
+    const std::vector<PanelId> again = editor.document().panels();
+    REQUIRE(again.size() == 7);
+    EXPECT((editor.document().get(again[5]).x >= 0.0 + 100.0 && editor.document().get(again[5]).y == 0.0), "without a place the group goes just right of the originals");
+    EXPECT((editor.document().get(again[5]).name == "a copy 2"), "with a free name");
+
+    REQUIRE(editor.change([&](Document& d) { d.remove(row.a); }, {.ifItBreaks = IfItBreaks::Allow}).has_value());
+    const std::size_t count = editor.document().panels().size();
+    drafting.handle(editor, PastePanel{std::nullopt});
+    EXPECT((editor.document().panels().size() == count + 1 && drafting.copied() == std::vector<PanelId>{row.c}), "a panel deleted since is left out; the rest are pasted");
 }
 
 TEST_CASE("Add beside makes a copy, an instance or a mirrored instance just right of the source, selected")

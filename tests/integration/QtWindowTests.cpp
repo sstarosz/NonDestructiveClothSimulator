@@ -1832,6 +1832,66 @@ TEST_CASE("Delete, Ctrl+C, Ctrl+V and Ctrl+D work in the 3D view on the selected
     EXPECT((w.doc().panels().size() == panels + 2 && w.window.helpLine().contains("Nothing is selected")), "with nothing selected it says so");
 }
 
+TEST_CASE("Ctrl-click adds a panel to the selection or takes it out; a box selects the panels it touches", "[qt]")
+{
+    Table w;
+    Document row;
+    for (int i = 0; i < 3; ++i) {
+        const PanelId panel = row.add(Panel{.name = std::string(1, static_cast<char>('a' + i)), .x = 40.0 * i, .y = 0.0});
+        row.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    }
+    w.window.open(std::move(row), "row");
+    w.window.tick();
+    TableView* table = w.table();
+    const PanelId a = w.panel("a"), b = w.panel("b"), c = w.panel("c");
+    const auto at = [&](PanelId panel) { return table->toScreen(w.middle(panel)); };
+    const auto where = [&](double x, double y) { return table->toScreen({x, y}); };
+
+    click(table, at(a));
+    click(table, at(b), Qt::ControlModifier);
+    EXPECT((w.window.selected() == b && w.window.selectedPanels().size() == 2), "Ctrl-click adds a panel; it is the one shown");
+    click(table, at(b), Qt::ControlModifier);
+    EXPECT((w.window.selected() == a && w.window.selectedPanels().size() == 1), "Ctrl-click on a selected panel takes it out");
+    drag(table, at(a), by(at(a), table, 0, 12), Qt::ControlModifier);
+    EXPECT((w.window.selected() == a && w.doc().get(a).y > 5.0), "Ctrl-drag on a selected panel moves it and keeps it selected");
+    w.window.shelf()->undo()->trigger();
+    click(table, at(b));
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{b}), "a plain click selects only that panel");
+
+    // A box on empty table, with a panel chosen, is for its corners; with Ctrl it is for panels.
+    drag(table, where(-5, 14), where(45, -4), Qt::ControlModifier);
+    EXPECT((w.window.selectedPanels().size() == 2 && w.window.selected() != c), "a box with Ctrl adds the panels it touches (a and b)");
+    drag(table, where(75, 14), where(85, -4), Qt::ControlModifier);
+    EXPECT((w.window.selectedPanels().size() == 3), "another box with Ctrl adds the next");
+    click(table, where(-1000, -1000));
+    EXPECT((w.window.selectedPanels().empty()), "a click on empty table chooses nothing");
+    drag(table, where(-5, 14), where(45, -4));
+    EXPECT((w.window.selectedPanels().size() == 2 && w.window.selected() != c), "with nothing chosen, a plain box selects the panels it touches");
+    drag(table, where(-20, 30), where(-10, 20));
+    EXPECT((w.window.selectedCorners().empty() && w.window.selectedPanels().size() == 2), "a plain box with panels chosen is for corners: over none it selects none, and leaves the panels");
+
+    // Several panels at once: copy, paste and delete.
+    w.window.select(a);
+    click(table, at(c), Qt::ControlModifier);
+    REQUIRE(w.window.selectedPanels().size() == 2);
+    pressKey(table, Qt::Key_C, Qt::ControlModifier);
+    EXPECT((w.window.helpLine().contains("Copied 2 panels")), "Ctrl+C says how many panels it copied");
+    moveOver(table, where(300, 100));
+    pressKey(table, Qt::Key_V, Qt::ControlModifier);
+    REQUIRE(w.doc().panels().size() == 5);
+    EXPECT((w.window.selectedPanels().size() == 2 && w.window.selected() == w.doc().panels()[3]), "Ctrl+V pastes both, selected");
+    EXPECT((std::abs(w.doc().get(w.doc().panels()[4]).x - w.doc().get(w.doc().panels()[3]).x - 80.0) < 0.1), "as far apart as the originals");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == 3), "the paste is one undo step");
+
+    w.window.select(a);
+    click(table, at(c), Qt::ControlModifier);
+    pressKey(table, Qt::Key_Delete);
+    EXPECT((w.doc().panels().size() == 1 && w.doc().contains(b) && w.window.selectedPanels().empty()), "Delete takes both selected panels");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().panels().size() == 3), "one undo brings both back");
+}
+
 namespace {
 
 // The picture's pixel at a place in the widget, which the picture may have in more pixels.
