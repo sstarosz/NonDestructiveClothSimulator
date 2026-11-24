@@ -281,9 +281,22 @@ void TableView::paintFloor(QPainter& painter) {
                     if (row + t >= 0 && row + t < tall) kind[static_cast<std::size_t>(row + t)] = std::max<std::uint8_t>(kind[static_cast<std::size_t>(row + t)], onGrid(y) ? 2 : 1);
             }
         }
+        // The origin: the x axis (the line y = 0) in red and the y axis (x = 0)
+        // in green, quieter than the panels. They come with the grid, and are
+        // written into the same picture, so they cost nothing more per frame.
+        const auto dimmed = [&](const QColor& axis) { return QColor((axis.red() * 6 + theme::table.red() * 4) / 10, (axis.green() * 6 + theme::table.green() * 4) / 10, (axis.blue() * 6 + theme::table.blue() * 4) / 10).rgb(); };
+        const QRgb xAxis = dimmed(theme::axisX), yAxis = dimmed(theme::axisY);
+        const QPointF origin = toScreen({0, 0});
+        const int originRow = static_cast<int>(std::lround(std::round(origin.y()) * ratio)), originColumn = static_cast<int>(std::lround(std::round(origin.x()) * ratio));
         for (int y = 0; y < tall; ++y) {
             const std::vector<QRgb>& from = kind[static_cast<std::size_t>(y)] == 2 ? strongRow : kind[static_cast<std::size_t>(y)] == 1 ? fineRow : plain;
-            std::copy(from.begin(), from.end(), reinterpret_cast<QRgb*>(floor_.image.scanLine(y)));
+            QRgb* line = reinterpret_cast<QRgb*>(floor_.image.scanLine(y));
+            std::copy(from.begin(), from.end(), line);
+            if (!gridShown_) continue;
+            if (y >= originRow && y < originRow + thickness) std::fill(line, line + wide, xAxis);
+            else
+                for (int t = 0; t < thickness; ++t)
+                    if (originColumn + t >= 0 && originColumn + t < wide) line[originColumn + t] = yAxis;
         }
     }
     painter.drawImage(QPointF(0, 0), floor_.image);

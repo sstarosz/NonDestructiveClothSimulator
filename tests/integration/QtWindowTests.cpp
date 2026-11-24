@@ -1779,6 +1779,47 @@ TEST_CASE("Delete, Ctrl+C, Ctrl+V and Ctrl+D work in the 3D view on the selected
     EXPECT((w.doc().panels().size() == panels + 2 && w.window.helpLine().contains("Nothing is selected")), "with nothing selected it says so");
 }
 
+namespace {
+
+// The picture's pixel at a place in the widget, which the picture may have in more pixels.
+QColor pixelAt(const QImage& picture, QPointF at) {
+    const double ratio = picture.devicePixelRatio();
+    return picture.pixelColor(static_cast<int>(std::lround(at.x() * ratio)), static_cast<int>(std::lround(at.y() * ratio)));
+}
+
+bool reddish(const QColor& c) { return c.red() > c.green() + 30 && c.red() > c.blue() + 30; }
+bool greenish(const QColor& c) { return c.green() > c.red() + 30 && c.green() > c.blue() + 30; }
+
+} // namespace
+
+TEST_CASE("the origin is drawn on the grid, x in red and y in green, and moves with the view; without the grid it is not drawn", "[qt]")
+{
+    Window w;
+    w.window.open(Document{}, "empty");  // nothing to frame: the origin is in the middle of the table
+    TableView* table = w.window.table();
+    const QPointF origin = table->toScreen({0, 0});
+    REQUIRE(table->rect().contains(origin.toPoint()));
+
+    const auto xAxisAt = [&](QPointF at) { return pixelAt(table->grab().toImage(), QPointF(at.x() + 60, std::round(at.y()))); };
+    const auto yAxisAt = [&](QPointF at) { return pixelAt(table->grab().toImage(), QPointF(std::round(at.x()), at.y() + 60)); };
+    EXPECT((reddish(xAxisAt(origin))), "the line through (0, 0) along x is red");
+    EXPECT((greenish(yAxisAt(origin))), "the line through (0, 0) along y is green");
+    const QColor beside = pixelAt(table->grab().toImage(), origin + QPointF(60, 60));
+    EXPECT((!reddish(beside) && !greenish(beside)), "the floor beside the axes is not coloured");
+
+    // Panned with the right button: the axes follow the origin and leave where they were.
+    send(table, QEvent::MouseButtonPress, {300, 300}, Qt::RightButton, Qt::RightButton, {});
+    send(table, QEvent::MouseMove, {340, 340}, Qt::NoButton, Qt::RightButton, {});
+    send(table, QEvent::MouseButtonRelease, {340, 340}, Qt::RightButton, Qt::NoButton, {});
+    const QPointF moved = table->toScreen({0, 0});
+    REQUIRE((std::abs(moved.x() - origin.x() - 40.0) < 1e-6 && std::abs(moved.y() - origin.y() - 40.0) < 1e-6));
+    EXPECT((reddish(xAxisAt(moved)) && greenish(yAxisAt(moved))), "after panning, the axes are through the origin's new place");
+    EXPECT((!reddish(pixelAt(table->grab().toImage(), QPointF(origin.x() + 60, std::round(origin.y()))))), "and no longer where they were");
+
+    table->setGridShown(false);
+    EXPECT((!reddish(xAxisAt(moved)) && !greenish(yAxisAt(moved))), "with the grid hidden the table is bare");
+}
+
 // ---- Files, the avatar, and random input ----
 
 TEST_CASE("every sample saves and opens unchanged; a file that cannot be read says why", "[qt]")
