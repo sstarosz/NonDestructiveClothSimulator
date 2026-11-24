@@ -33,6 +33,14 @@ the body follows too.
   Ctrl: whole centimetres, steps of 15°, steps of 10 %.
   Moving and turning only place a panel; scaling changes its shape, as a
   Scale layer that can be edited, switched off or undone like any other.
+- **Editing on the table**, and in 3D on the selected panel: Delete removes
+  the selected panel, or, with corners selected, the ones added with the
+  Point tool; Ctrl+C remembers a panel, Ctrl+V pastes a copy with its middle
+  under the pointer (a copy follows the same parameters), Ctrl+D duplicates
+  it beside the original. Each is one undo step. The table's origin is drawn
+  with its grid: the x axis in red, the y axis in green. The keys work while
+  the table (or the 3D view) has the focus, so typing in a field or in the
+  Outliner is left alone.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Files**: save and open (`.clothcad`, plain text), undo.
@@ -216,6 +224,13 @@ holds and hands it what the user did.
 - One fabric for everything, with fixed properties; no pins in the window.
 - The avatar must be one closed surface in cm, y up, facing +z.
 - Seams join whole edges, one to one.
+- Delete on a corner works only for corners added with the Point tool; any
+  other corner is part of a shape, and the help line names the layer to
+  change or remove. Copy and paste work on one panel at a time (several need
+  selecting more than one). Deleting a panel that an instance or a seam uses
+  is allowed: they show a problem until it is put right, and undo brings the
+  panel back. In 3D, Delete takes the whole panel and Paste has no place on
+  the table, so the copy goes beside the original.
 - A panel grows away from its sewn edges that kept their length. If every
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.
