@@ -365,13 +365,17 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
     const vk::ShaderStageFlags stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
     // The light's w says whether a surface is lit (0) or drawn in its colour alone (1).
-    for (const Draws::Indexed& d : draws.surfaces) {
-        push.colour = d.colour;
-        push.back = d.back;
-        push.toLight[3] = d.lit ? 0.0f : 1.0f;
-        commands.pushConstants<Push>(*layout, stages, 0, push);
-        commands.drawIndexed(d.count, 1, d.first, d.base, 0);
-    }
+    const auto drawSurfaces = [&](bool seeThrough) {
+        for (const Draws::Indexed& d : draws.surfaces) {
+            if ((d.colour.alpha < 1.0f) != seeThrough) continue;
+            push.colour = d.colour;
+            push.back = d.back;
+            push.toLight[3] = d.lit ? 0.0f : 1.0f;
+            commands.pushConstants<Push>(*layout, stages, 0, push);
+            commands.drawIndexed(d.count, 1, d.first, d.base, 0);
+        }
+    };
+    drawSurfaces(false);
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.lines);
     const std::optional<Point> eye = eyeOf(scene.viewProjection);
     Push forLines = push;
@@ -382,6 +386,9 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
         commands.pushConstants<Push>(*layout, stages, 0, forLines);
         commands.draw(d.count, 1, d.first, 0);
     }
+    // Last, what lets light through: over everything it is in front of.
+    commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
+    drawSurfaces(true);
     if (!draws.overlay.empty()) {
         // In front of everything drawn so far: the depth starts again, so the
         // overlay hides only its own parts behind each other.

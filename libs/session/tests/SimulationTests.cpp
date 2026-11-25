@@ -100,3 +100,27 @@ TEST_CASE("on its own thread, the cloth moves without being asked")
     EXPECT((news.time < 2.0), "at about the speed of the clock, not as fast as it can");
     simulation.run(false);
 }
+
+TEST_CASE("a panel left out stays put in every cloth until it is taken back")
+{
+    Document doc;
+    const auto mesh = aSheet(doc);
+    const sim::Placement start = sim::arranged(doc, *mesh);
+    Simulation simulation(Threading::OneStepPerAdvance);
+    simulation.leaveOut({mesh->panels[0].panel});
+    simulation.start(mesh, start, sim::Body{});
+    simulation.run(true);
+    Simulation::News news;
+    const auto steps = [&](int count) {
+        for (int i = 0; i < count; ++i) simulation.advance();
+        simulation.fetch(news);
+        return news.positions[0][0].y;
+    };
+    EXPECT(steps(20) == start[0][0].y, "told before there was a cloth, it stands still in it");
+    simulation.follow(mesh, start, {});
+    EXPECT(steps(20) == start[0][0].y, "and in the cloth carried over");
+    simulation.restore(mesh, start, 1.0, false);
+    EXPECT(steps(20) == start[0][0].y, "and in a cloth brought back");
+    simulation.leaveOut({});
+    EXPECT(steps(20) < start[0][0].y, "taken back, it falls");
+}

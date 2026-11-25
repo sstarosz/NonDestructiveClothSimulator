@@ -235,7 +235,8 @@ void SpaceView::show(const session::Session& session, std::optional<PanelId> sel
     if (shown_ == now) return;
     shown_ = now;
     selected_ = selected;
-    gizmo_ = selected ? render::gizmoOf(session, *selected, session::GizmoMode::Move, 1.0) : std::nullopt;
+    // A hidden panel has nothing to take hold of.
+    gizmo_ = selected && session.panelShown(*selected) ? render::gizmoOf(session, *selected, session::GizmoMode::Move, 1.0) : std::nullopt;
     scene_ = render::sceneOf(session, camera_, 1.0, {.selected = selected, .body = body, .mesh = mesh, .seam = seam, .pixel = now.pixel});
     scene_.background = background;
     extent_ = render::extentOf(session);

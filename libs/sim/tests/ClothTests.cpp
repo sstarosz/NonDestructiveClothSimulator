@@ -299,3 +299,61 @@ TEST_CASE("cloth does not pass through cloth")
     EXPECT((folded.sound() && widest < 0.1), "its seam closes");
     EXPECT((tooClose == 0), "and its two layers stay apart");
 }
+
+TEST_CASE("a panel left out stays where it is and nothing touches it; taken back, it carries on")
+{
+    // Two sheets lying flat in the air, one above the other.
+    Document doc;
+    const PanelId lower = doc.add(Panel{.name = "lower"});
+    doc.add(lower, Rect{.width = 40_cm, .height = 40_cm});
+    const PanelId upper = doc.add(Panel{.name = "upper"});
+    doc.add(upper, Rect{.width = 25_cm, .height = 25_cm});
+    doc.arrange(lower, Arrangement{.placed = true, .x = 0, .y = 20, .z = 0, .tilt = 90});
+    doc.arrange(upper, Arrangement{.placed = true, .x = 0, .y = 30, .z = 0, .tilt = 90});
+    const ClothMesh mesh = meshOf(doc, evaluate(doc), {.particleDistance = 2_cm});
+    const Placement start = arranged(doc, mesh);
+    Cloth cloth(mesh, start);
+    cloth.leaveOut({0});
+    cloth.hold(0, 0, {0, 80, 0});
+    EXPECT(!cloth.holding(), "a panel left out cannot be taken hold of");
+    run(cloth, Body{}, 3.0);
+    double moved = 0.0, highest = 0.0;
+    for (std::size_t i = 0; i < start[0].size(); ++i) moved = std::max(moved, length(cloth.positions()[0][i] - start[0][i]));
+    for (const Vec3& p : cloth.positions()[1]) highest = std::max(highest, p.y);
+    EXPECT(moved == 0.0, "the panel left out has not moved at all");
+    EXPECT(highest < 3.0, "the other fell through where it is, to the floor");
+
+    cloth.leaveOut({});
+    run(cloth, Body{}, 3.0);
+    EXPECT((cloth.sound() && cloth.positions()[0][0].y < 4.0), "taken back, it falls too");
+}
+
+TEST_CASE("the seams of a panel left out hold nothing, and are drawn closed when it is taken back")
+{
+    Document doc;
+    const PanelId left = doc.add(Panel{.name = "left"});
+    const OpRef<Rect> leftRect = doc.add(left, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId right = doc.add(Panel{.name = "right"});
+    const OpRef<Rect> rightRect = doc.add(right, Rect{.width = 20_cm, .height = 30_cm});
+    doc.arrange(left, Arrangement{.placed = true, .x = -25, .y = 150, .z = 0});
+    doc.arrange(right, Arrangement{.placed = true, .x = 25, .y = 150, .z = 0});
+    doc.add(Seam{.a = {left, leftRect.right()}, .b = {right, rightRect.left()}});
+    const ClothMesh mesh = meshOf(doc, evaluate(doc), {.particleDistance = 2_cm});
+    const Placement start = arranged(doc, mesh);
+    Cloth cloth(mesh, start);
+    cloth.leaveOut({1});
+    run(cloth, Body{}, 0.3);  // not yet at the floor
+    double aside = 0.0;
+    for (std::size_t i = 0; i < start[0].size(); ++i) aside = std::max(aside, std::abs(cloth.positions()[0][i].x - start[0][i].x));
+    EXPECT(aside < 0.5, "the seam does not draw the panel that takes part towards the one left out");
+    EXPECT(!cloth.sewing(), "and there is nothing to sew");
+
+    const double fallen = cloth.positions()[0][0].y;
+    EXPECT(fallen < start[0][0].y - 10.0, "the panel that takes part has fallen");
+    cloth.leaveOut({});
+    EXPECT(cloth.sewing(), "taken back, the seam is drawn in again");
+    run(cloth, Body{}, 6.0);
+    double widest = 0.0;
+    for (const Stitch& s : mesh.stitches) widest = std::max(widest, length(cloth.positions()[s.panelA][s.pointA] - cloth.positions()[s.panelB][s.pointB]));
+    EXPECT((cloth.sound() && widest < 0.5), "and closes");
+}

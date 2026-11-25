@@ -4,7 +4,9 @@
 // asked. Colours keep their meaning: the selected panel amber, an instance
 // violet. A panel's front (the side the table shows) has that colour; its back
 // is a darker, cooler shade of it. Both edges of every seam are lined in
-// blue, where the cloth has them now; the selected seam in amber, wider.
+// blue, where the cloth has them now; the selected seam in amber, wider. A
+// hidden panel is left out, with its side of every seam; a deactivated one is
+// seen through.
 //
 //   render::Scene scene = render::sceneOf(session, camera, width / double(height), {.selected = panel});
 
@@ -27,7 +29,7 @@ struct SceneOptions {
 
 Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double aspect, const SceneOptions& options);
 
-// The box around the body and the cloth, to frame; empty when there is nothing.
+// The box around the body and the panels shown, to frame; empty when there is nothing.
 std::optional<std::pair<sim::Vec3, sim::Vec3>> extentOf(const session::Session& session);
 
 // Normals at the points of a surface: the faces around each, weighted by their area.

@@ -145,6 +145,59 @@ TEST_CASE("both edges of a seam are lined where the cloth has them; the selected
     EXPECT(seams({}).empty(), "a seam taken away has no line");
 }
 
+TEST_CASE("a hidden panel is not drawn while the cloth still runs; a deactivated one is seen through")
+{
+    TwoPanels start;
+    session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    OrbitCamera camera;
+    session.setPanelShown(start.front, false);
+    session.simulate(true);
+    for (int i = 0; i < 20; ++i) session.update();
+    const Scene without = sceneOf(session, camera, 1.5, {.body = false, .mesh = true});
+    REQUIRE(without.surfaces.size() == 1);
+    EXPECT(without.surfaces[0].panel == start.copy, "only the panel that is shown");
+    std::size_t sides = 0;
+    for (const auto& panel : session.shownMesh().panels)
+        if (panel.panel == start.copy) sides = panel.triangles.size() * 6;
+    EXPECT(without.lines.back().points.size() == sides, "and the mesh's sides of that one alone");
+    EXPECT((session.cloth().time > 0.2 && session.shownMesh().panels.size() == 2u), "the hidden panel is still in the cloth, which runs");
+    const auto box = extentOf(session);
+    REQUIRE(box);
+    EXPECT(box->second.z < 0.0, "framing leaves the hidden panel out");
+
+    session.setPanelShown(start.front, true);
+    session.setPanelActive(start.front, false);
+    const Scene faded = sceneOf(session, camera, 1.5, {.body = false});
+    REQUIRE(faded.surfaces.size() == 2);
+    EXPECT((faded.surfaces[0].colour.alpha < 0.5f && faded.surfaces[0].back && faded.surfaces[0].back->alpha < 0.5f), "seen through from both sides");
+    EXPECT(faded.surfaces[1].colour.alpha == 1.0f, "the active one is solid");
+}
+
+TEST_CASE("a hidden panel's side of a seam has no line")
+{
+    Document doc;
+    const PanelId left = doc.add(Panel{.name = "left"});
+    const OpRef<Rect> leftRect = doc.add(left, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId right = doc.add(Panel{.name = "right"});
+    const OpRef<Rect> rightRect = doc.add(right, Rect{.width = 20_cm, .height = 30_cm});
+    doc.add(Seam{.a = {left, leftRect.right()}, .b = {right, rightRect.left()}});
+    session::Session session(doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    OrbitCamera camera;
+    const auto seamPoints = [&] {
+        std::size_t points = 0;
+        for (const Lines& lines : sceneOf(session, camera, 1.5, {}).lines)
+            if (lines.lift > 0.0f) points += lines.points.size();
+        return points;
+    };
+    const std::size_t both = seamPoints();
+    session.setPanelShown(left, false);
+    EXPECT(seamPoints() == both / 2, "only the shown side");
+    session.setPanelShown(right, false);
+    EXPECT(seamPoints() == 0, "none");
+}
+
 TEST_CASE("normals point out of the side a surface is wound towards")
 {
     const std::vector<Point> square{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}};

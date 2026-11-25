@@ -210,6 +210,24 @@ TEST_CASE("a wider line covers more of the picture, where the card draws wider l
     EXPECT(rows(5.0f) >= 4, "five wide");
 }
 
+TEST_CASE("a surface that lets light through shows what is behind it, whatever order they are given in")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Scene scene = facing();
+    Surface glass = square(60.0f, 0.0f, {0.0f, 0.0f, 1.0f, 0.5f});
+    glass.lit = false;
+    Surface behind = square(60.0f, -20.0f, {1.0f, 0.0f, 0.0f});
+    behind.lit = false;
+    scene.surfaces = {glass, behind};  // the one in front given first
+    scene.lines.push_back({.points = {{-20.0f, 100.0f, -5.0f}, {20.0f, 100.0f, -5.0f}}, .colour = {0.0f, 1.0f, 0.0f}});
+    const auto picture = renderer()->draw(scene, 160, 120);
+    REQUIRE(picture);
+    EXPECT((near(picture->at(80, 52), {0.5f, 0.0f, 0.5f})), "half the surface behind, half its own colour");
+    bool line = false;
+    for (int y = 56; y <= 64; ++y) line = line || near(picture->at(86, y), {0.0f, 0.5f, 0.5f});
+    EXPECT(line, "a line behind it shows through too");
+}
+
 TEST_CASE("the body is in the picture of a session")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());

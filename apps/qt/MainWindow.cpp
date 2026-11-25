@@ -394,6 +394,14 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         changeByDrag(phase, [&](Document& doc) { doc.setParticleDistance(panel, distance); });
     });
     connect(outliner_, &Outliner::bodyShownChanged, this, &MainWindow::showBody);
+    connect(outliner_, &Outliner::panelShownChanged, this, [this](PanelId panel, bool shown) {
+        session_.setPanelShown(panel, shown);
+        tick();
+    });
+    connect(outliner_, &Outliner::panelActiveChanged, this, [this](PanelId panel, bool active) {
+        session_.setPanelActive(panel, active);
+        tick();
+    });
 
     buildMenus();
     timer_ = new QTimer(this);
@@ -583,6 +591,7 @@ void MainWindow::tick() {
     if (space_->isVisible()) space_->show(session_, drafting_.selection.panel, drafting_.tool, meshShown, bodyShown_, drafting_.selection.seam);
     space_->showTime(session_.clothShown() ? std::optional<double>(session_.cloth().time) : std::nullopt, session_.clothShown() && session_.cloth().sewing);
     outliner_->showBody(bodyNow());
+    outliner_->showPanelStates(session_.hiddenPanels(), session_.inactivePanels());
     showMeshCounts();
     (void)took;
 }

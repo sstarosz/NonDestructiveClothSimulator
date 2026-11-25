@@ -35,6 +35,8 @@ struct Matrix {
 
 // Triangles lit from the light's side and from behind alike: cloth has two sides.
 // The front of a surface is the side its triangles run counter-clockwise on.
+// One whose colour lets light through (alpha below 1) is drawn after the
+// others and the lines, so that what is behind it shows.
 struct Surface {
     std::vector<Point> points;
     std::vector<Point> normals;              // one per point

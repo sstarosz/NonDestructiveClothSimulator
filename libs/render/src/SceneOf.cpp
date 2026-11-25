@@ -19,14 +19,19 @@ constexpr Colour seamColour{0.18f, 0.46f, 0.98f};
 
 constexpr float seamWidth = 2.0f, selectedSeamWidth = 4.0f;  // in pixels of the screen's own scale
 constexpr float seamLift = 0.5f;                             // cm
+constexpr float inactiveAlpha = 0.3f;  // a deactivated panel is seen through
 
 // A panel's back: its colour, darker and cooler, so that which way it faces
 // shows at a glance and what it is (selected, an instance) still does.
 Colour behind(Colour front) { return {front.red * 0.58f, front.green * 0.61f, front.blue * 0.77f, front.alpha}; }
 
 // A line along both edges of every seam the mesh has sewn, where its particles
-// are now. The selected seam comes last, so that it lies on top.
-void addSeams(Scene& scene, const Document& doc, const sim::ClothMesh& mesh, const sim::Placement& positions, const SceneOptions& options) {
+// are now; none along a hidden panel. The selected seam comes last, so that it
+// lies on top.
+void addSeams(Scene& scene, const session::Session& session, const SceneOptions& options) {
+    const Document& doc = session.document();
+    const sim::ClothMesh& mesh = session.shownMesh();
+    const sim::Placement& positions = session.shownPositions();
     const float pixel = static_cast<float>(options.pixel);
     std::optional<Lines> selected;
     for (std::size_t s = 0; s < mesh.stitches.size(); ++s) {
@@ -38,7 +43,7 @@ void addSeams(Scene& scene, const Document& doc, const sim::ClothMesh& mesh, con
         const Seam& seam = doc.get(id);
         for (const SeamSide& side : {seam.a, seam.b}) {
             const sim::PanelMesh* panel = mesh.find(side.panel);
-            if (!panel) continue;
+            if (!panel || !session.panelShown(side.panel)) continue;
             const auto i = static_cast<std::size_t>(panel - mesh.panels.data());
             const sim::EdgeParticles* along = panel->along(side.edge);
             if (!along || i >= positions.size() || positions[i].size() != panel->points.size()) continue;
@@ -106,13 +111,14 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     Lines wire{{}, {0.1f, 0.12f, 0.16f, 0.55f}};
     for (std::size_t i = 0; i < mesh.panels.size() && i < positions.size(); ++i) {
         const sim::PanelMesh& panel = mesh.panels[i];
-        if (positions[i].size() != panel.points.size() || panel.triangles.empty()) continue;
+        if (positions[i].size() != panel.points.size() || panel.triangles.empty() || !session.panelShown(panel.panel)) continue;
         bool instance = false;
         if (doc.contains(panel.panel))
             for (OpId op : doc.operations(panel.panel)) instance = instance || std::holds_alternative<Instance>(doc.get(op));
         const bool selected = options.selected && *options.selected == panel.panel;
         Surface surface;
         surface.colour = selected ? selectedColour : instance ? instanceColour : clothColour;
+        if (!session.panelActive(panel.panel)) surface.colour.alpha = inactiveAlpha;
         surface.back = behind(surface.colour);
         surface.panel = panel.panel;
         surface.points.reserve(panel.points.size());
@@ -127,7 +133,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     }
     addFloor(scene);
     if (!wire.points.empty()) scene.lines.push_back(std::move(wire));
-    addSeams(scene, doc, mesh, positions, options);
+    addSeams(scene, session, options);
     return scene;
 }
 
@@ -139,8 +145,11 @@ std::optional<std::pair<sim::Vec3, sim::Vec3>> extentOf(const session::Session& 
         box->second = {std::max(box->second.x, p.x), std::max(box->second.y, p.y), std::max(box->second.z, p.z)};
     };
     for (const sim::Vec3& p : session.bodySurface().points) take(p);
-    for (const std::vector<sim::Vec3>& panel : session.shownPositions())
-        for (const sim::Vec3& p : panel) take(p);
+    const std::vector<sim::PanelMesh>& panels = session.shownMesh().panels;
+    const sim::Placement& positions = session.shownPositions();
+    for (std::size_t i = 0; i < positions.size() && i < panels.size(); ++i)
+        if (session.panelShown(panels[i].panel))
+            for (const sim::Vec3& p : positions[i]) take(p);
     return box;
 }
 
