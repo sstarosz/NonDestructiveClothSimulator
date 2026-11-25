@@ -153,6 +153,55 @@ void Document::remove(SeamId seam) {
     if (std::erase_if(seams_, [&](const SeamEntry& e) { return e.id == seam; }) == 0) unknown("seam");
 }
 
+std::vector<SeamId> Document::sewAsSource(PanelId instance) {
+    const std::optional<Instance> follows = instanceOf(instance);  // throws if unknown
+    if (!follows) return {};
+    const PanelId source = follows->source;
+
+    // Whether `panel` follows `other` the way `instance` follows its source.
+    const auto alike = [&](PanelId panel, PanelId other) {
+        const std::optional<Instance> its = instanceOf(panel);
+        return its && its->source == other && its->mirrored == follows->mirrored;
+    };
+    // Whether `end` is sewn to the edge `edge` of such a follower of `other`.
+    const auto sewnTo = [&](const SeamSide& end, const EdgeRef& edge, PanelId other) {
+        return std::any_of(seams_.begin(), seams_.end(), [&](const SeamEntry& e) {
+            const auto joins = [&](const SeamSide& near, const SeamSide& far) { return near == end && far.edge == edge && alike(far.panel, other); };
+            return joins(e.seam.a, e.seam.b) || joins(e.seam.b, e.seam.a);
+        });
+    };
+
+    std::vector<SeamId> added;
+    const std::vector<SeamEntry> before = seams_;  // adding to seams_ moves it
+    for (const SeamEntry& entry : before) {
+        const Seam& seam = entry.seam;
+        const bool fromA = seam.a.panel == source, fromB = seam.b.panel == source;
+        if (!fromA && !fromB) continue;
+        Seam copy = seam;
+        if (fromA && fromB) {
+            copy.a.panel = copy.b.panel = instance;
+            const bool there = std::any_of(seams_.begin(), seams_.end(), [&](const SeamEntry& e) {
+                return (e.seam.a == copy.a && e.seam.b == copy.b) || (e.seam.a == copy.b && e.seam.b == copy.a);
+            });
+            if (there) continue;
+        } else {
+            SeamSide& mine = fromA ? copy.a : copy.b;
+            SeamSide& theirs = fromA ? copy.b : copy.a;
+            const PanelId neighbour = theirs.panel;
+            mine.panel = instance;
+            if (sewnTo(mine, theirs.edge, neighbour)) continue;
+            // The source itself is never the other side, even when it follows the neighbour.
+            const auto partner = std::find_if(panels_.rbegin(), panels_.rend(), [&](const PanelEntry& p) {
+                return !(p.id == source) && alike(p.id, neighbour) && !sewnTo({p.id, theirs.edge}, mine.edge, source);
+            });
+            if (partner == panels_.rend()) continue;
+            theirs.panel = partner->id;
+        }
+        added.push_back(add(std::move(copy)));
+    }
+    return added;
+}
+
 std::vector<SeamId> Document::seams() const {
     std::vector<SeamId> ids;
     for (const SeamEntry& e : seams_) ids.push_back(e.id);
@@ -254,6 +303,19 @@ std::vector<OpId> Document::operations(PanelId panel) const {
 PanelId Document::panelOf(OpId operation) const {
     if (const PanelEntry* p = owner(operation)) return p->id;
     unknown("operation");
+}
+
+std::optional<Instance> Document::instanceOf(PanelId panel) const {
+    for (const PanelEntry& p : panels_) {
+        if (!(p.id == panel)) continue;
+        for (const OperationEntry& o : p.operations) {
+            if (!o.enabled) continue;
+            if (const Instance* instance = std::get_if<Instance>(&o.data)) return *instance;
+            return std::nullopt;
+        }
+        return std::nullopt;
+    }
+    unknown("panel");
 }
 
 bool Document::contains(Param parameter) const {

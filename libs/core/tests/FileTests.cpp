@@ -98,6 +98,28 @@ TEST_CASE("a parameter's unit is saved, and a length needs none")
     EXPECT((std::holds_alternative<FileError>(fromText(wrong))), "an unknown unit is a problem in words, not a guess");
 }
 
+TEST_CASE("the seams an instance got from its source survive saving and opening")
+{
+    Document doc;
+    const PanelId tube = doc.add(Panel{.name = "tube"});
+    const OpRef<Rect> rect = doc.add(tube, Rect{.width = 30_cm, .height = 60_cm});
+    doc.add(Seam{.a = {tube, rect.left()}, .b = {tube, rect.right()}, .reversed = true});
+    const PanelId other = doc.add(Panel{.name = "other"});
+    doc.add(other, Instance{.source = tube, .mirrored = true});
+    const std::vector<SeamId> added = doc.sewAsSource(other);
+    REQUIRE(added.size() == 1);
+
+    const std::string text = toText(doc);
+    std::variant<Document, FileError> read = fromText(text);
+    REQUIRE(std::holds_alternative<Document>(read));
+    Document& again = std::get<Document>(read);
+    EXPECT((toText(again) == text), "it writes the same text again");
+    REQUIRE(again.contains(added.front()));
+    const Seam& copy = again.get(added.front());
+    EXPECT((copy.a == SeamSide{other, rect.left()} && copy.b == SeamSide{other, rect.right()} && copy.reversed), "the copy is an ordinary seam");
+    EXPECT((evaluate(again)[added.front()].sewn() && again.sewAsSource(other).empty()), "sewn, and known to be there");
+}
+
 TEST_CASE("a set length survives saving and opening, with what it keeps")
 {
     Document doc;

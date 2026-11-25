@@ -78,8 +78,11 @@ Vec2 besideSource(const Editor& editor, PanelId source, Follow how) {
     return {x, from.y};
 }
 
+// "1 seam", "2 seams".
+std::string seamCount(std::size_t count) { return std::to_string(count) + (count == 1 ? " seam" : " seams"); }
+
 // A new panel like each `source`, at its place on the table, all in one change.
-// Empty if the change is refused.
+// Instances are sewn as their sources are. Empty if the change is refused.
 struct Placed {
     PanelId source;
     Vec2 at;
@@ -87,8 +90,10 @@ struct Placed {
 std::vector<PanelId> addLike(Editor& editor, const std::vector<Placed>& wanted, Follow how, Outcome& outcome) {
     const std::string suffix = how == Follow::Copy ? " copy" : how == Follow::Instance ? " instance" : " mirrored";
     std::vector<PanelId> added;
+    std::size_t sewn = 0;
     apply(editor, [&](Document& doc) {
         added.clear();
+        sewn = 0;
         for (const Placed& one : wanted) {
             const std::string name = firstFreeName(doc, doc.get(one.source).name + suffix);
             if (how == Follow::Copy) {
@@ -100,14 +105,20 @@ std::vector<PanelId> addLike(Editor& editor, const std::vector<Placed>& wanted, 
                 added.push_back(panel);
             }
         }
+        // Only when they are all there can they be sewn to each other. A copy is not an instance: it gets none.
+        for (PanelId panel : added) sewn += doc.sewAsSource(panel).size();
     }, adding, outcome);
     if (outcome.refused) added.clear();
+    else if (sewn > 0)
+        outcome.notice = seamCount(sewn) + " sewn as on " +
+                         (wanted.size() == 1 ? editor.document().get(wanted.front().source).name : std::string("the panels they follow")) + ".";
     return added;
 }
 
-// Where copies of a group go: it keeps its shape, with the middle of its box at `at`, or
-// just right of where it is when there is no place.
-std::vector<Placed> groupPlaces(const Editor& editor, const std::vector<PanelId>& sources, const std::optional<Vec2>& at) {
+// Where copies (or instances) of a group go: it keeps its shape, with the middle of its box at
+// `at`, or just right of where it is when there is no place. Mirrored instances are laid out as
+// the mirror image of the group, so that each stands to the others as its source does, flipped.
+std::vector<Placed> groupPlaces(const Editor& editor, const std::vector<PanelId>& sources, const std::optional<Vec2>& at, Follow how) {
     const Document& doc = editor.document();
     Vec2 low{1e300, 1e300}, high{-1e300, -1e300};
     for (PanelId source : sources) {
@@ -119,7 +130,12 @@ std::vector<Placed> groupPlaces(const Editor& editor, const std::vector<PanelId>
     }
     const Vec2 by = at ? Vec2{at->x - (low.x + high.x) / 2.0, at->y - (low.y + high.y) / 2.0} : Vec2{high.x - low.x + 12_cm, 0.0};
     std::vector<Placed> places;
-    for (PanelId source : sources) places.push_back({source, {doc.get(source).x + by.x, doc.get(source).y + by.y}});
+    for (PanelId source : sources) {
+        const Panel& from = doc.get(source);
+        // A mirrored instance's origin mirrors its source's, about the middle of the group.
+        const double x = how == Follow::MirroredInstance ? low.x + high.x - from.x : from.x;
+        places.push_back({source, {x + by.x, from.y + by.y}});
+    }
     return places;
 }
 
@@ -977,7 +993,7 @@ Outcome Drafting::on(Editor& editor, const CopySelection&) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const DuplicateSelection&) {
+Outcome Drafting::on(Editor& editor, const DuplicateSelection& g) {
     Outcome outcome;
     const std::vector<PanelId> panels = selectedInOrder(editor.document(), selection);
     if (panels.empty()) {
@@ -985,8 +1001,8 @@ Outcome Drafting::on(Editor& editor, const DuplicateSelection&) {
         outcome.refused = true;
         return outcome;
     }
-    if (panels.size() == 1) return on(editor, AddBeside{panels.front(), Follow::Copy});
-    const std::vector<PanelId> added = addLike(editor, groupPlaces(editor, panels, std::nullopt), Follow::Copy, outcome);
+    if (panels.size() == 1) return on(editor, AddBeside{panels.front(), g.how});
+    const std::vector<PanelId> added = addLike(editor, groupPlaces(editor, panels, std::nullopt, g.how), g.how, outcome);
     if (!added.empty()) selection = {added.front(), {}, {added.begin() + 1, added.end()}};
     return outcome;
 }
@@ -1009,7 +1025,7 @@ Outcome Drafting::on(Editor& editor, const PastePanel& g) {
     }
     std::vector<Placed> places;
     if (copied_.size() > 1) {
-        places = groupPlaces(editor, copied_, g.at);
+        places = groupPlaces(editor, copied_, g.at, Follow::Copy);
     } else {
         const PanelId source = copied_.front();
         Vec2 place = besideSource(editor, source, Follow::Copy);
@@ -1025,6 +1041,49 @@ Outcome Drafting::on(Editor& editor, const PastePanel& g) {
     if (!added.empty()) {
         selection = {added.front(), {}, {added.begin() + 1, added.end()}};
     }
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const SewAsSource&) {
+    Outcome outcome;
+    const Document& doc = editor.document();
+    std::vector<PanelId> instances;
+    for (PanelId panel : selectedInOrder(doc, selection))
+        if (doc.instanceOf(panel)) instances.push_back(panel);
+    if (instances.empty()) {
+        outcome.notice = "Select an instance first: only a panel that follows another can be sewn as that one is.";
+        outcome.refused = true;
+        return outcome;
+    }
+
+    const auto sew = [&](Document& d) {
+        std::size_t added = 0;
+        for (PanelId panel : instances) added += d.sewAsSource(panel).size();
+        return added;
+    };
+    // Tried on a copy first: with nothing to add there must be no undo step.
+    Document trial = doc;
+    const std::size_t sewn = sew(trial);
+    if (sewn > 0) {
+        if (apply(editor, [&](Document& d) { sew(d); }, adding, outcome))
+            outcome.notice = seamCount(sewn) + " sewn as on " +
+                             (instances.size() == 1 ? editor.document().get(editor.document().instanceOf(instances.front())->source).name
+                                                    : std::string("the panels they follow")) +
+                             ".";
+        return outcome;
+    }
+
+    outcome.refused = true;
+    const std::vector<SeamId> seams = doc.seams();
+    const bool sourcesSewn = std::any_of(instances.begin(), instances.end(), [&](PanelId panel) {
+        const PanelId source = doc.instanceOf(panel)->source;
+        return std::any_of(seams.begin(), seams.end(), [&](SeamId id) { return doc.get(id).a.panel == source || doc.get(id).b.panel == source; });
+    });
+    if (!sourcesSewn)
+        outcome.notice = "Nothing to sew: the selected instances follow panels without seams. Sew those panels first, then try again.";
+    else
+        outcome.notice = "Nothing to add: each seam is there already, or the panel on its other side has no free instance of the same kind "
+                         "(plain or mirrored). Make that instance, or use the Sew tool.";
     return outcome;
 }
 

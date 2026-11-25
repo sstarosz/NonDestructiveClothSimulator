@@ -179,6 +179,15 @@ public:
     SeamId add(Seam seam);
     void set(SeamId seam, Seam value);
     void remove(SeamId seam);
+    // Sews an instance as its source is sewn. A seam within the source is added
+    // within the instance. A seam from the source to another panel is added from
+    // the instance to that panel's newest instance of the same kind (plain, or
+    // mirrored) that has no copy of it yet; with none, nothing is added, and the
+    // seam comes when this is called for that instance. A copy that is there
+    // already is not added again. The copies are ordinary seams: a later change
+    // of the source's seams does not change them. Returns the seams added; none
+    // if the panel is not an instance.
+    std::vector<SeamId> sewAsSource(PanelId instance);
 
     // ---- Reading -----------------------------------------------------------
     std::vector<Param> parameters() const;
@@ -187,6 +196,9 @@ public:
     std::vector<SeamId> seams() const;
     PanelId panelOf(OpId operation) const;
     bool enabled(OpId operation) const;
+    // What the panel follows: its first operation that is switched on, if that is
+    // an Instance. None: the panel has a shape of its own.
+    std::optional<Instance> instanceOf(PanelId panel) const;
 
     bool contains(Param parameter) const;
     bool contains(PanelId panel) const;

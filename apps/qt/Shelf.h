@@ -57,17 +57,22 @@ public:
     QToolBar* actionRow() const { return actionRow_; }
     QToolBar* toolbox() const { return toolbox_; }
 
-    // What can be done to the selected panel; the window enables them while one is selected.
+    // What can be done to the selected panel (the instances: to every selected one); the
+    // window enables them while one is selected.
     QAction* instance() const { return instance_; }
     QAction* mirroredInstance() const { return mirroredInstance_; }
     QAction* bake() const { return bake_; }
     QAction* placeFromTable() const { return placeFromTable_; }
+    // In the Sew tab: the window enables it while an instance is selected.
+    QAction* sewAsSource() const { return sewAsSource_; }
 
 signals:
     // The panel placed in space again where the table has it, as when it was new.
     void placeFromTableRequested();
     void instanceRequested();
     void mirroredInstanceRequested();
+    // The selected instances sewn as the panels they follow are.
+    void sewAsSourceRequested();
     // Every formula of the panel replaced by the number it comes to now.
     void bakeRequested();
     void toolChosen(clothcad::ui::Tool tool);
@@ -94,6 +99,7 @@ private:
     QAction* mirroredInstance_;
     QAction* bake_;
     QAction* placeFromTable_;
+    QAction* sewAsSource_;
 };
 
 } // namespace clothcad::ui

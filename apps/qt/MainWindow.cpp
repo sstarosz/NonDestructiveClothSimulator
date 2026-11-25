@@ -352,13 +352,10 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         }, {.touches = session::Touches::PlacementOnly}, field);
     });
     connect(outliner_, &Outliner::copyRequested, this, [this](PanelId panel) { on(session::AddBeside{panel, session::Follow::Copy}); });
-    // The shelf acts on the selected panel.
-    connect(shelf_, &Shelf::instanceRequested, this, [this] {
-        if (const std::optional<PanelId> panel = drafting_.selection.panel) on(session::AddBeside{*panel, session::Follow::Instance});
-    });
-    connect(shelf_, &Shelf::mirroredInstanceRequested, this, [this] {
-        if (const std::optional<PanelId> panel = drafting_.selection.panel) on(session::AddBeside{*panel, session::Follow::MirroredInstance});
-    });
+    // Instances and their seams are made for every selected panel; the rest of the shelf acts on the shown one.
+    connect(shelf_, &Shelf::instanceRequested, this, [this] { on(session::DuplicateSelection{session::Follow::Instance}); });
+    connect(shelf_, &Shelf::mirroredInstanceRequested, this, [this] { on(session::DuplicateSelection{session::Follow::MirroredInstance}); });
+    connect(shelf_, &Shelf::sewAsSourceRequested, this, [this] { on(session::SewAsSource{}); });
     connect(shelf_, &Shelf::bakeRequested, this, [this] {
         const std::optional<PanelId> panel = drafting_.selection.panel;
         if (!panel) return;
@@ -646,6 +643,8 @@ void MainWindow::refresh() {
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
     outliner_->show(doc, shapes, selected, bodyNow());
     for (QAction* onPanel : {shelf_->instance(), shelf_->mirroredInstance(), shelf_->bake(), shelf_->placeFromTable()}) onPanel->setEnabled(selected.has_value());
+    const std::vector<PanelId> chosen = drafting_.selection.panels();
+    shelf_->sewAsSource()->setEnabled(std::any_of(chosen.begin(), chosen.end(), [&](PanelId panel) { return doc.contains(panel) && doc.instanceOf(panel); }));
     parameters_->show(doc, shapes);
     // Looking back only at a step of the selected panel.
     if (viewUntil_ && (!selected || !doc.contains(*viewUntil_) || !(doc.panelOf(*viewUntil_) == *selected))) viewUntil_.reset();

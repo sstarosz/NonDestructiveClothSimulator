@@ -660,6 +660,48 @@ TEST_CASE("a full ring closes on itself")
     EXPECT((!evaluate(half)[h].edge(open.startSide()).seam), "a partial ring's sides are edges");
 }
 
+TEST_CASE("a mirrored pair of instances is sewn as its sources are, through every edit")
+{
+    Document doc;
+    const Param length = doc.add(Parameter{.name = "length", .value = 90_cm});
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> frontRect = doc.add(front, Rect{.width = 20_cm, .height = length});
+    doc.add(front, AdjustPoint{.corner = frontRect.topRight(), .dx = 5_cm, .dy = 0_cm});  // the two sides differ
+    const PanelId back = doc.add(Panel{.name = "back"});
+    const OpRef<Rect> backRect = doc.add(back, Rect{.width = 24_cm, .height = length});
+    const SeamId seam = doc.add(Seam{.a = {front, frontRect.right()}, .b = {back, backRect.left()}});
+    const auto mirroredOf = [&](PanelId source) {
+        const PanelId panel = doc.add(Panel{.name = "mirrored"});
+        doc.add(panel, Instance{.source = source, .mirrored = true});
+        return panel;
+    };
+    mirroredOf(front);
+    const std::vector<SeamId> added = doc.sewAsSource(mirroredOf(back));
+    REQUIRE(added.size() == 1);
+
+    // The corners a seam brings together: start meets end, unless it is reversed.
+    const auto stitched = [&](const Result& result, SeamId id) {
+        const Seam& sewn = doc.get(id);
+        const Pattern& a = result[sewn.a.panel];
+        const Pattern& b = result[sewn.b.panel];
+        const Edge& along = a.edge(sewn.a.edge);
+        const Edge& other = b.edge(sewn.b.edge);
+        return std::vector<std::pair<CornerRef, CornerRef>>{
+            {a.vertices[along.start].name, b.vertices[sewn.reversed ? other.start : other.end].name},
+            {a.vertices[along.end].name, b.vertices[sewn.reversed ? other.end : other.start].name}};
+    };
+    for (const double now : {90.0, 104.0}) {
+        doc.set(length, Expr(now));
+        const Result result = evaluate(doc);
+        REQUIRE((result.ok() && result[added.front()].sewn()));
+        EXPECT_NEAR((result[added.front()].lengthA), (result[seam].lengthA), "one side is as long as the source's");
+        EXPECT_NEAR((result[added.front()].lengthB), (result[seam].lengthB), "and so is the other");
+        const auto source = stitched(result, seam), copy = stitched(result, added.front());
+        // A flip turns both edges round, so the same two pairs of corners meet.
+        EXPECT((copy[0] == source[1] && copy[1] == source[0]), "the same corners are brought together");
+    }
+}
+
 TEST_CASE("seams follow their edges")
 {
     Document doc;
