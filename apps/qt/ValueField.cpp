@@ -4,6 +4,7 @@
 #include <QMouseEvent>
 #include <QStyle>
 #include <cmath>
+#include <cctype>
 #include <cstdlib>
 #include <string>
 
@@ -72,11 +73,19 @@ void ValueField::showCursor() { setCursor(number_ && !hasFocus() ? Qt::SizeHorCu
 // formula, or a number in another unit, is not one to drag.
 std::optional<double> ValueField::typedNumber() const {
     const std::string typed = text().trimmed().toStdString();
-    if (typed.empty()) return std::nullopt;
-    char* rest = nullptr;
-    const double value = std::strtod(typed.c_str(), &rest);
-    if (rest == typed.c_str()) return std::nullopt;
-    const std::string after = QString::fromStdString(rest).trimmed().toStdString();
+    // An optional sign, digits and a decimal point, as a person writes a number: not "nan", "inf",
+    // "0x10" or an exponent, which strtod would take.
+    std::size_t end = 0;
+    std::size_t digits = 0;
+    if (end < typed.size() && (typed[end] == '-' || typed[end] == '+')) ++end;
+    while (end < typed.size() && std::isdigit(static_cast<unsigned char>(typed[end]))) ++end, ++digits;
+    if (end < typed.size() && typed[end] == '.') {
+        ++end;
+        while (end < typed.size() && std::isdigit(static_cast<unsigned char>(typed[end]))) ++end, ++digits;
+    }
+    if (digits == 0) return std::nullopt;
+    const double value = std::strtod(typed.substr(0, end).c_str(), nullptr);
+    const std::string after = QString::fromStdString(typed.substr(end)).trimmed().toStdString();
     const std::string unit = formatValue(1.0, unit_);  // "1 cm": what follows the number
     const std::string own = unit.substr(unit.find(' ') == std::string::npos ? unit.size() : unit.find(' ') + 1);
     if (!after.empty() && after != own) return std::nullopt;

@@ -52,6 +52,18 @@ TableView::TableView(QWidget* parent) : QWidget(parent) {
     });
 }
 
+void TableView::closeLength() {
+    card_->dismiss();
+    typing_.reset();
+    update();
+}
+
+void TableView::showKeeping(SetLength::Keeping keeping) {
+    if (!typing_ || !typing_->keeping) return;
+    typing_->keeping = keeping;
+    update();
+}
+
 void TableView::typeLength(const session::Outcome::LengthField& what, const QString& text) {
     // The panel as it is when the bar first opens is what the preview is shown against.
     if (!card_->isVisible())
@@ -280,7 +292,7 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         const Vec2 middle = own ? turned(Vec2{(own->min.x + own->max.x) / 2.0, (own->min.y + own->max.y) / 2.0}, panel.angle) : Vec2{};
         d.pivot = {middle.x + panel.x, middle.y + panel.y};
         if (selected && *selected == result.panel && others.empty()) {
-            for (const Vertex& v : d.pattern.vertices) d.cornerLocks.push_back(session::cornerLock(doc, d.pattern, result.panel, v.name));
+            for (const Vertex& v : d.pattern.vertices) d.cornerLocks.push_back(session::cornerLock(doc, shapes, result.panel, v.name));
             for (const Edge& e : d.pattern.edges)
                 d.handleLocks.push_back(e.cubic ? std::pair{session::handleLock(doc, result.panel, e.name, false), session::handleLock(doc, result.panel, e.name, true)}
                                                 : std::pair<std::string, std::string>{});
@@ -709,8 +721,7 @@ void TableView::mousePressEvent(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton) return;
     if (typing_) {
         if (const std::optional<SetLength::Keeping> keeps = anchorAt(event->position())) {
-            typing_->keeping = *keeps;
-            emit keepingChosen(typing_->operation, *keeps);
+            emit keepingChosen(typing_->operation, *keeps);  // what is shown follows what the document took (showKeeping)
             card_->field()->setFocus();  // typing goes on
             update();
             return;

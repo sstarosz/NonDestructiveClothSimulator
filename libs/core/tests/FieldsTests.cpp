@@ -153,3 +153,15 @@ TEST_CASE("a set length is edited like any other operation")
     EXPECT((nameOf(slots[0].value, doc) == "top edge of 1. Rectangle"), "which is named in words");
     EXPECT((dimensions(data, OpId(top)).empty()), "it is not a setting of the edge's own operation");
 }
+
+TEST_CASE("an edge is named without the operation it is of, whatever the panel is called")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "Back of shirt"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<Mirror> fold = doc.add(panel, Mirror{.across = rect.left()});
+    EXPECT((edgeName(rect.top(), doc) == "top edge"), "the role of the edge");
+    EXPECT((edgeName(fold.image(rect.top()), doc) == "mirrored top edge"), "a mirror image says so");
+    EXPECT((nameOf(Reference(rect.top()), doc) == "top edge of 1. Rectangle"), "and nameOf adds the operation to it");
+    EXPECT((edgeName(EdgeRef{}, doc).empty()), "an edge of nothing has no name");
+}

@@ -110,10 +110,7 @@ LengthCard::LengthCard(QWidget* parent) : QFrame(parent) {
 
 void LengthCard::open(const session::Outcome::LengthField& what, const QString& text) {
     what_ = what;
-    // "Width of top edge", without the name of the panel it is of.
-    QString words = QString::fromStdString(what.label);
-    if (const qsizetype at = words.lastIndexOf(" of "); at > 0 && words.count(" of ") > 1) words = words.left(at);
-    caption_->setText(words);
+    caption_->setText(QString::fromStdString(what.caption));
     {
         const QSignalBlocker quiet(scope_);
         scope_->setVisible(what.canSwitch);

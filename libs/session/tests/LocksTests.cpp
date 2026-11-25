@@ -14,7 +14,7 @@ TEST_CASE("the ends of an edge whose length a formula gives are locked; the othe
     const Param waist = doc.add(Parameter{.name = "waist", .value = 70_cm});
     const PanelId panel = doc.add(Panel{.name = "trousers"});
     const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
-    const auto lockOf = [&](const CornerRef& corner) { return session::cornerLock(doc, evaluate(doc)[panel], panel, corner); };
+    const auto lockOf = [&](const CornerRef& corner) { return session::cornerLock(doc, evaluate(doc), panel, corner); };
     EXPECT((lockOf(rect.topRight()).empty() && lockOf(rect.topLeft()).empty()), "nothing is locked while the shape is plain numbers");
 
     const OpRef<SetLength> top = doc.add(panel, SetLength{.edge = rect.top(), .length = waist / 2});
@@ -37,8 +37,28 @@ TEST_CASE("on a symmetric panel the mirror image of a locked corner is locked to
     const OpRef<Rect> rect = doc.add(panel, Rect{.width = 10_cm, .height = 20_cm});
     const OpRef<Mirror> fold = doc.add(panel, Mirror{.across = rect.left()});
     doc.add(panel, SetLength{.edge = rect.top(), .length = waist / 4, .keeping = SetLength::Keeping::End});
-    const Pattern shape = evaluate(doc)[panel];
-    EXPECT((!session::cornerLock(doc, shape, panel, rect.topRight()).empty()), "the drawn end is locked");
-    EXPECT((!session::cornerLock(doc, shape, panel, fold.image(rect.topRight())).empty()), "and so is its mirror image");
-    EXPECT((session::cornerLock(doc, shape, panel, rect.bottomRight()).empty()), "a corner of no such edge is free");
+    const Result shapes = evaluate(doc);
+    EXPECT((!session::cornerLock(doc, shapes, panel, rect.topRight()).empty()), "the drawn end is locked");
+    EXPECT((!session::cornerLock(doc, shapes, panel, fold.image(rect.topRight())).empty()), "and so is its mirror image");
+    EXPECT((session::cornerLock(doc, shapes, panel, rect.bottomRight()).empty()), "a corner of no such edge is free");
+}
+
+TEST_CASE("only the length that is in force locks: a formula that a later length or a moved corner has overruled holds nothing")
+{
+    Document doc;
+    const Param waist = doc.add(Parameter{.name = "waist", .value = 70_cm});
+    const PanelId panel = doc.add(Panel{.name = "trousers"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> formula = doc.add(panel, SetLength{.edge = rect.top(), .length = waist / 2});
+    const auto lockOf = [&](const CornerRef& corner) { return session::cornerLock(doc, evaluate(doc), panel, corner); };
+    EXPECT((!lockOf(rect.topRight()).empty()), "the formula holds the ends while it is the length in force");
+
+    const OpRef<SetLength> typed = doc.add(panel, SetLength{.edge = rect.top(), .length = 40_cm});
+    EXPECT((lockOf(rect.topRight()).empty() && lockOf(rect.topLeft()).empty()), "a later length of the same edge wins: the corners are free, and not told to change a formula that has no effect");
+    doc.remove(typed);
+    EXPECT((!lockOf(rect.topRight()).empty()), "and the formula holds them again once that is gone");
+
+    doc.add(panel, AdjustPoint{.corner = rect.topRight(), .dx = 3_cm, .dy = 0_cm});
+    EXPECT((lockOf(rect.topRight()).empty() && lockOf(rect.topLeft()).empty()), "a corner moved after it leaves the formula with nothing to hold");
+    (void)formula;
 }

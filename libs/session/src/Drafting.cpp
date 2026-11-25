@@ -570,7 +570,7 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& image) {
         // Corners that come from a formula stay where they are.
         std::string locked;
         moving.erase(std::remove_if(moving.begin(), moving.end(), [&](const Moving& m) {
-                         const std::string why = cornerLock(doc, shape, image.panel, m.corner);
+                         const std::string why = cornerLock(doc, editor.shapes(), image.panel, m.corner);
                          if (!why.empty()) locked = why;
                          return !why.empty();
                      }),
@@ -786,6 +786,7 @@ Outcome::LengthField lengthFieldFor(const Document& doc, const EdgeRef& shown, c
                 field.shapeSetting = std::string(fields(doc.get(shown.op))[dimension.field.index].label);
             }
     field.label = std::string(fields(data)[setting.field.index].label) + " of " + nameOf(Reference(shown), doc);
+    field.caption = std::string(fields(data)[setting.field.index].label) + " of " + edgeName(shown, doc);
     return field;
 }
 
@@ -849,7 +850,20 @@ Outcome Drafting::on(Editor& editor, const UseShapeLength& g) {
     std::vector<OpId> own;
     for (OpId op : doc.operations(g.panel))
         if (const SetLength* set = std::get_if<SetLength>(&doc.get(op)); set && set->edge == drawn) own.push_back(op);
-    if (!own.empty() && !apply(editor, [&](Document& d) { for (OpId op : own) d.remove(op); }, {}, outcome)) return outcome;
+    if (!own.empty()) {
+        // Would the shape's setting give the edge its length? Worked out on a copy, so that when it would
+        // not (a corner was moved after the shape made the edge) nothing is taken away, and the edge's own
+        // length stays what is typed.
+        Document trial = doc;
+        for (OpId op : own) trial.remove(op);
+        if (!lengthSetBy(trial, evaluate(trial), g.panel, g.edge)) {
+            outcome.notice = "Not changed: the edge's corners were moved after the shape made it, so the shape's setting no longer gives it a length. Keep the edge's own length, or change the corners.";
+            outcome.refused = true;
+            if (const std::optional<LengthSetting> now = lengthSetBy(doc, editor.shapes(), g.panel, g.edge)) outcome.typeLength = lengthFieldFor(doc, g.edge, *now);
+            return outcome;
+        }
+        if (!apply(editor, [&](Document& d) { for (OpId op : own) d.remove(op); }, {}, outcome)) return outcome;
+    }
     // The shape's setting gives the edge its length again, as long as it was when it was given up.
     if (const std::optional<LengthSetting> setting = lengthSetBy(editor.document(), editor.shapes(), g.panel, g.edge))
         outcome.typeLength = lengthFieldFor(editor.document(), g.edge, *setting);

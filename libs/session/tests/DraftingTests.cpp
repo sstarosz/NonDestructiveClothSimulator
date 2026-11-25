@@ -1007,7 +1007,7 @@ TEST_CASE("a length is the shape's setting or the edge's own, and either can be 
     // An edge whose corners were moved is nobody's setting; there is nothing to go back to.
     REQUIRE(editor.change([&](Document& d) { d.add(panel, AdjustPoint{.corner = rect.topRight(), .dx = 3_cm, .dy = 0_cm}); }));
     const Outcome lost = drafting.handle(editor, UseShapeLength{panel, rect.top()});
-    EXPECT((!lost.typeLength && !lost.notice.empty()), "when the shape's setting no longer gives the length, it says so");
+    EXPECT((lost.refused && !lost.notice.empty() && count<SetLength>(editor.document(), panel) == 1), "when the shape's setting would not give the length, it says so and takes nothing away");
 
     Document shirt;
     const PanelId front = shirt.add(Panel{.name = "front"});
@@ -1016,4 +1016,23 @@ TEST_CASE("a length is the shape's setting or the edge's own, and either can be 
     Editor shirtEditor(shirt);
     const Outcome shoulder = drafting.handle(shirtEditor, EditLength{front, body.top()});
     EXPECT((shoulder.typeLength && shoulder.typeLength->ownLength && shoulder.typeLength->canSwitch), "an edge whose shape has a setting for it can switch, even after a corner was moved");
+}
+
+TEST_CASE("giving up an edge's own length is refused where the shape's setting would give it none, and the length stays")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "Back of shirt"});
+    const OpRef<Rect> body = doc.add(front, Rect{.width = 40_cm, .height = 30_cm});
+    doc.add(front, AdjustPoint{.corner = body.topRight(), .dx = -3_cm, .dy = 0_cm});  // the shoulder: the shape no longer sets its length
+    doc.add(front, SetLength{.edge = body.top(), .length = 30_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    const double before = editor.shapes()[front].length(body.top());
+
+    const Outcome refused = drafting.handle(editor, UseShapeLength{front, body.top()});
+    EXPECT((refused.refused && !refused.notice.empty() && count<SetLength>(editor.document(), front) == 1), "nothing is taken away, and it says why");
+    EXPECT_NEAR((editor.shapes()[front].length(body.top())), (before), "the edge is as it was");
+    EXPECT((refused.typeLength && refused.typeLength->ownLength && refused.typeLength->canSwitch), "and what is typed is still the edge's own length, for the window to show again");
+    EXPECT((refused.typeLength->caption == "Length of top edge"), "the caption names the edge, not the panel, which may be called anything");
+    EXPECT((!editor.canUndo()), "with nothing to undo");
 }

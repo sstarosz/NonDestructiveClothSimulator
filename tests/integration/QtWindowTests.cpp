@@ -920,6 +920,7 @@ TEST_CASE("a length is typed on the table with a live preview; Enter keeps it an
     doubleClickBottom();
     REQUIRE(table->lengthEditor() != nullptr);
     EXPECT((scope()->isVisible() && scope()->currentIndex() == 1 && scope()->itemText(1).contains("width")), "a rectangle's edge offers 'Edge only' or the shape's width, and the width is chosen");
+    EXPECT((bar()->findChild<QLabel*>("lengthCaption")->text() == "Width of bottom edge"), "the caption names what is typed and the edge");
     EXPECT((table->anchorWord(SetLength::Keeping::Middle).isEmpty()), "the shape's setting has no end to keep, so there are no anchors");
     typeLive("26");
     EXPECT_NEAR((shape().length(rect.bottom())), (26.0), "what is typed is shown before Enter");
@@ -927,7 +928,7 @@ TEST_CASE("a length is typed on the table with a live preview; Enter keeps it an
     QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     QApplication::sendEvent(table->lengthEditor(), &escape);
     EXPECT((table->lengthEditor() == nullptr && std::abs(shape().length(rect.bottom()) - 30.0) < 1e-9), "Escape closes the bar and the width is as it was");
-    EXPECT((!w.window.shelf()->undo()->isEnabled()), "with nothing left to undo");
+    EXPECT((!w.window.shelf()->undo()->isEnabled() && !w.window.shelf()->redo()->isEnabled()), "with nothing left to undo, and nothing to redo: what Escape took back is forgotten");
 
     // This edge only: a length of its own, with anchors on the edge.
     doubleClickBottom();
@@ -962,6 +963,10 @@ TEST_CASE("a length is typed on the table with a live preview; Enter keeps it an
     EXPECT((table->lengthEditor() != nullptr), "Enter does not close it while that is so");
     typeLive("no length");
     EXPECT((!bar()->problem().isEmpty()), "a text that is no length is said too");
+    typeLive("30 cm");
+    EXPECT((bar()->problem().isEmpty()), "typing back what is applied now clears the words, and Enter works again");
+    typeLive("-5");
+    EXPECT((!bar()->problem().isEmpty()), "and a length that cannot be is said again");
     typeLive("22");
     EXPECT((bar()->problem().isEmpty()), "and the words go when it works");
 
@@ -1010,6 +1015,87 @@ TEST_CASE("a length is typed on the table with a live preview; Enter keeps it an
     // A click elsewhere on the table leaves the bar like Escape.
     click(table, table->toScreen({-1000, -1000}));
     EXPECT((table->lengthEditor() == nullptr && std::abs(shape().length(rect.bottom()) - 25.0) < 1e-9), "a click elsewhere leaves it, as it was");
+}
+
+TEST_CASE("an anchor chosen on an edge that has its own length is part of the edit, and Escape takes it back", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const auto layers = [&] { return w.doc().operations(plain).size(); };
+    const auto keeping = [&] { return std::get<SetLength>(w.doc().get(w.doc().operations(plain).back())).keeping; };
+    const auto doubleClickBottom = [&] {
+        const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+        send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    };
+    // An own length is made and kept first.
+    doubleClickBottom();
+    QComboBox* scope = table->lengthCard()->findChild<QComboBox*>("lengthScope");
+    scope->setCurrentIndex(0);
+    emit scope->activated(0);
+    table->lengthEditor()->setText("22");
+    emit table->lengthEditor()->returnPressed();
+    REQUIRE((layers() == 2 && table->lengthEditor() == nullptr));
+
+    // Opened again, the double-click changes nothing: the anchor is the first change of this edit.
+    doubleClickBottom();
+    REQUIRE(table->lengthEditor() != nullptr);
+    const QPointF at = table->anchorPosition(SetLength::Keeping::Start);
+    send(table, QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, {});
+    EXPECT((keeping() == SetLength::Keeping::Start), "the anchor is taken");
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(table->lengthEditor(), &escape);
+    EXPECT((keeping() == SetLength::Keeping::Middle && layers() == 2), "Escape takes the anchor back");
+    EXPECT((w.window.shelf()->undo()->isEnabled()), "and not the edit before it, which is still there to undo");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((layers() == 1), "one undo takes back that earlier edit alone, with nothing of the anchor mixed in");
+}
+
+TEST_CASE("giving up an edge's own length is refused on the table where the shape would give it none, and the bar stays on the own length", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
+    const auto layers = [&] { return w.doc().operations(plain).size(); };
+    // The top-right corner dragged in: the shape no longer gives the top its length.
+    const QPointF corner = table->toScreen(w.corner(plain, 1, 1));
+    drag(table, corner, by(corner, table, -5, 0));
+    REQUIRE(layers() == 2);
+    table->grab();
+    const auto label = std::find_if(table->lengthLabels().begin(), table->lengthLabels().end(), [&](const auto& l) { return l.second == rect.top(); });
+    REQUIRE(label != table->lengthLabels().end());
+    send(table, QEvent::MouseButtonDblClick, label->first.center(), Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(table->lengthEditor() != nullptr);
+    EXPECT((layers() == 3), "the double-click gives the top a length of its own");
+    QComboBox* scope = table->lengthCard()->findChild<QComboBox*>("lengthScope");
+    REQUIRE((scope != nullptr && scope->isVisible() && scope->currentIndex() == 0));
+    scope->setCurrentIndex(1);
+    emit scope->activated(1);
+    EXPECT((layers() == 3), "the shape's width is refused: it would not give the top a length, and nothing is taken away");
+    EXPECT((table->lengthEditor() != nullptr && scope->currentIndex() == 0), "the bar stays, on the edge's own length, and shows it");
+    EXPECT((w.window.helpLine().contains("Not changed")), "and the help line says why");
+    table->lengthEditor()->setText("12");
+    EXPECT_NEAR((w.window.session().editor().shapes()[plain].length(rect.top())), (12.0), "typing still works on it");
+}
+
+TEST_CASE("the bar closes when the length it is for is undone", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    QComboBox* scope = table->lengthCard()->findChild<QComboBox*>("lengthScope");
+    scope->setCurrentIndex(0);
+    emit scope->activated(0);
+    REQUIRE((w.doc().operations(plain).size() == 2 && table->lengthEditor() != nullptr));
+    w.window.shelf()->undo()->trigger();
+    EXPECT((w.doc().operations(plain).size() == 1 && table->lengthEditor() == nullptr), "undoing the length it is for closes the bar, which has nothing left to type into");
 }
 
 TEST_CASE("a layer's edge is chosen again by clicking it on the table", "[qt]")
@@ -2603,6 +2689,14 @@ TEST_CASE("the length in the bar is typed or dragged sideways, as in the Attribu
     QMouseEvent release(QEvent::MouseButtonRelease, at, field->mapToGlobal(at), Qt::LeftButton, Qt::NoButton, {});
     QApplication::sendEvent(field, &release);
     EXPECT_NEAR((bottom()), (before), "a click without a pull changes nothing");
+
+    // Only a number as a person writes it is pulled, not what strtod would take.
+    for (const char* odd : {"nan", "0x10", "1e3"}) {
+        field->setText(odd);
+        const QString oddText = field->text();
+        pull(30);
+        EXPECT((field->text() == oddText), std::string("'") + odd + "' is not pulled");
+    }
 
     // A formula is not pulled.
     field->setText("= width");

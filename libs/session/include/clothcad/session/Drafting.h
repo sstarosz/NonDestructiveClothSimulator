@@ -226,6 +226,7 @@ struct Outcome {
         FieldId field;
         EdgeRef edge;           // the edge, so that a window can type on its label
         std::string label;      // "Width of 1. Rectangle"
+        std::string caption;    // "Width of top edge": what a window names the field by
         bool ownLength = false;  // the field is a length given to this edge alone (SetLength)
         bool canSwitch = false;  // the edge also has a setting of its shape: the window offers the other one
         std::string shapeSetting;  // what the shape calls that setting ("Width"), when canSwitch

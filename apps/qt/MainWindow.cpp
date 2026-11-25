@@ -302,13 +302,17 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(table_, &TableView::keepingChosen, this, [this](OpId layer, SetLength::Keeping keeping) {
         if (!session_.document().contains(layer)) return;
         session::ChangeRules rules;
-        if (lengthEditFrom_) rules.step = session::Step::Continue;  // part of the edit that is open
+        if (lengthChanged_) rules.step = session::Step::Continue;  // part of the edit that is open, if it has changed anything yet
         const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(OpRef<SetLength>(layer), &SetLength::keeping, keeping); }, rules);
         if (!done) table_->showLengthProblem(QString::fromStdString(done.error()));
         else lengthChanged_ = true;
-        const QString word = table_->anchorWord(keeping);
-        say(keeping == SetLength::Keeping::Middle ? "Midpoint fixed · both ends move. Enter applies, Esc cancels."
-                                                  : word + " end fixed · the other end moves. Enter applies, Esc cancels.");
+        // The anchor shown is the one the document has, whether or not the change was taken.
+        const SetLength::Keeping now = std::get<SetLength>(session_.document().get(layer)).keeping;
+        table_->showKeeping(now);
+        const QString word = table_->anchorWord(now);
+        say(now == SetLength::Keeping::Middle ? "Midpoint fixed · both ends move. Enter applies, Esc cancels."
+                                              : word + " end fixed · the other end moves. Enter applies, Esc cancels.",
+            !done);
         refresh();
     });
     connect(table_, &TableView::lengthEdited, this, [this](OpId layer, FieldId id, QString text) { previewLength(layer, id, text); });
@@ -631,6 +635,7 @@ std::optional<Expr> MainWindow::read(const QString& text, Unit unit, ValueField*
 
 void MainWindow::refresh() {
     const Document& doc = session_.document();
+    if (!gesturing_) closeLengthIfGone();  // (a gesture that took the length away opens the bar again on another)
     const Result& shapes = session_.editor().shapes();
     std::optional<PanelId>& selected = drafting_.selection.panel;
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
@@ -677,7 +682,11 @@ void MainWindow::refresh() {
 }
 
 void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
-    if (!session_.document().contains(layer) || text == lengthText_) return;
+    if (!session_.document().contains(layer)) return;
+    if (text == lengthText_) {  // back to what is applied: whatever was said against what was typed since is over
+        table_->showLengthProblem({});
+        return;
+    }
     const Unit unit = fields(session_.document().get(layer))[id.index].unit;
     const std::variant<Expr, TextError> parsed = parseValue(text.toStdString(), unit, session_.document());
     if (const TextError* problem = std::get_if<TextError>(&parsed)) {
@@ -698,9 +707,17 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
     refresh();
 }
 
+void MainWindow::closeLengthIfGone() {
+    const auto& typing = table_->lengthBeingTyped();
+    if (!typing || session_.document().contains(typing->operation)) return;
+    table_->closeLength();
+    lengthEditFrom_.reset();
+    lengthChanged_ = false;
+}
+
 void MainWindow::cancelLength() {
-    if (lengthEditFrom_)
-        while (session_.editor().step() != *lengthEditFrom_ && session_.editor().undo()) {}
+    // All of the edit goes, and is forgotten: it must not be left to redo.
+    if (lengthEditFrom_) session_.editor().rollBackTo(*lengthEditFrom_);
     lengthEditFrom_.reset();
     lengthChanged_ = false;
     stopPicking();
@@ -726,6 +743,11 @@ void MainWindow::on(const session::Gesture& gesture) {
         say("Showing an earlier step: press Escape to show all steps and change the pattern again.", true);
         return;
     }
+    struct Running {
+        bool& flag;
+        explicit Running(bool& f) : flag(f) { flag = true; }
+        ~Running() { flag = false; }
+    } running(gesturing_);
     // A length is typed in one go: Escape goes back to how it was before the gesture that opened the bar.
     const bool lengthGesture = std::holds_alternative<session::EditLength>(gesture) || std::holds_alternative<session::UseShapeLength>(gesture);
     if (lengthGesture && !lengthEditFrom_) {
@@ -747,11 +769,13 @@ void MainWindow::on(const session::Gesture& gesture) {
         lengthChanged_ = lengthChanged_ || (lengthEditFrom_ && session_.editor().step() != *lengthEditFrom_);
         lengthText_ = QString::fromStdString(now);
         table_->typeLength(wanted, lengthText_);
-        say(lengthStatus(wanted));
+        if (done.notice.empty()) say(lengthStatus(wanted));  // a refusal's words stay
     } else if (lengthGesture && !table_->lengthEditor()) {
         lengthEditFrom_.reset();  // nothing to type: the gesture was refused, or has nothing to say
         lengthChanged_ = false;
     }
+    gesturing_ = false;
+    closeLengthIfGone();  // a bar left for a length that this gesture took away
 }
 
 // Delete, Ctrl+C, Ctrl+V and Ctrl+D typed in the 3D view do what they do on the

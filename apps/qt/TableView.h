@@ -93,6 +93,12 @@ public:
     QString anchorWord(SetLength::Keeping keeping) const;
     // Where that anchor is on the screen, and so where it is clicked; the origin when none is shown.
     QPointF anchorPosition(SetLength::Keeping keeping) const;
+    // The length being typed, while the bar is open; the window closes the bar when what it is for is gone.
+    const std::optional<session::Outcome::LengthField>& lengthBeingTyped() const { return typing_; }
+    void closeLength();
+    // Shows which end is kept as the document has it: the click on an anchor does not change what is
+    // shown by itself, since the change may be refused.
+    void showKeeping(SetLength::Keeping keeping);
     // What is wrong with what is typed, under the field; empty clears it.
     void showLengthProblem(const QString& problem) { card_->showProblem(problem); }
 

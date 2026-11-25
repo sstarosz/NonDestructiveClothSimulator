@@ -91,6 +91,15 @@ bool Editor::undo() {
     return true;
 }
 
+bool Editor::rollBackTo(std::uint64_t step) {
+    if (step_ == step) return false;
+    const bool known = std::any_of(undo_.begin(), undo_.end(), [&](const Kept& kept) { return kept.step == step; });
+    if (!known) return false;
+    while (step_ != step && undo()) {}
+    redo_.clear();
+    return true;
+}
+
 bool Editor::redo() {
     if (redo_.empty()) return false;
     undo_.push_back({std::exchange(document_, std::move(redo_.back().document)), std::exchange(step_, redo_.back().step)});

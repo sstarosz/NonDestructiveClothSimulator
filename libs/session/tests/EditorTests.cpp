@@ -201,3 +201,20 @@ TEST_CASE("a longer skirt keeps its waist where it is in space and grows at the 
            "a change made by hand leaves its place on the table and in space alone");
     EXPECT_NEAR(ends().second, hem, "so its own origin, the hem, stays, as it does on the table");
 }
+
+TEST_CASE("rolling back to a state takes every step after it back and leaves none to redo")
+{
+    OnePanel start;
+    Editor editor(start.doc);
+    REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(90)); }));
+    const std::uint64_t then = editor.step();
+    REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(100)); }));
+    REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(110)); }, {.step = Step::Continue}));
+
+    EXPECT((editor.rollBackTo(then)), "it takes something back");
+    EXPECT_NEAR(width(editor, start.panel, start.rect), 90.0, "the document is as it was then");
+    EXPECT((editor.canUndo() && !editor.canRedo()), "what came before can still be undone, and what was taken back is not kept to redo");
+    EXPECT((!editor.rollBackTo(then)), "at that state there is nothing to take back");
+    EXPECT((!editor.rollBackTo(editor.step() + 100)), "a state that is not in the history takes back nothing");
+    EXPECT_NEAR(width(editor, start.panel, start.rect), 90.0, "and leaves the document alone");
+}

@@ -209,10 +209,15 @@ ReferenceChange setReferenceAt(OpData& operation, std::size_t index, const Refer
     return outcome;
 }
 
+std::string edgeName(const EdgeRef& edge, const Document& doc) {
+    if (!doc.contains(edge.op)) return {};
+    return viaWords(edge.via, doc) + std::string(edgeRoleName(doc.get(edge.op), edge.role));
+}
+
 std::string nameOf(const Reference& reference, const Document& doc) {
     if (const EdgeRef* edge = std::get_if<EdgeRef>(&reference)) {
         if (!doc.contains(edge->op)) return missing(edge->op);
-        return viaWords(edge->via, doc) + std::string(edgeRoleName(doc.get(edge->op), edge->role)) + " of " + numbered(edge->op, doc);
+        return edgeName(*edge, doc) + " of " + numbered(edge->op, doc);
     }
     if (const CornerRef* corner = std::get_if<CornerRef>(&reference)) {
         if (!doc.contains(corner->op)) return missing(corner->op);

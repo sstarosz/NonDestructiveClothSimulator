@@ -89,6 +89,11 @@ public:
     // no longer exists) is refused with the exception's words.
     std::expected<void, std::string> change(const std::function<void(Document&)>& verb, ChangeRules rules = {});
 
+    // Takes back every step down to the state `step` was (see step()), as undo does, but the steps
+    // taken back are forgotten, not kept to redo: a cancelled edit leaves nothing behind. Says whether
+    // it took back anything; a `step` that is not in the history takes back nothing.
+    bool rollBackTo(std::uint64_t step);
+
     bool canUndo() const { return !undo_.empty(); }
     bool canRedo() const { return !redo_.empty(); }
     bool undo();
