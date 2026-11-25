@@ -34,6 +34,7 @@ struct Matrix {
 };
 
 // Triangles lit from the light's side and from behind alike: cloth has two sides.
+// The front of a surface is the side its triangles run counter-clockwise on.
 struct Surface {
     std::vector<Point> points;
     std::vector<Point> normals;              // one per point
@@ -41,6 +42,7 @@ struct Surface {
     Colour colour;
     std::optional<PanelId> panel{};          // the panel it shows, for picking; none for the body
     bool lit = true;                         // false: drawn in its colour alone, without light and shade (the gizmo)
+    std::optional<Colour> back{};            // its colour seen from behind; none: the same as from the front
 };
 
 // Straight lines, one pixel wide, blended by their alpha.

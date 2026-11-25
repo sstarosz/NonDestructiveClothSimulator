@@ -97,6 +97,47 @@ TEST_CASE("the back of a surface is lit too, a little darker")
     EXPECT((seen.red > 0.7f && seen.red < 0.95f), "lit from behind: 0.28 + 0.72 * 0.8");
 }
 
+TEST_CASE("a surface with a back colour shows it only from behind, the side it is wound clockwise on")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Scene scene = facing();
+    Surface sheet = square(60.0f, 0.0f, {1.0f, 0.0f, 0.0f});
+    sheet.back = Colour{0.0f, 1.0f, 0.0f};
+    sheet.lit = false;
+    scene.surfaces.push_back(sheet);
+    const auto front = renderer()->draw(scene, 160, 120);
+    REQUIRE(front);
+    EXPECT((near(front->at(80 + 10, 60), {1.0f, 0.0f, 0.0f})), "counter-clockwise towards the camera: the front colour");
+    scene.surfaces[0].triangles = {0, 2, 1, 0, 3, 2};  // the same square, wound the other way
+    const auto back = renderer()->draw(scene, 160, 120);
+    REQUIRE(back);
+    EXPECT((near(back->at(80 + 10, 60), {0.0f, 1.0f, 0.0f})), "seen from behind: the back colour");
+}
+
+TEST_CASE("a flat panel looks different from behind than from the front")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    doc.add(panel, Rect{.width = 60_cm, .height = 60_cm});
+    doc.arrange(panel, Arrangement{.placed = true, .x = 0, .y = 100, .z = 0});
+    session::Session session(doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    // A spot on the panel, looking level at it from `yaw` degrees round it.
+    const auto seen = [&](double yaw) {
+        OrbitCamera camera;
+        camera.pitch = 0.0;
+        camera.yaw = yaw;
+        const auto picture = renderer()->draw(sceneOf(session, camera, 4.0 / 3.0, {.body = false}), 160, 120);
+        REQUIRE(picture);
+        return picture->at(80 + 5, 60 - 5);
+    };
+    const Colour front = seen(0.0), back = seen(180.0);
+    EXPECT((front.red > 0.7f), "from +z, where the body faces: the front, in the cloth's grey");
+    EXPECT((back.red < front.red * 0.65f), "from behind: much darker");
+    EXPECT((back.blue / back.red > front.blue / front.red + 0.2f), "and cooler, not only shaded");
+}
+
 TEST_CASE("a surface that is not lit keeps its colour flat, in the overlay too, whichever way it faces")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());

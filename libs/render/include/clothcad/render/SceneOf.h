@@ -2,7 +2,8 @@
 // What the 3D view shows of a session: the body, the cloth (draped, or the
 // panels where they are arranged), the floor, and the mesh's triangles when
 // asked. Colours keep their meaning: the selected panel amber, an instance
-// violet.
+// violet. A panel's front (the side the table shows) has that colour; its back
+// is a darker, cooler shade of it.
 //
 //   render::Scene scene = render::sceneOf(session, camera, width / double(height), {.selected = panel});
 

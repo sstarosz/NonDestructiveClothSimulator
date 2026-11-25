@@ -56,6 +56,27 @@ TEST_CASE("the scene has the body, every panel and the floor")
     EXPECT((bare.surfaces.size() == 2 && bare.lines.size() == 3), "without the body, and with the mesh's sides as lines");
 }
 
+TEST_CASE("every panel has a darker, cooler back; the body has none")
+{
+    TwoPanels start;
+    session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    session.useAvatar(figure(), "figure.obj");
+    session.update();
+    OrbitCamera camera;
+    const auto coolerAndDarker = [](const Surface& s) {
+        if (!s.back) return false;
+        const Colour front = s.colour, back = *s.back;
+        return back.red < front.red && back.green < front.green && back.blue < front.blue && back.blue / back.red > front.blue / front.red;
+    };
+    const Scene plain = sceneOf(session, camera, 1.5, {});
+    REQUIRE(plain.surfaces.size() == 3);
+    EXPECT(!plain.surfaces[0].back, "the body is one colour");
+    EXPECT(coolerAndDarker(plain.surfaces[1]), "a grey panel");
+    EXPECT(coolerAndDarker(plain.surfaces[2]), "an instance");
+    const Scene chosen = sceneOf(session, camera, 1.5, {.selected = start.front});
+    EXPECT(coolerAndDarker(chosen.surfaces[1]), "the selected panel");
+}
+
 TEST_CASE("normals point out of the side a surface is wound towards")
 {
     const std::vector<Point> square{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}};

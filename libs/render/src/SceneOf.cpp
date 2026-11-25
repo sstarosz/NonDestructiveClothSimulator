@@ -15,6 +15,10 @@ constexpr Colour clothColour{0.82f, 0.83f, 0.86f};
 constexpr Colour selectedColour{1.0f, 0.75f, 0.27f};
 constexpr Colour instanceColour{0.75f, 0.62f, 0.95f};
 
+// A panel's back: its colour, darker and cooler, so that which way it faces
+// shows at a glance and what it is (selected, an instance) still does.
+Colour behind(Colour front) { return {front.red * 0.58f, front.green * 0.61f, front.blue * 0.77f, front.alpha}; }
+
 // The floor: a line every 10 cm for two metres around the middle, stronger every metre.
 void addFloor(Scene& scene) {
     Lines fine{{}, {1.0f, 1.0f, 1.0f, 0.06f}}, metres{{}, {1.0f, 1.0f, 1.0f, 0.18f}};
@@ -76,6 +80,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
         const bool selected = options.selected && *options.selected == panel.panel;
         Surface surface;
         surface.colour = selected ? selectedColour : instance ? instanceColour : clothColour;
+        surface.back = behind(surface.colour);
         surface.panel = panel.panel;
         surface.points.reserve(panel.points.size());
         for (const sim::Vec3& p : positions[i]) surface.points.push_back(pointOf(p));

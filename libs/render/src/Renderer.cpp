@@ -19,11 +19,12 @@ namespace {
 #include "shaders/surface.frag.h"
 #include "shaders/line.frag.h"
 
-// What the shaders are handed with every draw: 96 bytes, within the 128 every card allows.
+// What the shaders are handed with every draw: 112 bytes, within the 128 every card allows.
 struct Push {
     Matrix viewProjection;
     Colour colour;
     std::array<float, 4> toLight;
+    Colour back;  // the colour of a side seen from behind
 };
 
 struct Vertex {
@@ -137,7 +138,7 @@ struct Renderer::Inside {
         struct Indexed {
             std::uint32_t count, first;
             std::int32_t base;
-            Colour colour;
+            Colour colour, back;
             bool lit;
         };
         struct Plain {
@@ -299,7 +300,7 @@ Renderer::Inside::Draws Renderer::Inside::upload(const Scene& scene) {
             if (s.triangles.empty() || s.points.empty()) continue;
             for (std::size_t i = 0; i < s.points.size(); ++i) vertex[vertexAt + i] = {s.points[i], i < s.normals.size() ? s.normals[i] : Point{0, 0, 1}};
             std::copy(s.triangles.begin(), s.triangles.end(), index + indexAt);
-            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.lit});
+            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.back.value_or(s.colour), s.lit});
             vertexAt += static_cast<std::uint32_t>(s.points.size());
             indexAt += static_cast<std::uint32_t>(s.triangles.size());
         }
@@ -323,12 +324,13 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
     commands.setScissor(0, vk::Rect2D({0, 0}, extent));
     commands.bindVertexBuffers(0, {*vertices.buffer}, {vk::DeviceSize(0)});
     commands.bindIndexBuffer(*indices.buffer, 0, vk::IndexType::eUint32);
-    Push push{scene.viewProjection, {}, {scene.toLight.x, scene.toLight.y, scene.toLight.z, 0.0f}};
+    Push push{scene.viewProjection, {}, {scene.toLight.x, scene.toLight.y, scene.toLight.z, 0.0f}, {}};
     const vk::ShaderStageFlags stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
     // The light's w says whether a surface is lit (0) or drawn in its colour alone (1).
     for (const Draws::Indexed& d : draws.surfaces) {
         push.colour = d.colour;
+        push.back = d.back;
         push.toLight[3] = d.lit ? 0.0f : 1.0f;
         commands.pushConstants<Push>(*layout, stages, 0, push);
         commands.drawIndexed(d.count, 1, d.first, d.base, 0);
@@ -347,6 +349,7 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
         commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
         for (const Draws::Indexed& d : draws.overlay) {
             push.colour = d.colour;
+            push.back = d.back;
             push.toLight[3] = d.lit ? 0.0f : 1.0f;
             commands.pushConstants<Push>(*layout, stages, 0, push);
             commands.drawIndexed(d.count, 1, d.first, d.base, 0);

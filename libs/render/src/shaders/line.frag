@@ -4,6 +4,7 @@ layout(push_constant) uniform Push {
     mat4 viewProjection;
     vec4 colour;
     vec4 toLight;
+    vec4 back;
 } push;
 
 layout(location = 0) in vec3 seenNormal;

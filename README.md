@@ -51,6 +51,10 @@ the body follows too.
   `assets/`; Body > Avatar from OBJ… loads another),
   meshed and simulated: gravity, seams drawing closed,
   cloth against body, floor and cloth.
+- **Front and back**: a panel's front is the side the table shows, drawn in
+  the panel's colour; its back is a darker, cooler shade of it (grey cloth,
+  the amber selection and violet instances alike). A panel that has not been
+  turned in space has its front towards +z, where the body faces.
 - **Gizmos as in Maya**, in the 3D view and on the table alike: Q selects
   only, W moves (an arrow per axis, a square per plane, the middle across
   the view), E turns (a ring per axis, one about the line of sight, and
