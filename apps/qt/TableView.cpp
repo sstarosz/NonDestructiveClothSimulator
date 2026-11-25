@@ -117,10 +117,10 @@ std::optional<TableView::Anchors> TableView::anchors() const {
         for (int i = 0; i < 3; ++i) set.target[i] = set.at[i];
     } else {
         const QPointF unit = length > 1e-6 ? (set.at[2] - set.at[0]) / std::hypot(set.at[2].x() - set.at[0].x(), set.at[2].y() - set.at[0].y()) : QPointF(1, 0);
-        const QPointF centre = set.at[1] - set.outward * 57.0;
-        set.target[0] = centre - unit * 88.0;
+        const QPointF centre = set.at[1] - set.outward * 44.0;
+        set.target[0] = centre - unit * 68.0;
         set.target[1] = centre;
-        set.target[2] = centre + unit * 88.0;
+        set.target[2] = centre + unit * 68.0;
     }
     return set;
 }
@@ -145,7 +145,7 @@ std::optional<SetLength::Keeping> TableView::anchorAt(QPointF screen) const {
     const std::optional<Anchors> set = anchors();
     if (!set) return std::nullopt;
     for (int i = 0; i < 3; ++i)
-        if (QLineF(screen, set->target[i]).length() <= 22.0) return set->keeps[i];
+        if (QLineF(screen, set->target[i]).length() <= 16.0) return set->keeps[i];
     return std::nullopt;
 }
 
@@ -210,31 +210,31 @@ void TableView::paintLengthEdit(QPainter& p) {
     if (!set) return;
     // The anchors: which end stays where it is. The one chosen is filled and marked on the edge itself.
     QFont small = p.font();
-    small.setPointSizeF(std::max(7.0, small.pointSizeF() - 1.0));
+    small.setPointSizeF(std::max(6.5, small.pointSizeF() - 2.0));
     p.setFont(small);
     const QFontMetricsF metrics(small);
     for (int i = 0; i < 3; ++i) {
         const bool on = *typing_->keeping == set->keeps[i];
         if (set->beside) {
             p.setPen(QPen(faint, 1.0));
-            p.drawLine(set->at[i], set->target[i] + (set->at[i] - set->target[i]) * (14.0 / std::max(1.0, std::hypot(set->at[i].x() - set->target[i].x(), set->at[i].y() - set->target[i].y()))));
+            p.drawLine(set->at[i], set->target[i] + (set->at[i] - set->target[i]) * (10.0 / std::max(1.0, std::hypot(set->at[i].x() - set->target[i].x(), set->at[i].y() - set->target[i].y()))));
         }
         if (on) {
             p.setBrush(theme::selected);
             p.setPen(QPen(theme::table, 2.0));
-            p.drawEllipse(set->at[i], 5.0, 5.0);  // fixed, on the edge
+            p.drawEllipse(set->at[i], 4.0, 4.0);  // fixed, on the edge
         }
         p.setBrush(on ? QColor(61, 51, 32) : theme::panel);
         p.setPen(QPen(on ? theme::selected : theme::quiet, 2.0));
-        p.drawEllipse(set->target[i], on ? 14.0 : 10.0, on ? 14.0 : 10.0);
+        p.drawEllipse(set->target[i], on ? 9.0 : 6.5, on ? 9.0 : 6.5);
         if (on) {
             p.setBrush(theme::selected);
             p.setPen(Qt::NoPen);
-            p.drawEllipse(set->target[i], 4.0, 4.0);  // the pin
+            p.drawEllipse(set->target[i], 3.0, 3.0);  // the pin
         }
         const QString words = set->word[i] + (on ? " fixed" : "");
         const QSizeF size = metrics.size(0, words) + QSizeF(10, 4);
-        const QRectF label(set->target[i] + QPointF(-size.width() / 2.0, 20.0), size);
+        const QRectF label(set->target[i] + QPointF(-size.width() / 2.0, 13.0), size);
         p.setPen(Qt::NoPen);
         p.setBrush(theme::table);
         p.drawRoundedRect(label, 3, 3);

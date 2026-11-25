@@ -301,7 +301,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(attributes_, &AttributeEditor::fieldTyped, this, [this](OpId layer, FieldId id, QString text) { typed(layer, id, text, attributes_->field(layer, id)); });
     connect(table_, &TableView::keepingChosen, this, [this](OpId layer, SetLength::Keeping keeping) {
         if (!session_.document().contains(layer)) return;
-        session::ChangeRules rules;
+        session::ChangeRules rules = lengthRules();
         if (lengthChanged_) rules.step = session::Step::Continue;  // part of the edit that is open, if it has changed anything yet
         const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(OpRef<SetLength>(layer), &SetLength::keeping, keeping); }, rules);
         if (!done) table_->showLengthProblem(QString::fromStdString(done.error()));
@@ -693,7 +693,7 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
         table_->showLengthProblem(QString::fromStdString(problem->message));
         return;
     }
-    session::ChangeRules rules;
+    session::ChangeRules rules = lengthRules();
     if (lengthChanged_) rules.step = session::Step::Continue;
     const Expr value = std::get<Expr>(parsed);
     const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(layer, id, value); }, rules);
@@ -706,6 +706,12 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
     lengthChanged_ = true;
     refresh();
 }
+
+// A length typed on the table is an edit by hand, like a dragged corner: the panel keeps its place on
+// the table, so the end that is kept stays where it is on the screen and only the rest of the edge
+// moves. (Left to itself the editor keeps the middle of the panel's box where it was, and the whole
+// drawing slides as the edge grows.)
+session::ChangeRules MainWindow::lengthRules() const { return {.grows = session::Grows::WhereDragged}; }
 
 void MainWindow::closeLengthIfGone() {
     const auto& typing = table_->lengthBeingTyped();

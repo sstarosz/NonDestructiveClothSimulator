@@ -1098,6 +1098,45 @@ TEST_CASE("the bar closes when the length it is for is undone", "[qt]")
     EXPECT((w.doc().operations(plain).size() == 1 && table->lengthEditor() == nullptr), "undoing the length it is for closes the bar, which has nothing left to type into");
 }
 
+TEST_CASE("a longer length moves the end that is not kept, not the whole drawing", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
+    // Where a corner is on the table: the panel's place and the corner in the panel.
+    const auto onTable = [&](const CornerRef& corner) {
+        const Vec2 at = w.window.session().editor().shapes()[plain].position(corner);
+        return Vec2{w.doc().get(plain).x + at.x, w.doc().get(plain).y + at.y};
+    };
+    const Vec2 leftWas = onTable(rect.bottomLeft()), rightWas = onTable(rect.bottomRight());
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    QComboBox* scope = table->lengthCard()->findChild<QComboBox*>("lengthScope");
+    scope->setCurrentIndex(0);
+    emit scope->activated(0);
+    const QPointF anchor = table->anchorPosition(SetLength::Keeping::Start);  // the left end
+    send(table, QEvent::MouseButtonPress, anchor, Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseButtonRelease, anchor, Qt::LeftButton, Qt::NoButton, {});
+
+    table->lengthEditor()->setText("40");  // longer than the 30 it was
+    EXPECT((std::abs(onTable(rect.bottomLeft()).x - leftWas.x) < 1e-9 && std::abs(onTable(rect.bottomLeft()).y - leftWas.y) < 1e-9), "the kept left end has not moved on the table");
+    EXPECT_NEAR((onTable(rect.bottomRight()).x), (rightWas.x + 10.0), "only the other end moved, out by the 10 cm more");
+
+    // The same with the right end kept, and with the middle.
+    const QPointF right = table->anchorPosition(SetLength::Keeping::End);
+    send(table, QEvent::MouseButtonPress, right, Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseButtonRelease, right, Qt::LeftButton, Qt::NoButton, {});
+    EXPECT((std::abs(onTable(rect.bottomRight()).x - rightWas.x) < 1e-9), "keeping the right end, that one stays on the table");
+    EXPECT_NEAR((onTable(rect.bottomLeft()).x), (leftWas.x - 10.0), "and the left end goes out");
+    const QPointF middle = table->anchorPosition(SetLength::Keeping::Middle);
+    send(table, QEvent::MouseButtonPress, middle, Qt::LeftButton, Qt::LeftButton, {});
+    send(table, QEvent::MouseButtonRelease, middle, Qt::LeftButton, Qt::NoButton, {});
+    EXPECT_NEAR((onTable(rect.bottomLeft()).x), (leftWas.x - 5.0), "with the midpoint kept, both go out by half");
+    EXPECT_NEAR((onTable(rect.bottomRight()).x), (rightWas.x + 5.0), "as much");
+}
+
 TEST_CASE("a layer's edge is chosen again by clicking it on the table", "[qt]")
 {
     Table w;
