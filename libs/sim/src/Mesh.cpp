@@ -294,7 +294,7 @@ ClothMesh meshOf(const Document& doc, const Result& shapes, MeshSettings setting
             // Start meets end, unless the seam is reversed.
             const uint32_t partner = alongB->points[seam.reversed ? i : count - 1 - i];
             if (*a == *b && alongA->points[i] == partner) continue;  // a shared corner is already one particle
-            cloth.stitches.push_back({*a, alongA->points[i], *b, partner, sewn.seam});
+            cloth.stitches.push_back({*a, alongA->points[i], *b, partner, sewn.seam, seam.reversed});
         }
     }
     return cloth;

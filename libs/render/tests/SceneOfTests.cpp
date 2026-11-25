@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numbers>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -196,6 +197,116 @@ TEST_CASE("a hidden panel's side of a seam has no line")
     EXPECT(seamPoints() == both / 2, "only the shown side");
     session.setPanelShown(right, false);
     EXPECT(seamPoints() == 0, "none");
+}
+
+namespace {
+
+// Square panels of 20 cm sewn to one lying flat in the z = 0 plane, to its
+// right at 60 degrees, and above it leaning 45 degrees: their sewn edges lie
+// where the flat panel's do.
+struct Bent {
+    Document doc;
+    PanelId flat, side, top;
+    // `reversed`: the right panel faces the other way, and is sewn start to start.
+    // `apart`: cm the right panel stands away from the seam. `lid`: with the one above.
+    explicit Bent(bool reversed = false, double apart = 0.0, bool lid = false) {
+        flat = doc.add(Panel{.name = "flat"});
+        const OpRef<Rect> a = doc.add(flat, Rect{.width = 20_cm, .height = 20_cm});
+        doc.arrange(flat, Arrangement{.placed = true, .x = -10, .y = 100, .z = 0});
+        side = doc.add(Panel{.name = "side"});
+        const OpRef<Rect> b = doc.add(side, Rect{.width = 20_cm, .height = 20_cm});
+        // Turned about the upright so that the edge it is sewn by stays at x = 0, z = 0.
+        const double half = 5.0, deep = 10.0 * std::sin(60.0 * std::numbers::pi / 180.0);
+        doc.arrange(side, Arrangement{.placed = true, .x = half + apart, .y = 100, .z = -deep, .turn = reversed ? 240.0 : 60.0});
+        doc.add(Seam{.a = {flat, a.right()}, .b = {side, reversed ? b.right() : b.left()}, .reversed = reversed});
+        if (!lid) return;
+        top = doc.add(Panel{.name = "top"});
+        const OpRef<Rect> c = doc.add(top, Rect{.width = 20_cm, .height = 20_cm});
+        const double lean = 10.0 * std::sin(45.0 * std::numbers::pi / 180.0);
+        doc.arrange(top, Arrangement{.placed = true, .x = -10, .y = 110 + lean, .z = lean, .tilt = 45});
+        doc.add(Seam{.a = {flat, a.top()}, .b = {top, c.bottom()}});
+    }
+};
+
+// The normals the scene shades the two ends of every stitch with.
+std::vector<std::pair<Point, Point>> acrossTheSeams(const session::Session& session) {
+    const Scene scene = sceneOf(session, OrbitCamera{}, 1.5, {.body = false});
+    const auto at = [&](std::uint32_t panel, std::uint32_t point) {
+        for (const Surface& surface : scene.surfaces)
+            if (surface.panel == session.shownMesh().panels[panel].panel) return surface.normals[point];
+        return Point{};
+    };
+    std::vector<std::pair<Point, Point>> pairs;
+    for (const sim::Stitch& s : session.shownMesh().stitches) pairs.push_back({at(s.panelA, s.pointA), at(s.panelB, s.pointB)});
+    return pairs;
+}
+
+bool same(Point a, Point b, float sign = 1.0f) { return std::abs(a.x - sign * b.x) < 1e-4f && std::abs(a.y - sign * b.y) < 1e-4f && std::abs(a.z - sign * b.z) < 1e-4f; }
+
+} // namespace
+
+TEST_CASE("both sides of a closed seam are shaded with the same normals")
+{
+    session::Session session(Bent().doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    const auto pairs = acrossTheSeams(session);
+    REQUIRE(pairs.size() > 3);
+    bool shared = true, between = true;
+    for (const auto& [a, b] : pairs) {
+        shared = shared && same(a, b);
+        between = between && a.z > 0.55f && a.z < 0.99f && a.x > 0.1f;
+    }
+    EXPECT(shared, "one normal on both sides");
+    EXPECT(between, "between the two panels', which stand 60 degrees apart");
+}
+
+TEST_CASE("across a reversed seam the other side is shaded with the normal turned round")
+{
+    session::Session session(Bent(true).doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    const auto pairs = acrossTheSeams(session);
+    REQUIRE(pairs.size() > 3);
+    bool turned = true, between = true;
+    for (const auto& [a, b] : pairs) {
+        turned = turned && same(a, b, -1.0f);
+        between = between && a.z > 0.55f && a.z < 0.99f && a.x > 0.1f;
+    }
+    EXPECT(turned, "the same line, seen from the other panel's front");
+    EXPECT(between, "between the two, and not cancelled out");
+}
+
+TEST_CASE("a seam that has not closed leaves each panel its own normals")
+{
+    session::Session session(Bent(false, 60.0).doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    const auto pairs = acrossTheSeams(session);
+    REQUIRE(!pairs.empty());
+    bool own = true;
+    for (const auto& [a, b] : pairs) own = own && std::abs(a.z - 1.0f) < 1e-4f && std::abs(b.z - 0.5f) < 1e-4f;
+    EXPECT(own, "60 cm apart, each is shaded as it faces");
+}
+
+TEST_CASE("where seams meet in a corner all its sides share one normal, also with a panel hidden")
+{
+    const Bent start(false, 0.0, true);
+    session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    // The normals at the corner the three panels share, of those shown.
+    const auto atTheCorner = [&] {
+        std::vector<Point> found;
+        for (const Surface& surface : sceneOf(session, OrbitCamera{}, 1.5, {.body = false}).surfaces)
+            for (std::size_t i = 0; i < surface.points.size(); ++i)
+                if (std::abs(surface.points[i].x) < 0.01f && std::abs(surface.points[i].y - 110.0f) < 0.01f && std::abs(surface.points[i].z) < 0.01f)
+                    found.push_back(surface.normals[i]);
+        return found;
+    };
+    const std::vector<Point> all = atTheCorner();
+    REQUIRE(all.size() == 3);
+    EXPECT((same(all[0], all[1]) && same(all[0], all[2])), "one normal, though two of them are not sewn to each other");
+    session.setPanelShown(start.side, false);
+    const std::vector<Point> left = atTheCorner();
+    REQUIRE(left.size() == 2);
+    EXPECT((same(left[0], all[0]) && same(left[1], all[0])), "hiding a panel changes nothing in how the others look");
 }
 
 TEST_CASE("normals point out of the side a surface is wound towards")

@@ -63,6 +63,8 @@ the body follows too.
   deactivates it, as in Marvelous Designer: it stays where it is, seen through,
   nothing touches it and its seams hold nothing, until it is activated again.
   Neither changes the pattern.
+- **Smooth across seams**: where a seam has closed, the cloth on both sides is
+  shaded as one piece.
 - **Gizmos as in Maya**, in the 3D view and on the table alike: Q selects
   only, W moves (an arrow per axis, a square per plane, the middle across
   the view), E turns (a ring per axis, one about the line of sight, and
@@ -375,6 +377,8 @@ holds and hands it what the user did.
   an undo step; a panel deleted and brought back by undo is shown and active.
   A panel activated again where cloth has moved into it is pushed apart from it
   at once, which can jolt.
+- Cloth does not resist folding across a seam as it does inside a panel, and a
+  pressed seam is shaded round like any other fold.
 - A seam is chosen only by its row in the Outliner, not by clicking it on the
   table or in 3D. Where the graphics card draws no wide lines, the seams' lines
   in 3D are one pixel wide.

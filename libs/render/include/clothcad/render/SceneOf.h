@@ -6,7 +6,8 @@
 // is a darker, cooler shade of it. Both edges of every seam are lined in
 // blue, where the cloth has them now; the selected seam in amber, wider. A
 // hidden panel is left out, with its side of every seam; a deactivated one is
-// seen through.
+// seen through. Where a seam has closed, both its sides are shaded as one
+// cloth, with the same normals.
 //
 //   render::Scene scene = render::sceneOf(session, camera, width / double(height), {.selected = panel});
 
