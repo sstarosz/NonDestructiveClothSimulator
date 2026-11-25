@@ -168,6 +168,7 @@ std::string Drafting::freeName(const Document& doc, const std::string& base) {
 Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
     const Outcome outcome = std::visit([&](const auto& g) { return on(editor, g); }, gesture);
     if (outcome.toolDone) tool = Tool::Select;
+    if (selection.panel) selection.seam.reset();  // whatever selected a panel lets go of the seam
     return outcome;
 }
 
@@ -239,6 +240,7 @@ void Drafting::forget(const Document& doc) {
     selection.corners.clear();
     for (PanelId gone : selection.panels())
         if (!doc.contains(gone)) drop(gone);
+    if (selection.seam && !doc.contains(*selection.seam)) selection.seam.reset();
 }
 
 Outcome Drafting::on(Editor& editor, const SelectPanel& g) {
@@ -246,6 +248,7 @@ Outcome Drafting::on(Editor& editor, const SelectPanel& g) {
         if (g.panel != selection.panel) selection.corners.clear();
         selection.panel = g.panel;
         selection.others.clear();
+        selection.seam.reset();
     } else if (g.panel && editor.document().contains(*g.panel)) {
         if (g.how == Pick::Toggle && selection.has(*g.panel)) drop(*g.panel);
         else join(*g.panel);
@@ -259,12 +262,19 @@ Outcome Drafting::on(Editor& editor, const SelectPanels& g) {
         selection.panel.reset();
         selection.others.clear();
         selection.corners.clear();
+        selection.seam.reset();
     }
     for (PanelId panel : g.panels) {
         if (!doc.contains(panel)) continue;
         if (g.how == Pick::Toggle && selection.has(panel)) drop(panel);
         else join(panel);
     }
+    return {};
+}
+
+Outcome Drafting::on(Editor& editor, const SelectSeam& g) {
+    if (!g.seam) selection.seam.reset();
+    else if (editor.document().contains(*g.seam)) selection = {.panel = {}, .corners = {}, .others = {}, .seam = g.seam};
     return {};
 }
 

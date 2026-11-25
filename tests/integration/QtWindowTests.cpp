@@ -1692,6 +1692,64 @@ TEST_CASE("a panel's seams are listed and reversed in the Attribute Editor, dele
     EXPECT((w.doc().contains(seam) && w.doc().get(seam).reversed == !was), "undo brings it back as it was");
 }
 
+TEST_CASE("a seam's row in the Outliner lights the seam on the table and in 3D; selecting a panel lets it go", "[qt]")
+{
+    Window w;
+    Outliner& outliner = *w.window.outliner();
+    const std::vector<SeamId> listed = outliner.seamsShown();
+    REQUIRE(listed.size() >= 2);
+    w.window.select(w.panel("front"));
+    // A click with the mouse on the row of the nth seam.
+    const auto clickSeam = [&](int n) {
+        QTreeWidgetItem* seams = outliner.topLevelItem(2);
+        seams->setExpanded(true);
+        QTreeWidgetItem* row = seams->child(n);
+        REQUIRE(row != nullptr);
+        outliner.scrollToItem(row);
+        const QPointF at = outliner.visualItemRect(row).center();
+        send(outliner.viewport(), QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, {});
+        send(outliner.viewport(), QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, {});
+        w.window.tick();
+    };
+    const auto amberLines = [&] {
+        int count = 0;
+        for (const render::Lines& lines : w.window.space()->sceneFor(200, 200).lines)
+            count += lines.lift > 0.0f && lines.colour.red == 1.0f && lines.colour.blue < 0.5f;
+        return count;
+    };
+
+    EXPECT((amberLines() == 0 && w.window.table()->litSeamEdges().empty()), "no seam is lit before one is chosen");
+    clickSeam(1);
+    EXPECT((w.window.selectedSeam() == listed[1] && !w.window.selected()), "the seam is selected instead of the panel");
+    EXPECT(w.window.table()->litSeamEdges().size() == 2, "its two edges are lit on the table");
+    EXPECT(amberLines() == 1, "and it is amber in 3D");
+    EXPECT((outliner.currentItem() && outliner.currentItem()->parent() == outliner.topLevelItem(2) &&
+            outliner.topLevelItem(2)->indexOfChild(outliner.currentItem()) == 1),
+           "its row stays chosen");
+
+    outliner.choose(w.panel("front"));
+    w.window.tick();
+    EXPECT((!w.window.selectedSeam() && w.window.selected() == w.panel("front")), "a panel's row lets the seam go");
+    EXPECT((amberLines() == 0 && w.window.table()->litSeamEdges().empty()), "and nothing of it stays lit");
+
+    clickSeam(0);
+    EXPECT(w.window.selectedSeam() == listed[0], "another seam");
+    const QPointF empty(w.window.table()->width() - 3.0, w.window.table()->height() - 3.0);
+    click(w.window.table(), empty);
+    EXPECT(!w.window.selectedSeam(), "a click on the empty table lets it go");
+    clickSeam(0);
+    w.window.select(std::nullopt);
+    EXPECT(!w.window.selectedSeam(), "as a click on nothing in 3D does");
+
+    clickSeam(0);
+    QKeyEvent erase(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
+    QApplication::sendEvent(&outliner, &erase);
+    w.window.tick();
+    EXPECT((!w.doc().contains(listed[0]) && !w.window.selectedSeam()), "Delete on its row takes it away, and the selection with it");
+    w.window.shelf()->undo()->trigger();
+    EXPECT(w.doc().contains(listed[0]), "undo brings it back");
+}
+
 TEST_CASE("a seam whose edges differ in length shows its lengths in orange; an even one does not", "[qt]")
 {
     Window w;

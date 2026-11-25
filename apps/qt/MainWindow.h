@@ -53,6 +53,9 @@ public:
     bool loadAvatar(const QString& path);
     void select(std::optional<PanelId> panel);
     std::optional<PanelId> selected() const { return drafting_.selection.panel; }
+    // A seam chosen instead of panels, and the one chosen now.
+    void selectSeam(std::optional<SeamId> seam);
+    std::optional<SeamId> selectedSeam() const { return drafting_.selection.seam; }
     // Every selected panel, the one the docks show first.
     std::vector<PanelId> selectedPanels() const { return drafting_.selection.panels(); }
     std::optional<OpId> viewedStep() const { return viewUntil_; }

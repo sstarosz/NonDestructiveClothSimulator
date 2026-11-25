@@ -57,7 +57,7 @@ public:
     // What to show, and with which tool: another tool than before drops what was half done.
     // `selected` is the panel with handles and gizmo; `others` are panels selected with it.
     void show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners, Tool tool,
-              const std::vector<PanelId>& others = {});
+              const std::vector<PanelId>& others = {}, std::optional<SeamId> seam = {});
     // The cloth mesh to draw over the panels, or none. The table keeps a share of it.
     void setMesh(std::shared_ptr<const sim::ClothMesh> mesh);
     bool meshShown() const { return mesh_ != nullptr; }
@@ -81,6 +81,8 @@ public:
     QString gridKey() const;
     const std::vector<std::pair<QRectF, EdgeRef>>& lengthLabels() const { return lengthLabels_; }
     const std::vector<std::pair<Vec2, Vec2>>& seamLinks() const { return seamLinks_; }
+    // The edges lit as the selected seam's, as points on the table.
+    std::vector<std::vector<Vec2>> litSeamEdges() const;
     void cancel();  // forgets a drag in progress
     // Opens a bar by an edge's length label with `text` in it, to type the length (see LengthCard).
     // Every edit is reported (lengthEdited), so that the window can show the result as it is typed; the
@@ -142,7 +144,11 @@ private:
         PanelId panel;
         std::string name;
         Pattern pattern;  // in table coordinates
-        std::vector<std::vector<Vec2>> sewn;
+        struct Sewn {
+            SeamId seam;
+            std::vector<Vec2> along;
+        };
+        std::vector<Sewn> sewn;
         std::vector<std::pair<Vec2, Vec2>> axes;
         bool instance = false;
         Vec2 place;       // the panel's place on the table
@@ -227,6 +233,8 @@ private:
     std::vector<Drawn> drawn_;
     // The ends of each seam's edges that meet, on the table: crossed links show a twist.
     std::vector<std::pair<Vec2, Vec2>> seamLinks_;
+    std::optional<SeamId> seam_;             // the selected seam
+    std::optional<std::size_t> litLinks_;    // the first of its two links in seamLinks_
     // Where the length labels were painted, for a double-click on one.
     mutable std::vector<std::pair<QRectF, EdgeRef>> lengthLabels_;
     LengthCard* card_ = nullptr;

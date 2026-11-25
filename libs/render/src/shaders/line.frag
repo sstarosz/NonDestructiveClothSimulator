@@ -7,7 +7,6 @@ layout(push_constant) uniform Push {
     vec4 back;
 } push;
 
-layout(location = 0) in vec3 seenNormal;
 layout(location = 0) out vec4 result;
 
 void main() { result = push.colour; }

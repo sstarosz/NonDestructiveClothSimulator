@@ -52,8 +52,10 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
     seams_->setForeground(0, theme::seam);
     panels_->setExpanded(true);
     connect(this, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* item) {
-        if (showing_ || !item || !item->data(0, panelRole).isValid()) return;
-        emit panelChosen(PanelId{item->data(0, panelRole).toUInt()});
+        if (showing_) return;
+        // The row may be made again while it is reported: nothing of it is used afterwards.
+        if (const std::optional<PanelId> panel = panelOf(item)) emit panelChosen(*panel);
+        else if (const std::optional<SeamId> seam = seamOf(item)) emit seamChosen(*seam);
     });
     connect(this, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem* item, int column) {
         if (item == body_ && column == 1 && !bodyNow_.name.isEmpty()) emit bodyShownChanged(!bodyNow_.shown);
@@ -139,13 +141,14 @@ void Outliner::showBody(const Body& body) {
 
 QString Outliner::bodyShown() const { return body_->text(0); }
 
-void Outliner::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const Body& body) {
+void Outliner::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const Body& body, std::optional<SeamId> seam) {
     showBody(body);
     // Everything the rows say. The window shows the document again after every
     // change, each step of a drag included; rows that would come out the same
     // are left alone, so that nothing is made or painted again.
     const std::vector<PanelId> panels = doc.panels();
     std::string signature = selected ? std::to_string(selected->value) : "-";
+    signature += seam ? "," + std::to_string(seam->value) : ",-";
     for (PanelId panel : panels) {
         QColor colour;
         const Icon picture = iconOf(doc, panel, colour);
@@ -155,12 +158,13 @@ void Outliner::show(const Document& doc, const Result& shapes, std::optional<Pan
                      colour.name().toStdString() + (doc.get(panel).construction ? "c" : "") + (failed ? "f" : "");
     }
     for (SeamId id : doc.seams()) {
-        const Seam& seam = doc.get(id);
-        signature += "|s" + std::to_string(id.value) + nameOf(Reference(seam.a.edge), doc) + nameOf(Reference(seam.b.edge), doc);
-        for (const SeamSide& side : {seam.a, seam.b}) signature += doc.contains(side.panel) ? doc.get(side.panel).name : "?";
+        const Seam& sewn = doc.get(id);
+        signature += "|s" + std::to_string(id.value) + nameOf(Reference(sewn.a.edge), doc) + nameOf(Reference(sewn.b.edge), doc);
+        for (const SeamSide& side : {sewn.a, sewn.b}) signature += doc.contains(side.panel) ? doc.get(side.panel).name : "?";
     }
     // Rows the user has been typing in, or has selected, are not as the document has them.
-    bool asShown = signature == shown_ && panels_->childCount() == static_cast<int>(panels.size()) && (selected ? panelOf(currentItem()) == selected : currentItem() == nullptr);
+    const bool rowChosen = selected ? panelOf(currentItem()) == selected : seam ? seamOf(currentItem()) == seam : currentItem() == nullptr;
+    bool asShown = signature == shown_ && panels_->childCount() == static_cast<int>(panels.size()) && rowChosen;
     for (int i = 0; asShown && i < panels_->childCount(); ++i) asShown = panels_->child(i)->text(0) == QString::fromStdString(doc.get(panels[static_cast<std::size_t>(i)]).name);
     if (asShown) return;
     shown_ = signature;
@@ -182,18 +186,19 @@ void Outliner::show(const Document& doc, const Result& shapes, std::optional<Pan
         if (selected && *selected == panel) setCurrentItem(item);
     }
     for (SeamId id : doc.seams()) {
-        const Seam& seam = doc.get(id);
+        const Seam& sewn = doc.get(id);
         const auto side = [&](const SeamSide& s) {
             return doc.contains(s.panel) ? doc.get(s.panel).name : std::string("?");
         };
-        auto* item = new QTreeWidgetItem(seams_, {QString::fromStdString(side(seam.a) + "  ↔  " + side(seam.b))});
+        auto* item = new QTreeWidgetItem(seams_, {QString::fromStdString(side(sewn.a) + "  ↔  " + side(sewn.b))});
         item->setForeground(0, theme::seam);
         item->setData(0, seamRole, id.value);
-        item->setToolTip(0, QString::fromStdString(nameOf(Reference(seam.a.edge), doc) + "\n" + nameOf(Reference(seam.b.edge), doc)));
+        item->setToolTip(0, QString::fromStdString(nameOf(Reference(sewn.a.edge), doc) + "\n" + nameOf(Reference(sewn.b.edge), doc)));
+        if (seam && *seam == id) setCurrentItem(item);
     }
     seams_->setText(1, QString::number(doc.seams().size()));
     seams_->setForeground(1, theme::quiet);
-    if (!selected) setCurrentItem(nullptr);
+    if (!selected && !seam) setCurrentItem(nullptr);
     showing_ = false;
 }
 

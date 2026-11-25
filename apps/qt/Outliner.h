@@ -5,7 +5,8 @@
 // body (it is then also out of the simulation) or show it again.
 // Choosing, renaming (double click or F2), copying, making it base only and
 // deleting a panel (its context menu, Delete) are only reported, as is
-// deleting a seam (its context menu, Delete).
+// deleting a seam (its context menu, Delete). Choosing a seam's row is
+// reported too: the views light that seam up.
 //
 //   outliner->show(doc, shapes, selected, {.name = "avatarV1.obj"});
 //   connect(outliner, &Outliner::panelChosen, ...);
@@ -31,7 +32,7 @@ public:
         bool ready = true;
         friend bool operator==(const Body&, const Body&) = default;
     };
-    void show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const Body& body);
+    void show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const Body& body, std::optional<SeamId> seam = {});
     void showBody(const Body& body);  // the body's row alone
     QString bodyShown() const;        // the words on its row
 
@@ -48,6 +49,7 @@ public:
 
 signals:
     void panelChosen(clothcad::PanelId panel);
+    void seamChosen(clothcad::SeamId seam);
     void renamed(clothcad::PanelId panel, QString name);
     void copyRequested(clothcad::PanelId panel);
     void deleteRequested(clothcad::PanelId panel);

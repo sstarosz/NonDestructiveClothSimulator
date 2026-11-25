@@ -48,6 +48,8 @@ public:
 
     // The graphics card it draws with, for people to read: "llvmpipe (LLVM 15.0.7, 256 bits)".
     const std::string& deviceName() const;
+    // The widest line the card draws, in pixels; 1 where it draws none wider.
+    float widestLine() const;
     // Vulkan's instance, for a toolkit that makes the surface of a window.
     VkInstance_T* instance() const;
 

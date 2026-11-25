@@ -14,10 +14,43 @@ constexpr Colour bodyColour{0.55f, 0.56f, 0.6f};
 constexpr Colour clothColour{0.82f, 0.83f, 0.86f};
 constexpr Colour selectedColour{1.0f, 0.75f, 0.27f};
 constexpr Colour instanceColour{0.75f, 0.62f, 0.95f};
+// The table's seam blue, deeper: it is seen against pale cloth, not the dark table.
+constexpr Colour seamColour{0.18f, 0.46f, 0.98f};
+
+constexpr float seamWidth = 2.0f, selectedSeamWidth = 4.0f;  // in pixels of the screen's own scale
+constexpr float seamLift = 0.5f;                             // cm
 
 // A panel's back: its colour, darker and cooler, so that which way it faces
 // shows at a glance and what it is (selected, an instance) still does.
 Colour behind(Colour front) { return {front.red * 0.58f, front.green * 0.61f, front.blue * 0.77f, front.alpha}; }
+
+// A line along both edges of every seam the mesh has sewn, where its particles
+// are now. The selected seam comes last, so that it lies on top.
+void addSeams(Scene& scene, const Document& doc, const sim::ClothMesh& mesh, const sim::Placement& positions, const SceneOptions& options) {
+    const float pixel = static_cast<float>(options.pixel);
+    std::optional<Lines> selected;
+    for (std::size_t s = 0; s < mesh.stitches.size(); ++s) {
+        const SeamId id = mesh.stitches[s].seam;
+        // A seam's stitches follow each other. A mesh a few frames old may name a seam that is gone.
+        if ((s > 0 && mesh.stitches[s - 1].seam == id) || !doc.contains(id)) continue;
+        const bool chosen = options.seam == id;
+        Lines lines{.points = {}, .colour = chosen ? selectedColour : seamColour, .width = (chosen ? selectedSeamWidth : seamWidth) * pixel, .lift = seamLift};
+        const Seam& seam = doc.get(id);
+        for (const SeamSide& side : {seam.a, seam.b}) {
+            const sim::PanelMesh* panel = mesh.find(side.panel);
+            if (!panel) continue;
+            const auto i = static_cast<std::size_t>(panel - mesh.panels.data());
+            const sim::EdgeParticles* along = panel->along(side.edge);
+            if (!along || i >= positions.size() || positions[i].size() != panel->points.size()) continue;
+            for (std::size_t k = 1; k < along->points.size(); ++k)
+                lines.points.insert(lines.points.end(), {pointOf(positions[i][along->points[k - 1]]), pointOf(positions[i][along->points[k]])});
+        }
+        if (lines.points.empty()) continue;
+        if (chosen) selected = std::move(lines);
+        else scene.lines.push_back(std::move(lines));
+    }
+    if (selected) scene.lines.push_back(std::move(*selected));
+}
 
 // The floor: a line every 10 cm for two metres around the middle, stronger every metre.
 void addFloor(Scene& scene) {
@@ -94,6 +127,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     }
     addFloor(scene);
     if (!wire.points.empty()) scene.lines.push_back(std::move(wire));
+    addSeams(scene, doc, mesh, positions, options);
     return scene;
 }
 

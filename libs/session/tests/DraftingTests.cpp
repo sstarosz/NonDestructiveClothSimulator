@@ -1153,3 +1153,40 @@ TEST_CASE("giving up an edge's own length keeps one that is switched off")
            "the length in force is gone, and the one that was switched off is kept, as the user left it");
     EXPECT((!editor.document().enabled(alternative.id)), "still off");
 }
+
+TEST_CASE("a seam is selected instead of panels, and let go of when a panel is selected or it is gone")
+{
+    Document doc;
+    const PanelId a = doc.add(Panel{.name = "a"});
+    const OpRef<Rect> first = doc.add(a, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId b = doc.add(Panel{.name = "b", .x = 40});
+    const OpRef<Rect> second = doc.add(b, Rect{.width = 20_cm, .height = 30_cm});
+    const SeamId seam = doc.add(Seam{.a = {a, first.right()}, .b = {b, second.left()}});
+    Editor editor(doc);
+    Drafting drafting;
+
+    drafting.handle(editor, SelectPanel{a});
+    drafting.handle(editor, SelectPanel{b, Pick::Add});
+    drafting.handle(editor, SelectSeam{seam});
+    EXPECT((drafting.selection.seam == seam && drafting.selection.panels().empty()), "the seam, and no panel");
+    EXPECT(!editor.canUndo(), "selecting changes no document");
+
+    drafting.handle(editor, SelectPanel{a});
+    EXPECT((!drafting.selection.seam && drafting.selection.panel == a), "a panel selected lets the seam go");
+    drafting.handle(editor, SelectSeam{seam});
+    drafting.handle(editor, SelectPanel{b, Pick::Toggle});
+    EXPECT((!drafting.selection.seam && drafting.selection.panel == b), "also one added with Ctrl");
+    drafting.handle(editor, SelectSeam{seam});
+    drafting.handle(editor, SelectPanel{std::nullopt});
+    EXPECT(!drafting.selection.seam, "a click on nothing lets it go");
+    drafting.handle(editor, SelectSeam{seam});
+    drafting.handle(editor, SelectPanels{{}, Pick::Replace});
+    EXPECT(!drafting.selection.seam, "so does a box over nothing");
+
+    drafting.handle(editor, SelectSeam{seam});
+    REQUIRE(editor.change([&](Document& d) { d.remove(seam); }, {.ifItBreaks = IfItBreaks::Allow}));
+    drafting.forget(editor.document());
+    EXPECT(!drafting.selection.seam, "a seam that is gone is not selected");
+    drafting.handle(editor, SelectSeam{seam});
+    EXPECT(!drafting.selection.seam, "and cannot be");
+}

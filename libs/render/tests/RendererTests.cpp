@@ -170,6 +170,46 @@ TEST_CASE("lines are drawn over the background and pictures may change size")
     EXPECT((bigger && bigger->width == 300 && bigger->height == 200), "a picture of another size");
 }
 
+TEST_CASE("a lifted line shows on a surface it lies just behind, but not through one well in front of it")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    const Colour yellow{1.0f, 1.0f, 0.0f};
+    // Whether the line across the middle of a grey square shows.
+    const auto shows = [&](float depth, float lift) {
+        Scene scene = facing();
+        Surface sheet = square(60.0f, 0.0f, {0.5f, 0.5f, 0.5f});
+        sheet.lit = false;
+        scene.surfaces.push_back(sheet);
+        scene.lines.push_back({.points = {{-20.0f, 100.0f, depth}, {20.0f, 100.0f, depth}}, .colour = yellow, .lift = lift});
+        const auto picture = renderer()->draw(scene, 160, 120);
+        REQUIRE(picture);
+        bool found = false;
+        for (int y = 56; y <= 64; ++y) found = found || near(picture->at(86, y), yellow);
+        return found;
+    };
+    EXPECT(!shows(-0.2f, 0.0f), "just behind the surface, a line is hidden");
+    EXPECT(shows(-0.2f, 0.5f), "lifted, it shows");
+    EXPECT(!shows(-5.0f, 0.5f), "what is well behind stays hidden");
+}
+
+TEST_CASE("a wider line covers more of the picture, where the card draws wider lines")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    if (renderer()->widestLine() < 5.0f) SKIP("This card draws no wider lines.");
+    const Colour yellow{1.0f, 1.0f, 0.0f};
+    const auto rows = [&](float width) {
+        Scene scene = facing();
+        scene.lines.push_back({.points = {{-100.0f, 100.0f, 0.0f}, {100.0f, 100.0f, 0.0f}}, .colour = yellow, .width = width});
+        const auto picture = renderer()->draw(scene, 101, 75);
+        REQUIRE(picture);
+        int covered = 0;
+        for (int y = 0; y < 75; ++y) covered += near(picture->at(50, y), yellow);
+        return covered;
+    };
+    EXPECT(rows(1.0f) <= 2, "one pixel wide as it was");
+    EXPECT(rows(5.0f) >= 4, "five wide");
+}
+
 TEST_CASE("the body is in the picture of a session")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());

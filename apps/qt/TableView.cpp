@@ -261,7 +261,8 @@ Pattern placedOnTable(const Pattern& own, double angle, Vec2 place) {
 } // namespace
 
 void TableView::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners, Tool tool,
-                     const std::vector<PanelId>& others) {
+                     const std::vector<PanelId>& others, std::optional<SeamId> chosenSeam) {
+    seam_ = chosenSeam;
     if (tool != tool_) {
         tool_ = tool;
         cancel();
@@ -284,7 +285,7 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         for (SeamId id : doc.seams()) {
             const Seam& seam = doc.get(id);
             for (const SeamSide& side : {seam.a, seam.b})
-                if (side.panel == result.panel && d.pattern.contains(side.edge)) d.sewn.push_back(edgePoints(d.pattern, d.pattern.edge(side.edge)));
+                if (side.panel == result.panel && d.pattern.contains(side.edge)) d.sewn.push_back({id, edgePoints(d.pattern, d.pattern.edge(side.edge))});
         }
         for (OpId op : doc.operations(result.panel)) d.instance = d.instance || std::holds_alternative<Instance>(doc.get(op));
         const std::optional<Bounds> own = bounds(result.pattern);
@@ -301,6 +302,7 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
     }
     // Each seam: the start of one edge goes to the end of the other, unless it is reversed.
     seamLinks_.clear();
+    litLinks_.reset();
     for (const SeamResult& sewn : shapes.seams) {
         if (!sewn.sewn() || !doc.contains(sewn.seam)) continue;
         const Seam& seam = doc.get(sewn.seam);
@@ -310,11 +312,20 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         const std::vector<Vec2> lineA = edgePoints(a->pattern, a->pattern.edge(seam.a.edge));
         const std::vector<Vec2> lineB = edgePoints(b->pattern, b->pattern.edge(seam.b.edge));
         if (lineA.size() < 2 || lineB.size() < 2) continue;
+        if (seam_ == sewn.seam) litLinks_ = seamLinks_.size();
         seamLinks_.push_back({lineA.front(), seam.reversed ? lineB.front() : lineB.back()});
         seamLinks_.push_back({lineA.back(), seam.reversed ? lineB.back() : lineB.front()});
     }
     if (!fitted_ && !drawn_.empty()) fit();
     update();
+}
+
+std::vector<std::vector<Vec2>> TableView::litSeamEdges() const {
+    std::vector<std::vector<Vec2>> lit;
+    for (const Drawn& d : drawn_)
+        for (const Drawn::Sewn& edge : d.sewn)
+            if (seam_ == edge.seam) lit.push_back(edge.along);
+    return lit;
 }
 
 QString TableView::gridKey() const { return QString::fromStdString("grid " + formatValue(gridStep(), Unit::Length)); }
@@ -583,11 +594,15 @@ void TableView::paintEvent(QPaintEvent*) {
         for (const InternalLine& internal : d.pattern.lines) p.drawLine(toScreen(internal.start), toScreen(internal.end));
         p.setPen(QPen(theme::symmetry, 1.5, Qt::DashLine));
         for (const auto& [from, to] : d.axes) p.drawLine(toScreen(from), toScreen(to));
-        p.setPen(QPen(theme::seam, 4, Qt::SolidLine, Qt::SquareCap));
-        for (const std::vector<Vec2>& edge : d.sewn) {
-            QPolygonF along;
-            for (const Vec2& v : edge) along << toScreen(v);
-            strokeSegments(p, along, false);
+        // The selected seam's edge last, so that it lies over any other seam on it.
+        for (const bool lit : {false, true}) {
+            p.setPen(QPen(lit ? theme::selected : theme::seam, lit ? 5 : 4, Qt::SolidLine, Qt::SquareCap));
+            for (const Drawn::Sewn& edge : d.sewn) {
+                if ((seam_ == edge.seam) != lit) continue;
+                QPolygonF along;
+                for (const Vec2& v : edge.along) along << toScreen(v);
+                strokeSegments(p, along, false);
+            }
         }
         p.setPen(isChosen ? QColor(255, 210, 122) : theme::text);
         if (const std::optional<Bounds> b = bounds(d.pattern)) {
@@ -603,6 +618,11 @@ void TableView::paintEvent(QPaintEvent*) {
     link.setAlpha(150);
     p.setPen(QPen(link, 1.0, Qt::DashLine));
     for (const auto& [from, to] : seamLinks_) p.drawLine(toScreen(from), toScreen(to));
+    if (litLinks_) {
+        p.setPen(QPen(theme::selected, 1.5, Qt::DashLine));
+        for (std::size_t i = *litLinks_; i < *litLinks_ + 2 && i < seamLinks_.size(); ++i)
+            p.drawLine(toScreen(seamLinks_[i].first), toScreen(seamLinks_[i].second));
+    }
 
     // The selected panel's lengths, beside each edge, outside the outline; one
     // set by a formula in the formula colour, with its formula.

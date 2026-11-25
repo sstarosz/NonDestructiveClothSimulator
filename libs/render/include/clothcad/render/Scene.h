@@ -45,10 +45,12 @@ struct Surface {
     std::optional<Colour> back{};            // its colour seen from behind; none: the same as from the front
 };
 
-// Straight lines, one pixel wide, blended by their alpha.
+// Straight lines, blended by their alpha.
 struct Lines {
     std::vector<Point> points;  // two per line
     Colour colour;
+    float width = 1.0f;  // in picture pixels; one where the card draws no wider (Renderer::widestLine)
+    float lift = 0.0f;   // drawn this many cm nearer the eye, on the same spot of the picture, so that a surface they lie on does not cut them
 };
 
 struct Scene {

@@ -222,7 +222,8 @@ SpaceView::~SpaceView() {
 
 const render::Picture* SpaceView::picture() const { return picture_ && picture_->picture ? &*picture_->picture : nullptr; }
 
-void SpaceView::show(const session::Session& session, std::optional<PanelId> selected, session::Tool tool, bool mesh, bool body) {
+void SpaceView::show(const session::Session& session, std::optional<PanelId> selected, session::Tool tool, bool mesh, bool body,
+                     std::optional<SeamId> seam) {
     if (const std::optional<session::GizmoMode> mode = session::gizmoOf(tool); mode != mode_) {
         mode_ = mode;
         hovered_.reset();
@@ -230,12 +231,12 @@ void SpaceView::show(const session::Session& session, std::optional<PanelId> sel
     }
     // The scene is kept even where nothing can be drawn: a click is picked in it.
     draped_ = session.clothShown();
-    const Shown now{session.sceneVersion(), selected, mesh, body};
+    const Shown now{session.sceneVersion(), selected, mesh, body, seam, pixelScale()};
     if (shown_ == now) return;
     shown_ = now;
     selected_ = selected;
     gizmo_ = selected ? render::gizmoOf(session, *selected, session::GizmoMode::Move, 1.0) : std::nullopt;
-    scene_ = render::sceneOf(session, camera_, 1.0, {.selected = selected, .body = body, .mesh = mesh});
+    scene_ = render::sceneOf(session, camera_, 1.0, {.selected = selected, .body = body, .mesh = mesh, .seam = seam, .pixel = now.pixel});
     scene_.background = background;
     extent_ = render::extentOf(session);
     if (!framed_ && extent_) {

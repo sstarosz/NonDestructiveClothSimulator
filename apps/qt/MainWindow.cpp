@@ -126,6 +126,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     });
     connect(shelf_, &Shelf::layoutChosen, this, &MainWindow::setViewLayout);
     connect(outliner_, &Outliner::panelChosen, this, [this](PanelId panel) { select(panel); });
+    connect(outliner_, &Outliner::seamChosen, this, [this](SeamId seam) { selectSeam(seam); });
     connect(table_, &TableView::gestured, this, &MainWindow::on);
     connect(space_, &SpaceView::panelClicked, this, &MainWindow::select);
     connect(space_, &SpaceView::gestured, this, &MainWindow::on);
@@ -555,8 +556,15 @@ void MainWindow::startPicking(OpId layer, ReferenceId reference) {
 
 void MainWindow::select(std::optional<PanelId> panel) {
     if (panel && !session_.document().contains(*panel)) panel.reset();
-    if (panel == drafting_.selection.panel) return;
+    if (panel == drafting_.selection.panel && !drafting_.selection.seam) return;
     drafting_.handle(session_.editor(), session::SelectPanel{panel});
+    refresh();
+}
+
+void MainWindow::selectSeam(std::optional<SeamId> seam) {
+    if (seam && !session_.document().contains(*seam)) seam.reset();
+    if (seam == drafting_.selection.seam) return;
+    drafting_.handle(session_.editor(), session::SelectSeam{seam});
     refresh();
 }
 
@@ -572,7 +580,7 @@ void MainWindow::tick() {
     if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) say(QString::fromStdString(*problem), true);
     table_->setMesh(meshShown ? session_.mesh() : nullptr);
     if (session_.editor().version() != shownVersion_) refresh();
-    if (space_->isVisible()) space_->show(session_, drafting_.selection.panel, drafting_.tool, meshShown, bodyShown_);
+    if (space_->isVisible()) space_->show(session_, drafting_.selection.panel, drafting_.tool, meshShown, bodyShown_, drafting_.selection.seam);
     space_->showTime(session_.clothShown() ? std::optional<double>(session_.cloth().time) : std::nullopt, session_.clothShown() && session_.cloth().sewing);
     outliner_->showBody(bodyNow());
     showMeshCounts();
@@ -641,7 +649,9 @@ void MainWindow::refresh() {
     const Result& shapes = session_.editor().shapes();
     std::optional<PanelId>& selected = drafting_.selection.panel;
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
-    outliner_->show(doc, shapes, selected, bodyNow());
+    std::optional<SeamId>& seam = drafting_.selection.seam;
+    if (seam && !doc.contains(*seam)) seam.reset();
+    outliner_->show(doc, shapes, selected, bodyNow(), seam);
     for (QAction* onPanel : {shelf_->instance(), shelf_->mirroredInstance(), shelf_->bake(), shelf_->placeFromTable()}) onPanel->setEnabled(selected.has_value());
     const std::vector<PanelId> chosen = drafting_.selection.panels();
     shelf_->sewAsSource()->setEnabled(std::any_of(chosen.begin(), chosen.end(), [&](PanelId panel) { return doc.contains(panel) && doc.instanceOf(panel); }));
@@ -651,8 +661,8 @@ void MainWindow::refresh() {
     showAllSteps_->setEnabled(viewUntil_.has_value());
     if (viewUntil_) past_ = evaluateUpTo(doc, *viewUntil_);
     attributes_->show(doc, shapes, selected, viewUntil_);
-    table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners, drafting_.tool, drafting_.selection.others);
-    if (space_->isVisible()) space_->show(session_, selected, drafting_.tool, shelf_->mesh()->isChecked(), bodyShown_);
+    table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners, drafting_.tool, drafting_.selection.others, seam);
+    if (space_->isVisible()) space_->show(session_, selected, drafting_.tool, shelf_->mesh()->isChecked(), bodyShown_, seam);
     // A layer's reference being chosen: offer what that layer could use.
     if (picking_ && (!doc.contains(picking_->operation))) picking_.reset();
     std::optional<TableView::Choice> choice;

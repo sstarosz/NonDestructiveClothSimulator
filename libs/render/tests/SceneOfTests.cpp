@@ -1,5 +1,6 @@
 // Unit tests of SceneOf.cpp: what of a session the 3D view shows.
 
+#include <algorithm>
 #include <cmath>
 
 #include <catch2/catch_test_macros.hpp>
@@ -75,6 +76,73 @@ TEST_CASE("every panel has a darker, cooler back; the body has none")
     EXPECT(coolerAndDarker(plain.surfaces[2]), "an instance");
     const Scene chosen = sceneOf(session, camera, 1.5, {.selected = start.front});
     EXPECT(coolerAndDarker(chosen.surfaces[1]), "the selected panel");
+}
+
+TEST_CASE("both edges of a seam are lined where the cloth has them; the selected seam in amber")
+{
+    Document doc;
+    const PanelId left = doc.add(Panel{.name = "left"});
+    const OpRef<Rect> leftRect = doc.add(left, Rect{.width = 20_cm, .height = 30_cm});
+    doc.arrange(left, Arrangement{.placed = true, .x = -20, .y = 100, .z = 0});
+    const PanelId right = doc.add(Panel{.name = "right"});
+    const OpRef<Rect> rightRect = doc.add(right, Rect{.width = 20_cm, .height = 30_cm});
+    doc.arrange(right, Arrangement{.placed = true, .x = 20, .y = 100, .z = 0});
+    const SeamId seam = doc.add(Seam{.a = {left, leftRect.right()}, .b = {right, rightRect.left()}});
+    session::Session session(doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    OrbitCamera camera;
+    // The seams' lines are the ones drawn nearer than they are.
+    const auto seams = [&](const SceneOptions& options) {
+        std::vector<Lines> found;
+        for (const Lines& lines : sceneOf(session, camera, 1.5, options).lines)
+            if (lines.lift > 0.0f) found.push_back(lines);
+        return found;
+    };
+    // Whether a line runs along both sewn edges, where the shown particles are.
+    const auto alongBothEdges = [&](const Lines& lines) {
+        std::vector<Point> expected;
+        std::size_t segments = 0;
+        for (const SeamSide& side : {session.document().get(seam).a, session.document().get(seam).b}) {
+            const sim::PanelMesh* panel = session.shownMesh().find(side.panel);
+            const auto i = static_cast<std::size_t>(panel - session.shownMesh().panels.data());
+            const sim::EdgeParticles* along = panel->along(side.edge);
+            segments += along->points.size() - 1;
+            for (std::uint32_t point : along->points) {
+                const sim::Vec3 p = session.shownPositions()[i][point];
+                expected.push_back({static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z)});
+            }
+        }
+        bool all = lines.points.size() == segments * 2;
+        for (const Point& e : expected)
+            all = all && std::any_of(lines.points.begin(), lines.points.end(), [&](const Point& p) { return p.x == e.x && p.y == e.y && p.z == e.z; });
+        return all;
+    };
+
+    const std::vector<Lines> flat = seams({});
+    REQUIRE(flat.size() == 1);
+    EXPECT(alongBothEdges(flat[0]), "along both sewn edges of the arranged panels");
+    EXPECT((flat[0].colour.blue > 0.9f && flat[0].colour.red < 0.5f), "in blue");
+    EXPECT(flat[0].width > 1.0f, "wider than the floor's lines");
+
+    const std::vector<Lines> chosen = seams({.seam = seam});
+    REQUIRE(chosen.size() == 1);
+    EXPECT((chosen[0].colour.red == 1.0f && chosen[0].colour.blue < 0.5f), "the selected seam is amber");
+    EXPECT(chosen[0].width > flat[0].width, "and wider");
+    EXPECT((seams({.pixel = 2.0})[0].width == flat[0].width * 2.0f), "as wide on a screen with twice the pixels");
+
+    session.simulate(true);
+    for (int i = 0; i < 30; ++i) session.update();
+    const std::vector<Lines> draped = seams({});
+    REQUIRE(draped.size() == 1);
+    EXPECT(alongBothEdges(draped[0]), "the line follows the draped cloth");
+    bool moved = false;
+    for (std::size_t i = 0; i < draped[0].points.size() && i < flat[0].points.size(); ++i)
+        moved = moved || std::abs(draped[0].points[i].x - flat[0].points[i].x) > 1.0f;
+    EXPECT(moved, "and has left where the flat panels had it");
+
+    REQUIRE(session.editor().change([&](Document& d) { d.remove(seam); }));
+    session.update();
+    EXPECT(seams({}).empty(), "a seam taken away has no line");
 }
 
 TEST_CASE("normals point out of the side a surface is wound towards")

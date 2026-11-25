@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -115,6 +116,32 @@ TEST_CASE("the scene version goes up only when something to draw changed")
                                     {.touches = Touches::PlacementOnly}));
     session.update();
     EXPECT(session.sceneVersion() > version, "arranging the panel elsewhere is something to draw");
+}
+
+TEST_CASE("a seam added, twisted or taken away is something new to draw")
+{
+    Skirt start;
+    const PanelId other = start.doc.add(Panel{.name = "other"});
+    const OpRef<Rect> rect = start.doc.add(other, Rect{.width = 40_cm, .height = 40_cm});
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.update();
+    std::uint64_t version = session.sceneVersion();
+    const auto drawnAgain = [&] {
+        session.update();
+        return std::exchange(version, session.sceneVersion()) < session.sceneVersion();
+    };
+
+    SeamId seam{};
+    REQUIRE(session.editor().change([&](Document& doc) { seam = doc.add(Seam{.a = {start.panel, start.rect.right()}, .b = {other, rect.left()}}); }));
+    EXPECT(drawnAgain(), "sewn");
+    REQUIRE(session.editor().change([&](Document& doc) {
+        Seam twisted = doc.get(seam);
+        twisted.reversed = true;
+        doc.set(seam, twisted);
+    }));
+    EXPECT(drawnAgain(), "twisted");
+    REQUIRE(session.editor().change([&](Document& doc) { doc.remove(seam); }));
+    EXPECT(drawnAgain(), "taken away");
 }
 
 TEST_CASE("simulating moves the cloth, and an edit keeps it draped")

@@ -1,5 +1,5 @@
 #version 450
-// Triangles and lines alike: a point in space to the picture.
+// A point of a triangle: from space to the picture.
 layout(push_constant) uniform Push {
     mat4 viewProjection;
     vec4 colour;
