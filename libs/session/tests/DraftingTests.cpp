@@ -1036,3 +1036,21 @@ TEST_CASE("giving up an edge's own length is refused where the shape's setting w
     EXPECT((refused.typeLength->caption == "Length of top edge"), "the caption names the edge, not the panel, which may be called anything");
     EXPECT((!editor.canUndo()), "with nothing to undo");
 }
+
+TEST_CASE("giving up an edge's own length keeps one that is switched off")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "trousers"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 40_cm, .height = 80_cm});
+    const OpRef<SetLength> alternative = doc.add(panel, SetLength{.edge = rect.top(), .length = 35_cm});
+    doc.setEnabled(alternative, false);
+    const OpRef<SetLength> inForce = doc.add(panel, SetLength{.edge = rect.top(), .length = 50_cm});
+    Editor editor(doc);
+    Drafting drafting;
+
+    const Outcome back = drafting.handle(editor, UseShapeLength{panel, rect.top()});
+    EXPECT((back.typeLength && !back.typeLength->ownLength), "the shape's setting gives the top its length again");
+    EXPECT((count<SetLength>(editor.document(), panel) == 1 && editor.document().contains(alternative.id) && !editor.document().contains(inForce.id)),
+           "the length in force is gone, and the one that was switched off is kept, as the user left it");
+    EXPECT((!editor.document().enabled(alternative.id)), "still off");
+}

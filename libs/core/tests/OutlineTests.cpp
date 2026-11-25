@@ -254,3 +254,37 @@ TEST_CASE("mirror records its axis")
     EXPECT((result[right].axes.size() == 1), "an instance keeps the axis");
     EXPECT_NEAR((result[shifted].axes[0].start.x), (15.0), "axis at the right edge");
 }
+
+TEST_CASE("a corner is moved with the curves on it: a big arc, two corners of one arc, an arc left with no length")
+{
+    // A three-quarter arc is given a length; its angle stays.
+    Document big;
+    const PanelId bigPanel = big.add(Panel{.name = "slice"});
+    const OpRef<Circle> pie = big.add(bigPanel, Circle{.radius = 10_cm, .sweep = 270_deg});
+    big.add(bigPanel, SetLength{.edge = pie.arc(), .length = 30_cm});
+    const Result bigResult = evaluate(big);
+    REQUIRE(bigResult.ok());
+    EXPECT_NEAR((bigResult[bigPanel].length(pie.arc())), (30.0), "the arc is as long as asked, along the arc");
+    EXPECT((std::abs(bigResult[bigPanel].edge(pie.arc()).arc->sweep - 270.0) < 1e-6), "and still turns through three quarters");
+
+    // Both corners of one arc move together: the side of a slice runs from the end of the arc to the centre.
+    Document slice;
+    const PanelId sliced = slice.add(Panel{.name = "slice"});
+    const OpRef<Circle> quarter = slice.add(sliced, Circle{.radius = 10_cm, .sweep = 90_deg});
+    slice.add(sliced, SetLength{.edge = quarter.endSide(), .length = 15_cm});
+    const Result moved = evaluate(slice);
+    REQUIRE(moved.ok());
+    EXPECT_NEAR((moved[sliced].length(quarter.endSide())), (15.0), "the side has its length");
+    EXPECT((std::abs(moved[sliced].edge(quarter.arc()).arc->sweep - 90.0) < 1e-6), "and the arc, whose end moved with it, turns through the same angle");
+
+    // A corner moved onto the other end of its arc leaves it no length: refused where it is, and the outline is as it was.
+    Document flat;
+    const PanelId flatPanel = flat.add(Panel{.name = "slice"});
+    const OpRef<Circle> half = flat.add(flatPanel, Circle{.radius = 10_cm, .sweep = 90_deg});
+    const Vec2 start = evaluate(flat)[flatPanel].position(half.start()), end = evaluate(flat)[flatPanel].position(half.end());
+    const OpRef<AdjustPoint> onto = flat.add(flatPanel, AdjustPoint{.corner = half.start(), .dx = Expr(end.x - start.x), .dy = Expr(end.y - start.y)});
+    const Result refused = evaluate(flat);
+    EXPECT((refused.failed(onto.id)), "the curved edge would have no length, and it says so on the layer");
+    EXPECT_NEAR((refused[flatPanel].position(half.start()).x), (start.x), "and the corner stays where it was");
+    EXPECT_NEAR((refused[flatPanel].length(half.arc())), (evaluate([&] { Document d; const PanelId p = d.add(Panel{.name = "slice"}); d.add(p, Circle{.radius = 10_cm, .sweep = 90_deg}); return d; }())[PanelId{1}].length(half.arc())), "so the arc is whole");
+}

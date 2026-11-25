@@ -99,7 +99,7 @@ private:
     std::optional<std::uint64_t> lengthEditFrom_;  // the history state before the gesture that opened the bar
     bool lengthChanged_ = false;                   // the document has been changed since then
     bool gesturing_ = false;                       // a gesture is being handled: the bar may be reopened on something else
-    session::ChangeRules lengthRules() const;      // how a length typed on the table is changed
+    session::ChangeRules lengthRules(PanelId panel) const;  // how a length typed on the table is changed
     void closeLengthIfGone();                      // the bar's length was undone or removed: nothing to type into
     QString lengthText_;                           // the text that is applied now
     // What was typed for a field of a layer, in the Attribute Editor (`field` shows a refusal) or on the table.

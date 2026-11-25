@@ -66,8 +66,10 @@ void TableView::showKeeping(SetLength::Keeping keeping) {
 
 void TableView::typeLength(const session::Outcome::LengthField& what, const QString& text) {
     // The panel as it is when the bar first opens is what the preview is shown against.
-    if (!card_->isVisible())
-        if (const Drawn* d = chosen()) ghost_ = d->pattern;
+    if (!card_->isVisible()) {
+        const Drawn* d = chosen();
+        ghost_ = d ? d->pattern : Pattern{};
+    }
     typing_ = what;
     card_->open(what, text);
     placeEditor();
@@ -179,7 +181,6 @@ void TableView::paintLengthEdit(QPainter& p) {
     faint.setAlpha(150);
     p.setBrush(Qt::NoBrush);
     p.setPen(QPen(faint, 1.0, Qt::DashLine));
-    bool moved = false;
     for (const Edge& edge : ghost_.edges) {
         if (edge.seam) continue;
         QPolygonF along;
@@ -199,14 +200,12 @@ void TableView::paintLengthEdit(QPainter& p) {
         const QPointF shift = now - was;
         const double length = std::hypot(shift.x(), shift.y());
         if (length < 6.0) continue;
-        moved = true;
         const QPointF from = was + out * 20.0, to = now + out * 20.0, unit = shift / length;
         p.drawLine(from, to);
         const QPointF side(-unit.y(), unit.x());
         p.drawLine(to, to - unit * 6.0 + side * 4.0);
         p.drawLine(to, to - unit * 6.0 - side * 4.0);
     }
-    (void)moved;
     if (!set) return;
     // The anchors: which end stays where it is. The one chosen is filled and marked on the edge itself.
     QFont small = p.font();

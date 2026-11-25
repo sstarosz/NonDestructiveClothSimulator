@@ -849,7 +849,7 @@ Outcome Drafting::on(Editor& editor, const UseShapeLength& g) {
     const EdgeRef drawn = drawnSide(doc, g.panel, g.edge).edge;
     std::vector<OpId> own;
     for (OpId op : doc.operations(g.panel))
-        if (const SetLength* set = std::get_if<SetLength>(&doc.get(op)); set && set->edge == drawn) own.push_back(op);
+        if (const SetLength* set = std::get_if<SetLength>(&doc.get(op)); set && set->edge == drawn && doc.enabled(op)) own.push_back(op);  // one switched off is kept
     if (!own.empty()) {
         // Would the shape's setting give the edge its length? Worked out on a copy, so that when it would
         // not (a corner was moved after the shape made the edge) nothing is taken away, and the edge's own

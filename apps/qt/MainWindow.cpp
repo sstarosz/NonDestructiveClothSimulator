@@ -301,7 +301,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(attributes_, &AttributeEditor::fieldTyped, this, [this](OpId layer, FieldId id, QString text) { typed(layer, id, text, attributes_->field(layer, id)); });
     connect(table_, &TableView::keepingChosen, this, [this](OpId layer, SetLength::Keeping keeping) {
         if (!session_.document().contains(layer)) return;
-        session::ChangeRules rules = lengthRules();
+        session::ChangeRules rules = lengthRules(session_.document().panelOf(layer));
         if (lengthChanged_) rules.step = session::Step::Continue;  // part of the edit that is open, if it has changed anything yet
         const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(OpRef<SetLength>(layer), &SetLength::keeping, keeping); }, rules);
         if (!done) table_->showLengthProblem(QString::fromStdString(done.error()));
@@ -473,6 +473,11 @@ void MainWindow::buildMenus() {
 
 void MainWindow::open(Document document, const QString& title) {
     session::layOutOnTheTable(document);
+    // A bar for a length of the document that is going has nothing to type into, and the next document may
+    // have a layer with the same number.
+    table_->closeLength();
+    lengthEditFrom_.reset();
+    lengthChanged_ = false;
     session_.open(std::move(document));
     shelf_->simulate()->setChecked(false);
     title_ = title;
@@ -693,7 +698,7 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
         table_->showLengthProblem(QString::fromStdString(problem->message));
         return;
     }
-    session::ChangeRules rules = lengthRules();
+    session::ChangeRules rules = lengthRules(session_.document().panelOf(layer));
     if (lengthChanged_) rules.step = session::Step::Continue;
     const Expr value = std::get<Expr>(parsed);
     const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(layer, id, value); }, rules);
@@ -710,8 +715,16 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
 // A length typed on the table is an edit by hand, like a dragged corner: the panel keeps its place on
 // the table, so the end that is kept stays where it is on the screen and only the rest of the edge
 // moves. (Left to itself the editor keeps the middle of the panel's box where it was, and the whole
-// drawing slides as the edge grows.)
-session::ChangeRules MainWindow::lengthRules() const { return {.grows = session::Grows::WhereDragged}; }
+// drawing slides as the edge grows.) A panel that is sewn is another matter: it grows away from its
+// seams, on the table and in space, as it does for a formula or a field.
+session::ChangeRules MainWindow::lengthRules(PanelId panel) const {
+    const Document& doc = session_.document();
+    for (SeamId id : doc.seams()) {
+        const Seam& seam = doc.get(id);
+        if (seam.a.panel == panel || seam.b.panel == panel) return {};
+    }
+    return {.grows = session::Grows::WhereDragged};
+}
 
 void MainWindow::closeLengthIfGone() {
     const auto& typing = table_->lengthBeingTyped();
@@ -726,8 +739,11 @@ void MainWindow::cancelLength() {
     if (lengthEditFrom_) session_.editor().rollBackTo(*lengthEditFrom_);
     lengthEditFrom_.reset();
     lengthChanged_ = false;
-    stopPicking();
+    // A length moves corners and makes none, so the corners that are chosen stay chosen: the click that
+    // left the bar may be the one that adds to them.
+    const std::vector<CornerRef> corners = drafting_.selection.corners;
     drafting_.forget(session_.document());
+    drafting_.selection.corners = corners;
     table_->cancel();
     say({});
     refresh();

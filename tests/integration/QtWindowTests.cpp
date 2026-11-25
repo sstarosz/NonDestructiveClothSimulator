@@ -1137,6 +1137,51 @@ TEST_CASE("a longer length moves the end that is not kept, not the whole drawing
     EXPECT_NEAR((onTable(rect.bottomRight()).x), (rightWas.x + 5.0), "as much");
 }
 
+TEST_CASE("a length typed for a sewn panel grows it away from its seam; a new document closes the bar", "[qt]")
+{
+    Table w;
+    {
+        Document doc;
+        const PanelId a = doc.add(Panel{.name = "A"});
+        const OpRef<Rect> ra = doc.add(a, Rect{.width = 30_cm, .height = 10_cm});
+        const PanelId b = doc.add(Panel{.name = "B", .x = 40});
+        const OpRef<Rect> rb = doc.add(b, Rect{.width = 30_cm, .height = 10_cm});
+        doc.add(Seam{.a = {a, ra.right()}, .b = {b, rb.left()}});
+        w.window.open(std::move(doc), "sewn");
+        w.window.tick();
+    }
+    const PanelId a = w.panel("A");
+    w.window.select(a);
+    TableView* table = w.table();
+    const OpRef<Rect> ra(first<Rect>(w.doc(), a));
+    // The sewn edge, as the table has it: the middle of the right edge.
+    const auto sewnMiddle = [&] {
+        const Pattern& shape = w.window.session().editor().shapes()[a];
+        const Vec2 low = shape.position(ra.bottomRight()), high = shape.position(ra.topRight());
+        return Vec2{w.doc().get(a).x + (low.x + high.x) / 2.0, w.doc().get(a).y + (low.y + high.y) / 2.0};
+    };
+    const Vec2 before = sewnMiddle();
+    const Vec2 left = w.corner(a, -1, 3), right = w.corner(a, 1, 3);  // the top edge
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(left.x + right.x) / 2, (left.y + right.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(table->lengthEditor() != nullptr);
+    QComboBox* scope = table->lengthCard()->findChild<QComboBox*>("lengthScope");
+    scope->setCurrentIndex(0);
+    emit scope->activated(0);
+    table->lengthEditor()->setText("40");  // both ends of the top go out, the midpoint kept
+    EXPECT_NEAR((sewnMiddle().x), (before.x), "the sewn edge is where it was on the table: the panel grows away from its seam, as it does for a formula");
+
+    // A new document closes the bar, though the new document has a layer with the number of the one the bar
+    // was for: the bar would otherwise type into that other layer.
+    REQUIRE(table->lengthEditor() != nullptr);
+    const OpId typedInto = table->lengthBeingTyped()->operation;
+    Document other;
+    const PanelId p = other.add(Panel{.name = "other"});
+    const OpRef<Rect> otherRect = other.add(p, Rect{.width = 10_cm, .height = 10_cm});
+    while (!other.contains(typedInto)) other.add(p, AdjustPoint{.corner = otherRect.topRight(), .dx = 0_cm, .dy = 0_cm});
+    w.window.open(std::move(other), "other");
+    EXPECT((table->lengthEditor() == nullptr), "a new document closes the bar");
+}
+
 TEST_CASE("a layer's edge is chosen again by clicking it on the table", "[qt]")
 {
     Table w;
