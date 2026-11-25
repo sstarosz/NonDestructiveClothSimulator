@@ -35,6 +35,10 @@ public:
     Unit unit() const { return unit_; }
     // How much a drag changes the number per pixel; by default it follows the number's size.
     void setDragStep(double perPixel) { dragStep_ = perPixel; }
+    // A field that is open for typing from the start (the length bar) is dragged as well: a press and
+    // a pull sideways changes the number in it (a click places the cursor, as in any field), taking
+    // the number that is typed in it now, if it is a plain number in the field's unit.
+    void setDragWhileTyping(bool on) { dragWhileTyping_ = on; }
 
 signals:
     // The user typed something different from what was shown.
@@ -52,11 +56,13 @@ protected:
 
 private:
     void showCursor();
+    std::optional<double> typedNumber() const;
 
     Unit unit_;
     QString shown_;                 // the text as last shown, to tell whether anything was typed
     std::optional<double> number_;  // the number shown; empty for a formula
     std::optional<double> dragStep_;
+    bool dragWhileTyping_ = false;
     struct Drag {
         double pressedX;
         double start;    // the number when the button went down

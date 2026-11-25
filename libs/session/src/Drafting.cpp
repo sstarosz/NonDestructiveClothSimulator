@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "clothcad/core/Evaluate.h"
+#include "clothcad/session/Lengths.h"
 #include "clothcad/session/Locks.h"
 #include "clothcad/sim/Layout.h"
 
@@ -353,8 +354,10 @@ std::expected<Drafting::ScalePart, std::string> Drafting::scalePartOf(const Edit
         }
     }
     // No Scale layer to change: scale the starting shape's own lengths, so nothing is added.
+    // Not when an edge has a length of its own (SetLength): that would stay as it is.
+    const bool setsLengths = std::any_of(layers.begin(), layers.end(), [&](OpId op) { return doc.enabled(op) && std::holds_alternative<SetLength>(doc.get(op)); });
     const OpId first = layers.front();
-    if (doc.enabled(first)) {
+    if (doc.enabled(first) && !setsLengths) {
         const OpData& data = doc.get(first);
         // A length that a formula sets is not overwritten: the formula keeps driving the shape, and a Scale layer goes on top.
         const auto lengths = [&](const Expr& a, const Expr& b) {
@@ -567,7 +570,7 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& image) {
         // Corners that come from a formula stay where they are.
         std::string locked;
         moving.erase(std::remove_if(moving.begin(), moving.end(), [&](const Moving& m) {
-                         const std::string why = cornerLock(doc, image.panel, m.corner);
+                         const std::string why = cornerLock(doc, shape, image.panel, m.corner);
                          if (!why.empty()) locked = why;
                          return !why.empty();
                      }),
@@ -764,24 +767,94 @@ Outcome Drafting::on(Editor& editor, const DrawLine& g) {
     return outcome;
 }
 
+namespace {
+
+// What a window needs to let a length be typed: the field, and whether it is the
+// edge's own or its shape's, which end an own one keeps, and whether the other is on offer.
+Outcome::LengthField lengthFieldFor(const Document& doc, const EdgeRef& shown, const LengthSetting& setting) {
+    const OpData& data = doc.get(setting.operation);
+    Outcome::LengthField field{.operation = setting.operation, .field = setting.field, .edge = shown};
+    if (const SetLength* set = std::get_if<SetLength>(&data)) {
+        field.edge = set->edge;  // the drawn side, where the length was given
+        field.ownLength = true;
+        field.keeping = set->keeping;
+    }
+    if (doc.contains(shown.op))
+        for (const Dimension& dimension : dimensions(doc.get(shown.op), shown.op))
+            if (dimension.edge.role == shown.role) {
+                field.canSwitch = true;
+                field.shapeSetting = std::string(fields(doc.get(shown.op))[dimension.field.index].label);
+            }
+    field.label = std::string(fields(data)[setting.field.index].label) + " of " + nameOf(Reference(shown), doc);
+    return field;
+}
+
+// Which end of an edge stays where it is when the edge is given a length: the
+// end on the mirror of a symmetric panel (the fold), else neither, and both
+// ends move.
+SetLength::Keeping keepingFor(const Document& doc, PanelId panel, const EdgeRef& drawn, const Pattern& shape) {
+    const std::optional<OpRef<Mirror>> mirror = symmetryOf(doc, panel);
+    if (!mirror || !shape.contains(drawn)) return SetLength::Keeping::Middle;
+    // The mirror's own edge is gone from the finished outline: look at the half it was made from.
+    const Pattern half = outlineBefore(doc, *mirror);
+    const EdgeRef& across = doc.get(*mirror).across;
+    if (!half.contains(across)) return SetLength::Keeping::Middle;
+    const Edge& fold = half.edge(across);
+    const Edge& edge = shape.edge(drawn);
+    const auto onFold = [&](uint32_t corner) {
+        const CornerRef& name = shape.vertices[corner].name;
+        return half.vertices[fold.start].name == name || half.vertices[fold.end].name == name;
+    };
+    if (onFold(edge.start)) return SetLength::Keeping::Start;
+    if (onFold(edge.end)) return SetLength::Keeping::End;
+    return SetLength::Keeping::Middle;
+}
+
+} // namespace
+
 Outcome Drafting::on(Editor& editor, const EditLength& g) {
     Outcome outcome;
     const Document& doc = editor.document();
+    if (!doc.contains(g.panel)) return outcome;
     selection.panel = g.panel;
     const Pattern& shape = editor.shapes()[g.panel];
-    const EdgeRef edge = g.edge;
-    if (doc.contains(edge.op) && shape.contains(edge)) {
-        const OpData& data = doc.get(edge.op);
-        for (const Dimension& dimension : dimensions(data, edge.op)) {
-            if (dimension.edge.role != edge.role) continue;  // a mirrored copy shares the role
-            const Field field = fields(data)[dimension.field.index];
-            const std::optional<double> value = valueOf(field.value, editor.shapes());
-            if (!value || std::abs(*value - shape.length(edge)) > 1e-6) continue;  // a later step changed the edge
-            outcome.typeLength = Outcome::LengthField{edge.op, dimension.field, std::string(field.label) + " of " + nameOf(Reference(edge), doc)};
-            return outcome;
-        }
+    if (!shape.contains(g.edge)) return outcome;
+    outcome.toolDone = g.ownLength;  // the Length tool has done its work, unless the edge is refused below
+    const std::optional<LengthSetting> setting = lengthSetBy(doc, editor.shapes(), g.panel, g.edge);
+    const bool ownAlready = setting && std::holds_alternative<SetLength>(doc.get(setting->operation));
+    if (setting && (ownAlready || !g.ownLength)) {
+        outcome.typeLength = lengthFieldFor(doc, g.edge, *setting);
+        return outcome;
     }
-    outcome.notice = "This edge's length is not a setting of its own; it follows from where its corners are. Drag its corners instead.";
+    // Nothing sets this edge's length yet (a T-shirt's shoulder, or an edge whose
+    // corners were dragged), or the tool wants one of its own: give it one, as
+    // long as it is now, and type that. On a symmetric panel it is made for the drawn side.
+    const DrawnEdge drawn = drawnSide(doc, g.panel, g.edge);
+    const SetLength::Keeping keeping = keepingFor(doc, g.panel, drawn.edge, shape);
+    OpRef<SetLength> added;
+    if (!apply(editor, [&](Document& d) { added = d.add(g.panel, SetLength{.edge = drawn.edge, .length = Expr(shape.length(g.edge)), .keeping = keeping}); }, {}, outcome)) {
+        outcome.toolDone = false;  // refused: the tool stays, to try another edge
+        return outcome;
+    }
+    outcome.typeLength = lengthFieldFor(editor.document(), g.edge, LengthSetting{added, FieldId{0}});
+    return outcome;
+}
+
+Outcome Drafting::on(Editor& editor, const UseShapeLength& g) {
+    Outcome outcome;
+    const Document& doc = editor.document();
+    if (!doc.contains(g.panel)) return outcome;
+    selection.panel = g.panel;
+    const EdgeRef drawn = drawnSide(doc, g.panel, g.edge).edge;
+    std::vector<OpId> own;
+    for (OpId op : doc.operations(g.panel))
+        if (const SetLength* set = std::get_if<SetLength>(&doc.get(op)); set && set->edge == drawn) own.push_back(op);
+    if (!own.empty() && !apply(editor, [&](Document& d) { for (OpId op : own) d.remove(op); }, {}, outcome)) return outcome;
+    // The shape's setting gives the edge its length again, as long as it was when it was given up.
+    if (const std::optional<LengthSetting> setting = lengthSetBy(editor.document(), editor.shapes(), g.panel, g.edge))
+        outcome.typeLength = lengthFieldFor(editor.document(), g.edge, *setting);
+    else
+        outcome.notice = "Its corners were moved, so this edge's length is not the shape's setting now. Give it a length of its own, or change the shape's.";
     return outcome;
 }
 

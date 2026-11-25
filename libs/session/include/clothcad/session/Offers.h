@@ -17,7 +17,7 @@ namespace clothcad::session {
 
 enum class Offer {
     Rectangle, Circle, RingSector, Instance,  // shapes: for an empty panel
-    Curve, FreeCurve, Line, AngledLine, Cut, Mirror, AdjustPoint, AddPoint, Scale,  // changes to a shape
+    Curve, FreeCurve, Line, AngledLine, Cut, Mirror, AdjustPoint, AddPoint, Scale, SetLength,  // changes to a shape
 };
 
 struct Offered {

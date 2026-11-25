@@ -285,6 +285,47 @@ std::optional<Arc> arcFromSweep(Vec2 a, Vec2 b, double sweep) {
     return arcFromBulge(a, b, chord / 2.0 * std::tan(radians(sweep) / 4.0));
 }
 
+namespace {
+
+bool wholeTurn(const Edge& e) { return e.arc && (e.start == e.end || std::abs(e.arc->sweep) > 360.0 - 1e-6); }
+
+} // namespace
+
+Problem moveCorners(Pattern& pattern, const std::vector<CornerMove>& moves) {
+    const auto moved = [&](uint32_t vertex) {
+        return std::any_of(moves.begin(), moves.end(), [&](const CornerMove& m) { return m.vertex == vertex; });
+    };
+    for (const Edge& e : pattern.edges)
+        if (wholeTurn(e) && (moved(e.start) || moved(e.end)))
+            return "the corner belongs to a whole turn of a circle, which has no ends to move; change its radius instead";
+    for (const CornerMove& m : moves) pattern.vertices[m.vertex].position = pattern.vertices[m.vertex].position + m.by;
+    // A free curve's handle at a corner travels with it.
+    for (Edge& e : pattern.edges) {
+        if (!e.cubic) continue;
+        for (const CornerMove& m : moves) {
+            if (e.start == m.vertex) e.cubic->control1 = e.cubic->control1 + m.by;
+            if (e.end == m.vertex) e.cubic->control2 = e.cubic->control2 + m.by;
+        }
+    }
+    // An arc keeps turning through the same angle, between the new ends. Every
+    // corner is in place first, so no arc is worked out from a half-moved edge.
+    for (Edge& e : pattern.edges) {
+        if (!e.arc || (!moved(e.start) && !moved(e.end))) continue;
+        const std::optional<Arc> arc = arcFromSweep(pattern.vertices[e.start].position, pattern.vertices[e.end].position, e.arc->sweep);
+        if (!arc) return "the corner cannot move there: the curved edge would have no length";
+        e.arc = arc;
+    }
+    return std::nullopt;
+}
+
+std::optional<double> chordFor(const Edge& edge, double length) {
+    if (edge.cubic || wholeTurn(edge)) return std::nullopt;
+    if (!edge.arc) return length;
+    // An arc of radius R through angle a is R * a long, and its chord is 2 R sin(a / 2).
+    const double angle = std::abs(radians(edge.arc->sweep));
+    return 2.0 * length * std::sin(angle / 2.0) / angle;
+}
+
 std::optional<Vec2> firstHit(const Pattern& pattern, Vec2 origin, double angleDegrees) {
     const Vec2 direction{std::cos(radians(angleDegrees)), std::sin(radians(angleDegrees))};
     std::optional<double> nearest;

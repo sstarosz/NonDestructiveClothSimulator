@@ -27,6 +27,17 @@ namespace clothcad::ui {
 
 namespace {
 
+// A row that is being replaced may be in the middle of its own signal: a list
+// reporting a pick goes on to use itself once the slot has returned, and the
+// slot is what made the rows again. So the old row is hidden and let go now,
+// and deleted when the signal is over.
+void retire(QWidget* row) {
+    if (!row) return;
+    row->hide();
+    row->setParent(nullptr);
+    row->deleteLater();
+}
+
 Icon iconOf(const OpData& op) {
     return std::visit([](const auto& typed) {
         using T = std::decay_t<decltype(typed)>;
@@ -41,6 +52,7 @@ Icon iconOf(const OpData& op) {
         else if constexpr (std::is_same_v<T, Mirror>) return Icon::Mirror;
         else if constexpr (std::is_same_v<T, AddPoint>) return Icon::Point;
         else if constexpr (std::is_same_v<T, Scale>) return Icon::Scale;
+        else if constexpr (std::is_same_v<T, SetLength>) return Icon::Lengths;  // an edge with its ends marked
         else return Icon::Select;  // AdjustPoint: a corner moved
     }, op);
 }
@@ -77,6 +89,7 @@ std::string choicesOf(const OpData& op, const Document& doc) {
     std::string words;
     for (const ReferenceField& reference : references(op)) words += "|" + nameOf(reference.value, doc);
     if (const Cut* cut = std::get_if<Cut>(&op)) words += cut->keep == Cut::Side::Left ? "|L" : "|R";
+    if (const SetLength* set = std::get_if<SetLength>(&op)) words += "|keeps" + std::to_string(static_cast<int>(set->keeping));
     if (const Mirror* mirror = std::get_if<Mirror>(&op)) words += mirror->appliedLast ? "|last" : "|inplace";
     if (const Instance* instance = std::get_if<Instance>(&op)) words += instance->mirrored ? "|mirrored" : "|plain";
     return words;
@@ -347,7 +360,7 @@ void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
     seams_ = mine;
     seamCards_.clear();
     while (QLayoutItem* item = seamRows_->takeAt(0)) {
-        delete item->widget();
+        retire(item->widget());
         delete item;
     }
     for (const Shown& row : rows) {
@@ -433,7 +446,7 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
             if (slide) slide->stop();  // its row is about to go
         slides_.clear();
         while (QLayoutItem* item = layerRows_->takeAt(0)) {
-            delete item->widget();
+            retire(item->widget());
             delete item;
         }
         openFields_.clear();
@@ -563,6 +576,26 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                     keep->setCurrentIndex(cut->keep == Cut::Side::Left ? 0 : 1);
                     connect(keep, &QComboBox::activated, this, [this, op](int chosen) { emit cutSideChosen(op, chosen == 0 ? Cut::Side::Left : Cut::Side::Right); });
                     grid->addWidget(keep, line++, 1);
+                }
+                if (const SetLength* set = std::get_if<SetLength>(&operation)) {
+                    // The ends of the edge are named by their corners, where the outline still has the edge.
+                    QString start = "the start corner", end = "the end corner";
+                    const PanelId panel = doc.panelOf(op);
+                    if (doc.contains(panel) && shapes[panel].contains(set->edge)) {
+                        const Pattern& shape = shapes[panel];
+                        const Edge& edge = shape.edge(set->edge);
+                        start = QString::fromStdString(nameOf(Reference(shape.vertices[edge.start].name), doc));
+                        end = QString::fromStdString(nameOf(Reference(shape.vertices[edge.end].name), doc));
+                    }
+                    grid->addWidget(new QLabel("Keeps", box), line, 0);
+                    auto* keeps = new QComboBox(box);
+                    keeps->setObjectName("keeps");
+                    keeps->addItems({"both ends move evenly", "the " + start + " stays", "the " + end + " stays"});
+                    keeps->setCurrentIndex(static_cast<int>(set->keeping));
+                    keeps->setToolTip("Which corner of the edge stays where it is while the edge gets its length. "
+                                      "On a half panel mirrored across an edge, keep the corner on the mirror.");
+                    connect(keeps, &QComboBox::activated, this, [this, op](int chosen) { emit lengthKeepingChosen(op, static_cast<SetLength::Keeping>(chosen)); });
+                    grid->addWidget(keeps, line++, 1);
                 }
                 if (const Mirror* mirror = std::get_if<Mirror>(&operation)) {
                     auto* last = new QCheckBox("Applied last", box);

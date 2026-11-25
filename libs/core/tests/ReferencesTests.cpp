@@ -69,3 +69,20 @@ TEST_CASE("a copied point is on the copy's edge, and so is its after-part")
     const Result result = evaluate(doc);
     EXPECT((result.ok() && result[copy].edge(copyPoint.after(copyRect.top())).arc.has_value()), "the copy's after-part is curved, as the original's is");
 }
+
+TEST_CASE("a copied set length sets the length of the copy's edge")
+{
+    Document doc;
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> top = doc.add(original, SetLength{.edge = rect.top(), .length = 50_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> copyRect = copy[rect];
+    EXPECT((doc.get(copy[top]).edge == copyRect.top()), "the copied length is of the copy's top edge");
+    doc.set(top, &SetLength::length, Expr(40_cm));
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[original].length(rect.top())), (40.0), "the original follows its own length");
+    EXPECT_NEAR((result[copy].length(copyRect.top())), (50.0), "the copy follows its own");
+}

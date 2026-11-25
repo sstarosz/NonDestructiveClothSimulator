@@ -5,7 +5,7 @@
 // Starting operations create a panel's outline and must come first:
 //   Rect, Circle, RingSector, Instance
 // Modifying operations change the outline made so far:
-//   Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint, Scale
+//   Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint, Scale, SetLength
 // Offcut is a starting operation too: the piece a cut in another panel removes.
 
 #include <concepts>
@@ -311,7 +311,35 @@ struct Scale {
     };
 };
 
-using OpData = std::variant<Rect, Circle, RingSector, Instance, Offcut, Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint, Scale>;
+// Gives one edge its own length, on any edge of any shape: the waist and the
+// ankle of trousers (a rectangle's top and bottom share one width), or a
+// T-shirt's shoulder, which has no setting of its own. It moves the two corners
+// of the edge along the edge's own direction until the edge is `length` long;
+// the edges that meet there follow, so a side edge slants. Curved edges: an arc
+// stays an arc through the same angle; a free curve cannot be given a length
+// (shape it with its handles). Lines drawn before it keep their places, as they
+// do for AdjustPoint, so put this before a Line.
+//
+// `keeping` says what stays where it is, "start" and "end" following the
+// outline counter-clockwise as for Bezier: Middle moves both corners by the
+// same amount, Start keeps the start corner, End the end corner. A half panel
+// that is mirrored across one of its edges keeps the corner on the mirror.
+//
+//   SetLength{.edge = rect.top(), .length = waist / 2}
+//   SetLength{.edge = half.top(), .length = 12_cm, .keeping = SetLength::Keeping::End}
+struct SetLength {
+    enum class Keeping : uint8_t { Middle, Start, End };
+
+    EdgeRef edge;
+    Expr length;
+    Keeping keeping = Keeping::Middle;
+
+    struct Names {
+        OpId id;
+    };
+};
+
+using OpData = std::variant<Rect, Circle, RingSector, Instance, Offcut, Curve, Bezier, Line, LineBetween, Cut, Mirror, AdjustPoint, AddPoint, Scale, SetLength>;
 
 // True only for the exact types listed in OpData.
 template <class T, class Variant>

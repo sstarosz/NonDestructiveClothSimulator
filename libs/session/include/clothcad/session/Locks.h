@@ -3,12 +3,13 @@
 // it is changed through its formula, not by dragging. And on a symmetric
 // panel, what stands on the mirrored side and what it stands for.
 //
-//   if (std::string why = cornerLock(doc, panel, corner); !why.empty()) say(why);
+//   if (std::string why = cornerLock(doc, shapes[panel], panel, corner); !why.empty()) say(why);
 
 #include <optional>
 #include <string>
 
 #include "clothcad/core/Document.h"
+#include "clothcad/core/Pattern.h"
 
 namespace clothcad::session {
 
@@ -30,8 +31,10 @@ struct DrawnEdge {
 DrawnCorner drawnSide(const Document& doc, PanelId panel, const CornerRef& corner);
 DrawnEdge drawnSide(const Document& doc, PanelId panel, const EdgeRef& edge);
 
-// Why a corner can't be dragged; empty if it can.
-std::string cornerLock(const Document& doc, PanelId panel, const CornerRef& corner);
+// Why a corner can't be dragged; empty if it can. `shape` is the panel's
+// outline as it is now: it tells which corners are the ends of an edge whose
+// length a formula sets.
+std::string cornerLock(const Document& doc, const Pattern& shape, PanelId panel, const CornerRef& corner);
 
 // The free-curve operation in `panel` whose handles shape `edge`, if the
 // panel has one. A curve that comes from another panel (through an instance)

@@ -4,6 +4,8 @@
 #include <QMouseEvent>
 #include <QStyle>
 #include <cmath>
+#include <cstdlib>
+#include <string>
 
 #include "clothcad/core/Text.h"
 
@@ -66,7 +68,27 @@ void ValueField::show(const Expr& value, const Document& doc, const Result& shap
 // A number not being typed in shows that it can be dragged sideways.
 void ValueField::showCursor() { setCursor(number_ && !hasFocus() ? Qt::SizeHorCursor : Qt::IBeamCursor); }
 
+// The number that is typed in the field now: a plain number, alone or with the field's own unit. A
+// formula, or a number in another unit, is not one to drag.
+std::optional<double> ValueField::typedNumber() const {
+    const std::string typed = text().trimmed().toStdString();
+    if (typed.empty()) return std::nullopt;
+    char* rest = nullptr;
+    const double value = std::strtod(typed.c_str(), &rest);
+    if (rest == typed.c_str()) return std::nullopt;
+    const std::string after = QString::fromStdString(rest).trimmed().toStdString();
+    const std::string unit = formatValue(1.0, unit_);  // "1 cm": what follows the number
+    const std::string own = unit.substr(unit.find(' ') == std::string::npos ? unit.size() : unit.find(' ') + 1);
+    if (!after.empty() && after != own) return std::nullopt;
+    return value;
+}
+
 void ValueField::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton && dragWhileTyping_) {
+        if (const std::optional<double> number = typedNumber()) drag_ = Drag{event->position().x(), *number, dragStep_ ? *dragStep_ : stepFor(unit_, *number)};
+        QLineEdit::mousePressEvent(event);  // the cursor goes where it was clicked
+        return;
+    }
     if (event->button() == Qt::LeftButton && !hasFocus()) {
         if (number_) {
             drag_ = Drag{event->position().x(), *number_, dragStep_ ? *dragStep_ : stepFor(unit_, *number_)};
@@ -96,6 +118,11 @@ void ValueField::mouseReleaseEvent(QMouseEvent* event) {
     if (!drag_) return QLineEdit::mouseReleaseEvent(event);
     const Drag was = *drag_;
     drag_.reset();
+    if (dragWhileTyping_) {
+        if (was.moving) emit dragged(was.value, clothcad::session::DragPhase::End);
+        else QLineEdit::mouseReleaseEvent(event);
+        return;
+    }
     if (was.moving) {
         emit dragged(was.value, clothcad::session::DragPhase::End);
     } else {

@@ -719,3 +719,136 @@ TEST_CASE("outline before an operation is what it works on")
     EXPECT((evaluate(doc)[panel].edge(rect.left()).arc.has_value()), "the document itself is untouched");
     EXPECT((outlineBefore(doc, OpId{9999}).edges.empty()), "an unknown operation gives nothing");
 }
+
+TEST_CASE("a set length gives one edge its own length, and the edges beside it slant")
+{
+    Document doc;
+    const Param waist = doc.add(Parameter{.name = "waist", .value = 50_cm});
+    const PanelId panel = doc.add(Panel{.name = "trousers"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> top = doc.add(panel, SetLength{.edge = rect.top(), .length = waist});
+
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[panel].length(rect.top())), (50.0), "the top is as long as asked");
+    EXPECT_NEAR((result[panel].length(rect.bottom())), (20.0), "the bottom keeps the rectangle's width");
+    EXPECT_NEAR((result[panel].position(rect.topRight()).x), (35.0), "by default both ends move by the same amount: right");
+    EXPECT_NEAR((result[panel].position(rect.topLeft()).x), (-15.0), "and left");
+    EXPECT_NEAR((result[panel].position(rect.topLeft()).y), (30.0), "along the edge, not away from it");
+    EXPECT_NEAR((result[panel].position(rect.bottomRight()).x), (20.0), "the corners of the other edges stay");
+    EXPECT((result[panel].length(rect.right()) > 30.0 + 1e-6), "so the side edge slants and is longer");
+
+    doc.set(waist, Expr(40_cm));
+    result = evaluate(doc);
+    EXPECT_NEAR((result[panel].length(rect.top())), (40.0), "changing the parameter moves the top");
+    EXPECT_NEAR((result[panel].length(rect.bottom())), (20.0), "and not the bottom");
+
+    doc.set(waist, Expr(10_cm));
+    EXPECT_NEAR((evaluate(doc)[panel].position(rect.topRight()).x), (15.0), "a shorter edge pulls its ends in");
+    EXPECT_NEAR((evaluate(doc)[panel].position(rect.topLeft()).x), (5.0), "from both sides");
+
+    const OpRef<SetLength> again = doc.add(panel, SetLength{.edge = rect.top(), .length = 30_cm});
+    doc.set(waist, Expr(50_cm));
+    EXPECT_NEAR((evaluate(doc)[panel].length(rect.top())), (30.0), "a later length of the same edge wins");
+    doc.set(again, &SetLength::length, Expr(-1.0));
+    EXPECT((evaluate(doc).failed(again.id) && !evaluate(doc).failed(top.id)), "a length must be more than nothing, and says where");
+}
+
+TEST_CASE("a set length can keep one end where it is")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> top = doc.add(panel, SetLength{.edge = rect.top(), .length = 50_cm, .keeping = SetLength::Keeping::Start});
+
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[panel].position(rect.topRight()).x), (20.0), "the top edge starts at the top-right corner, which stays");
+    EXPECT_NEAR((result[panel].position(rect.topLeft()).x), (-30.0), "the end moves");
+    EXPECT_NEAR((result[panel].length(rect.top())), (50.0), "to the right length");
+
+    doc.set(top, &SetLength::keeping, SetLength::Keeping::End);
+    result = evaluate(doc);
+    EXPECT_NEAR((result[panel].position(rect.topLeft()).x), (0.0), "keeping the end, the top-left corner stays");
+    EXPECT_NEAR((result[panel].position(rect.topRight()).x), (50.0), "and the start moves");
+    EXPECT_NEAR((result[panel].length(rect.top())), (50.0), "to the right length");
+}
+
+TEST_CASE("a set length works on curved edges and next to them")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    doc.add(panel, Curve{.edge = rect.top(), .bulge = 3_cm});
+    doc.add(panel, Curve{.edge = rect.right(), .bulge = 2_cm});
+    const double topAngle = evaluate(doc)[panel].edge(rect.top()).arc->sweep;
+    const double rightAngle = evaluate(doc)[panel].edge(rect.right()).arc->sweep;
+    doc.add(panel, SetLength{.edge = rect.top(), .length = 30_cm});
+
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[panel].length(rect.top())), (30.0), "the length of an arc is along the arc");
+    EXPECT((std::abs(result[panel].edge(rect.top()).arc->sweep - topAngle) < 1e-6), "and it turns through the same angle");
+    EXPECT((std::abs(result[panel].edge(rect.right()).arc->sweep - rightAngle) < 1e-6), "an arc beside it keeps its angle between its moved ends");
+
+    Document slice;
+    const PanelId piece = slice.add(Panel{.name = "slice"});
+    const OpRef<Circle> circle = slice.add(piece, Circle{.radius = 10_cm, .sweep = 90_deg});
+    slice.add(piece, SetLength{.edge = circle.arc(), .length = 20_cm});
+    const Result sliced = evaluate(slice);
+    REQUIRE(sliced.ok());
+    EXPECT_NEAR((sliced[piece].length(circle.arc())), (20.0), "the arc of a slice can be given a length");
+    EXPECT((std::abs(sliced[piece].edge(circle.arc()).arc->sweep - 90.0) < 1e-6), "keeping its angle");
+}
+
+TEST_CASE("a set length keeps a half panel's fold where it is")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> half = doc.add(panel, Rect{.width = 10_cm, .height = 30_cm});
+    const OpRef<Mirror> fold = doc.add(panel, Mirror{.across = half.left()});
+    doc.add(panel, SetLength{.edge = half.top(), .length = 15_cm, .keeping = SetLength::Keeping::End});
+
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[panel].position(half.topLeft()).x), (0.0), "the corner on the fold stays");
+    EXPECT_NEAR((result[panel].position(half.topRight()).x), (15.0), "the drawn side grows");
+    EXPECT_NEAR((result[panel].position(fold.image(half.topRight())).x), (-15.0), "and its mirror image with it");
+    EXPECT_NEAR((result[panel].length(fold.image(half.top()))), (15.0), "so both halves of the top are as long");
+}
+
+TEST_CASE("a set length that cannot be done says why and changes nothing")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<Bezier> bezier = doc.add(panel, Bezier{.edge = rect.top(), .startHandle = {-2_cm, 3_cm}, .endHandle = {2_cm, 3_cm}});
+    const double before = evaluate(doc)[panel].length(rect.top());
+    const OpRef<SetLength> onCurve = doc.add(panel, SetLength{.edge = rect.top(), .length = 30_cm});
+    Result result = evaluate(doc);
+    EXPECT((result.failed(onCurve.id) && !result.failed(bezier.id)), "a free curve cannot be given a length");
+    EXPECT_NEAR((result[panel].length(rect.top())), (before), "and stays as it was");
+    EXPECT_NEAR((result[panel].position(rect.topRight()).x), (20.0), "with its corners where they were");
+
+    doc.remove(onCurve);
+    doc.remove(bezier);
+    const OpRef<SetLength> nowhere = doc.add(panel, SetLength{.edge = {}, .length = 30_cm});
+    EXPECT((evaluate(doc).failed(nowhere.id)), "an edge that is not there is reported");
+
+    Document circles;
+    const PanelId disc = circles.add(Panel{.name = "disc"});
+    const OpRef<Circle> circle = circles.add(disc, Circle{.radius = 10_cm});
+    const OpRef<SetLength> round = circles.add(disc, SetLength{.edge = circle.arc(), .length = 30_cm});
+    EXPECT((evaluate(circles).failed(round.id)), "a whole circle has no ends to move");
+
+    Document rings;
+    const PanelId skirt = rings.add(Panel{.name = "skirt"});
+    const OpRef<RingSector> ring = rings.add(skirt, RingSector{.innerLength = 70_cm, .sweep = 360_deg, .depth = 60_cm});
+    const OpRef<SetLength> slit = rings.add(skirt, SetLength{.edge = ring.startSide(), .length = 30_cm});
+    EXPECT((evaluate(rings).failed(slit.id)), "a full ring's closing slit is not an edge of the cloth");
+
+    Document empty;
+    const PanelId bare = empty.add(Panel{.name = "bare"});
+    const OpRef<SetLength> first = empty.add(bare, SetLength{.edge = {}, .length = 30_cm});
+    EXPECT((evaluate(empty).failed(first.id)), "a length needs an outline before it");
+}

@@ -164,8 +164,18 @@ struct TurnInSpace {
     double degrees;
     DragPhase phase;
 };
-// A double-click on an edge's length: the user wants to type it.
+// A double-click on an edge's length: the user wants to type it. With
+// `ownLength` (the Length tool's click) the edge gets a length of its own even
+// where its shape has a setting for it, as a rectangle's top shares its width
+// with the bottom; that is how a trousers' waist and ankle come to differ.
 struct EditLength {
+    PanelId panel;
+    EdgeRef edge;
+    bool ownLength = false;
+};
+// The edge's own length is given up: it is the shape's setting again (a rectangle's
+// width or height), and the length that was given to the edge alone is removed.
+struct UseShapeLength {
     PanelId panel;
     EdgeRef edge;
 };
@@ -202,7 +212,7 @@ struct PastePanel {
 };
 
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
-                             DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
+                             DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, UseShapeLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
                              ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, DuplicateSelection, PastePanel, SelectPanels>;
 
 // What a gesture came to, beyond the document: words for the help line, and
@@ -214,7 +224,12 @@ struct Outcome {
     struct LengthField {        // EditLength: the field that is this edge's length
         OpId operation;
         FieldId field;
+        EdgeRef edge;           // the edge, so that a window can type on its label
         std::string label;      // "Width of 1. Rectangle"
+        bool ownLength = false;  // the field is a length given to this edge alone (SetLength)
+        bool canSwitch = false;  // the edge also has a setting of its shape: the window offers the other one
+        std::string shapeSetting;  // what the shape calls that setting ("Width"), when canSwitch
+        std::optional<SetLength::Keeping> keeping{};  // of an own length: which end stays; the window shows it
     };
     std::optional<LengthField> typeLength{};
 };
@@ -272,6 +287,7 @@ private:
     Outcome on(Editor&, const MirrorAcross&);
     Outcome on(Editor&, const SewEdges&);
     Outcome on(Editor&, const EditLength&);
+    Outcome on(Editor&, const UseShapeLength&);
     Outcome on(Editor&, const MoveInSpace&);
     Outcome on(Editor&, const TurnInSpace&);
     Outcome on(Editor&, const AddBeside&);

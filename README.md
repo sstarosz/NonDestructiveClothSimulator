@@ -1,7 +1,7 @@
 # Non-Destructive Cloth CAD 0.1
 
 A pattern CAD for clothing in which nothing is ever baked in. Every panel is
-a short list of operations (rectangle, curve, added point, cut, mirror ...) whose values
+a short list of operations (rectangle, curve, added point, set length, cut, mirror ...) whose values
 can be numbers or formulas over named parameters. Change the waist and every
 panel, copy, instance and seam that depends on it follows, and the cloth on
 the body follows too.
@@ -13,7 +13,25 @@ the body follows too.
   lines, cuts and splits, mirrors that keep both halves in step, instances
   and mirrored instances, moving single corners or groups of them, and
   scaling a panel along its own x and y (the scale gizmo changes the lengths
-  of its rectangle, circle or ring, or a Scale layer).
+  of its rectangle, circle or ring, or a Scale layer), and giving any one
+  edge its own length (the Set length layer): a trousers' waist and ankle,
+  which a rectangle's top and bottom cannot say, or a T-shirt's shoulder.
+  The Length tool (Draft tab): click an edge, then type its length in a bar
+  on the table. A double-click on an edge's length label opens the same bar;
+  on an edge nothing sets it adds a Set length layer as long as the edge is
+  now. What is typed shows at once, with the outline as it was dashed beside
+  it and an arrow for each end that moved. Enter (or the tick) keeps it,
+  Escape (the cross, or a click elsewhere) takes all of it back, even a
+  layer that was made for it; a length that cannot be is said under the field
+  and Enter waits. Where the shape has a setting for the edge (a rectangle's
+  width or height) a list in the bar says which is typed: "Edge only", a
+  length of its own, so the top and bottom of a rectangle can differ, or the
+  shape's setting, where the opposite edge follows (the tool starts on "Edge
+  only", a double-click on the shape's setting). For an own length three
+  anchors show on the edge, "Left", "Midpoint" and "Right" (Top and Bottom
+  for an edge that runs up; in a row beside it where the edge is short on the
+  screen): a click on one says which end stays where it is, and the end
+  that stays is marked on the edge.
 - **Parameters and formulas**: `waist / 4 + ease`, with limits per field;
   an edit that would break something is refused and says why.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
@@ -287,6 +305,21 @@ holds and hands it what the user did.
   In 3D the gizmo stands at the panel's anchor, which can be away from where
   draped cloth hangs. The scale gizmo's z handle does nothing; seen from the
   front it points at the eye and is too short to show.
+- Set length moves the two corners of an edge along the edge until it has
+  the length; the edges beside it slant. It keeps both ends moving evenly, or
+  the start or the end where it is (the anchors on the table, or the layer's
+  "Keeps" list; on a half panel the table keeps the corner on the mirror
+  itself). It works on straight edges and circular
+  arcs (an arc keeps its angle); a free curve, a whole circle and a full
+  ring's closing slit cannot be given a length, and the layer says so. Lines
+  drawn before it keep their places, as they do for a moved corner. The ends
+  of an edge whose length a formula sets cannot be dragged. A Set length
+  added from the list starts at 20 cm, so choosing its edge makes the edge
+  jump; the Length tool and a double-click start from the edge's length.
+  On a rectangle, a double-click on its top types the width, which the
+  bottom shares, until "Edge only" is chosen. Scaling a
+  panel that has a Set length adds a Scale layer instead of changing the
+  rectangle's numbers.
 - A Scale layer scales about the middle of the outline's box as it is at
   that layer. On a symmetric panel it scales the drawn half, before the
   mirror: the whole stays symmetric, and the gizmo moves the panel so that its

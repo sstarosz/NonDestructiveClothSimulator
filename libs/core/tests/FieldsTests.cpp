@@ -136,3 +136,20 @@ TEST_CASE("every field says what it measures")
     EXPECT((fields(AddPoint{.at = {{}, 0.5}})[0].unit == Unit::Fraction), "where a point is along its edge is a fraction");
     EXPECT((fields(LineBetween{.from = {{}, 0.5}, .to = {{}, 0.5}})[1].unit == Unit::Fraction), "so is where a line starts and ends");
 }
+
+TEST_CASE("a set length is edited like any other operation")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> top = doc.add(panel, SetLength{.edge = rect.top(), .length = 50_cm});
+    const OpData& data = doc.get(OpId(top));
+
+    const std::vector<Field> listed = fields(data);
+    EXPECT((label(data) == "Set length" && listed.size() == 1 && listed[0].label == "Length" && listed[0].unit == Unit::Length), "one length, in centimetres");
+    EXPECT((!listed[0].limits.allows(0.0) && listed[0].limits.allows(0.1)), "which must be more than nothing");
+    const std::vector<ReferenceField> slots = references(data);
+    EXPECT((slots.size() == 1 && slots[0].label == "Edge" && std::get<EdgeRef>(slots[0].value) == rect.top()), "it holds the edge it sets");
+    EXPECT((nameOf(slots[0].value, doc) == "top edge of 1. Rectangle"), "which is named in words");
+    EXPECT((dimensions(data, OpId(top)).empty()), "it is not a setting of the edge's own operation");
+}

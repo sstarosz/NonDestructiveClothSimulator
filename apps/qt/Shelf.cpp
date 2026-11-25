@@ -34,6 +34,7 @@ const ToolInfo toolInfo[] = {
     {Tool::Point, Icon::Point, theme::text, "Point", "P", "Click an edge."},
     {Tool::Curve, Icon::Curve, theme::text, "Curve", "V", "Click an edge, then drag its handles."},
     {Tool::Line, Icon::Line, theme::text, "Line", "L", "Click two points on one outline."},
+    {Tool::Length, Icon::Lengths, theme::text, "Length", "", "Click an edge, then type its length: a waist and an ankle can differ."},
     {Tool::Mirror, Icon::Mirror, theme::symmetry, "Mirror", "M", "Click a straight edge."},
     {Tool::Cut, Icon::Cut, theme::text, "Cut", "X", "Click the side to cut away."},
     {Tool::Split, Icon::Split, theme::text, "Split", "", "Click an internal line."},
@@ -134,7 +135,7 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     // around the shelf; the tabs hold what is made in that stage.
     QToolBar* draft = row("Draft");
     tools(draft, {Tool::Rectangle, Tool::Circle, Tool::Ring});
-    tools(draft, {Tool::Point, Tool::Curve, Tool::Line, Tool::Mirror});
+    tools(draft, {Tool::Point, Tool::Curve, Tool::Line, Tool::Length, Tool::Mirror});
     tools(draft, {Tool::Cut, Tool::Split});
     draft->addAction(instance_);
     draft->addAction(mirroredInstance_);

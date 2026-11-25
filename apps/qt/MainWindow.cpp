@@ -265,6 +265,9 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(attributes_, &AttributeEditor::cutSideChosen, this, [this](OpId layer, Cut::Side side) {
         change([&](Document& doc) { doc.set(OpRef<Cut>(layer), &Cut::keep, side); });
     });
+    connect(attributes_, &AttributeEditor::lengthKeepingChosen, this, [this](OpId layer, SetLength::Keeping keeping) {
+        change([&](Document& doc) { doc.set(OpRef<SetLength>(layer), &SetLength::keeping, keeping); });
+    });
     connect(attributes_, &AttributeEditor::mirrorLastChanged, this, [this](OpId layer, bool last) {
         change([&](Document& doc) { doc.set(OpRef<Mirror>(layer), &Mirror::appliedLast, last); });
     });
@@ -295,11 +298,27 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         say(layer ? "Showing the panel as it was at this step. Nothing is changed on the table until you show all steps again." : QString());
         refresh();
     });
-    connect(attributes_, &AttributeEditor::fieldTyped, this, [this](OpId layer, FieldId id, QString text) {
-        ValueField* field = attributes_->field(layer, id);
-        const Unit unit = fields(session_.document().get(layer))[id.index].unit;
-        if (const std::optional<Expr> value = read(text, unit, field)) change([&](Document& doc) { doc.set(layer, id, *value); }, {}, field);
+    connect(attributes_, &AttributeEditor::fieldTyped, this, [this](OpId layer, FieldId id, QString text) { typed(layer, id, text, attributes_->field(layer, id)); });
+    connect(table_, &TableView::keepingChosen, this, [this](OpId layer, SetLength::Keeping keeping) {
+        if (!session_.document().contains(layer)) return;
+        session::ChangeRules rules;
+        if (lengthEditFrom_) rules.step = session::Step::Continue;  // part of the edit that is open
+        const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(OpRef<SetLength>(layer), &SetLength::keeping, keeping); }, rules);
+        if (!done) table_->showLengthProblem(QString::fromStdString(done.error()));
+        else lengthChanged_ = true;
+        const QString word = table_->anchorWord(keeping);
+        say(keeping == SetLength::Keeping::Middle ? "Midpoint fixed · both ends move. Enter applies, Esc cancels."
+                                                  : word + " end fixed · the other end moves. Enter applies, Esc cancels.");
+        refresh();
     });
+    connect(table_, &TableView::lengthEdited, this, [this](OpId layer, FieldId id, QString text) { previewLength(layer, id, text); });
+    connect(table_, &TableView::lengthCommitted, this, [this](OpId layer, FieldId id, QString text) {
+        previewLength(layer, id, text);  // what is in the field, if it was not shown yet
+        lengthEditFrom_.reset();
+        lengthChanged_ = false;
+        say({});
+    });
+    connect(table_, &TableView::lengthCancelled, this, [this] { cancelLength(); });
     connect(attributes_, &AttributeEditor::spaceTyped, this, [this](PanelId panel, int which, QString text) {
         ValueField* field = attributes_->spaceField(which);
         const std::optional<Expr> value = read(text, which < 3 ? Unit::Length : Unit::Angle, field);
@@ -593,6 +612,12 @@ bool MainWindow::change(const std::function<void(Document&)>& verb, session::Cha
     return true;
 }
 
+void MainWindow::typed(OpId layer, FieldId id, const QString& text, ValueField* field) {
+    if (!session_.document().contains(layer)) return;
+    const Unit unit = fields(session_.document().get(layer))[id.index].unit;
+    if (const std::optional<Expr> value = read(text, unit, field)) change([&](Document& doc) { doc.set(layer, id, *value); }, {}, field);
+}
+
 std::optional<Expr> MainWindow::read(const QString& text, Unit unit, ValueField* field) {
     const std::variant<Expr, TextError> value = parseValue(text.toStdString(), unit, session_.document());
     if (const TextError* problem = std::get_if<TextError>(&value)) {
@@ -651,6 +676,46 @@ void MainWindow::refresh() {
     shownVersion_ = session_.editor().version();
 }
 
+void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
+    if (!session_.document().contains(layer) || text == lengthText_) return;
+    const Unit unit = fields(session_.document().get(layer))[id.index].unit;
+    const std::variant<Expr, TextError> parsed = parseValue(text.toStdString(), unit, session_.document());
+    if (const TextError* problem = std::get_if<TextError>(&parsed)) {
+        table_->showLengthProblem(QString::fromStdString(problem->message));
+        return;
+    }
+    session::ChangeRules rules;
+    if (lengthChanged_) rules.step = session::Step::Continue;
+    const Expr value = std::get<Expr>(parsed);
+    const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(layer, id, value); }, rules);
+    if (!done) {
+        table_->showLengthProblem(QString::fromStdString(done.error()));  // the document is as it was
+        return;
+    }
+    table_->showLengthProblem({});
+    lengthText_ = text;
+    lengthChanged_ = true;
+    refresh();
+}
+
+void MainWindow::cancelLength() {
+    if (lengthEditFrom_)
+        while (session_.editor().step() != *lengthEditFrom_ && session_.editor().undo()) {}
+    lengthEditFrom_.reset();
+    lengthChanged_ = false;
+    stopPicking();
+    drafting_.forget(session_.document());
+    table_->cancel();
+    say({});
+    refresh();
+}
+
+QString MainWindow::lengthStatus(const session::Outcome::LengthField& what) const {
+    if (!what.keeping) return QString::fromStdString("Type the " + what.label + ". Enter applies, Esc cancels.");
+    const QString word = table_->anchorWord(*what.keeping);
+    return (*what.keeping == SetLength::Keeping::Middle ? QString("Midpoint fixed · both ends move") : word + " end fixed · the other end moves") + ". Click another anchor to change it. Enter applies, Esc cancels.";
+}
+
 void MainWindow::on(const session::Gesture& gesture) {
     // Looking back at an earlier step, the pattern does not change; placing panels in space still does.
     const bool placesInSpace = std::holds_alternative<session::MoveInSpace>(gesture) || std::holds_alternative<session::TurnInSpace>(gesture);
@@ -661,21 +726,31 @@ void MainWindow::on(const session::Gesture& gesture) {
         say("Showing an earlier step: press Escape to show all steps and change the pattern again.", true);
         return;
     }
+    // A length is typed in one go: Escape goes back to how it was before the gesture that opened the bar.
+    const bool lengthGesture = std::holds_alternative<session::EditLength>(gesture) || std::holds_alternative<session::UseShapeLength>(gesture);
+    if (lengthGesture && !lengthEditFrom_) {
+        lengthEditFrom_ = session_.editor().step();
+        lengthChanged_ = false;
+    }
     const session::Outcome done = drafting_.handle(session_.editor(), gesture);
     if (!done.notice.empty()) say(QString::fromStdString(done.notice), done.refused);
     else if (std::holds_alternative<session::MoveCorner>(gesture) || std::holds_alternative<session::MovePanel>(gesture)) say({});
     shelf_->setTool(drafting_.tool);  // a drawing tool that has done its work is back to Select
     refresh();
     if (done.typeLength) {
-        // The length is a field of a layer: open that layer and type there.
-        dock("Attribute Editor")->show();
-        dock("Attribute Editor")->raise();
-        attributes_->openLayer(done.typeLength->operation);
-        if (ValueField* field = attributes_->field(done.typeLength->operation, done.typeLength->field)) {
-            field->setFocus();
-            field->selectAll();
-        }
-        say(QString::fromStdString("Type the " + done.typeLength->label + "."));
+        // The length is a field of a layer, but it is typed on the table, where the edge is: the
+        // Attribute Editor is the back end of this, not the way to work.
+        const session::Outcome::LengthField& wanted = *done.typeLength;
+        const Field field = fields(session_.document().get(wanted.operation))[wanted.field.index];
+        const std::optional<double> number = asNumber(field.value);
+        const std::string now = number ? formatValue(*number, field.unit) : "= " + formatExpr(field.value, session_.document());
+        lengthChanged_ = lengthChanged_ || (lengthEditFrom_ && session_.editor().step() != *lengthEditFrom_);
+        lengthText_ = QString::fromStdString(now);
+        table_->typeLength(wanted, lengthText_);
+        say(lengthStatus(wanted));
+    } else if (lengthGesture && !table_->lengthEditor()) {
+        lengthEditFrom_.reset();  // nothing to type: the gesture was refused, or has nothing to say
+        lengthChanged_ = false;
     }
 }
 

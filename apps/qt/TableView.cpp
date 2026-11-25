@@ -1,6 +1,9 @@
 #include "TableView.h"
 
+#include <QApplication>
 #include <QFontMetricsF>
+#include <QLineEdit>
+#include <QTimer>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QMouseEvent>
@@ -24,6 +27,208 @@ TableView::TableView(QWidget* parent) : QWidget(parent) {
     setMouseTracking(true);
     setMinimumSize(200, 200);
     setFocusPolicy(Qt::ClickFocus);
+    // The bar a length is typed in, by the edge's label. It is made at once and only shown when it is wanted.
+    card_ = new LengthCard(this);
+    connect(card_, &LengthCard::edited, this, [this](const QString& text) {
+        if (typing_) emit lengthEdited(typing_->operation, typing_->field, text);
+    });
+    connect(card_, &LengthCard::committed, this, [this](const QString& text) {
+        const std::optional<session::Outcome::LengthField> was = typing_;
+        typing_.reset();
+        update();
+        if (was) emit lengthCommitted(was->operation, was->field, text);
+    });
+    connect(card_, &LengthCard::cancelled, this, [this] {
+        typing_.reset();
+        update();
+        emit lengthCancelled();
+    });
+    connect(card_, &LengthCard::scopeChosen, this, [this](bool thisEdgeOnly) {
+        const Drawn* d = chosen();
+        if (!typing_ || !d) return;
+        const EdgeRef edge = typing_->edge;
+        if (thisEdgeOnly) emit gestured(session::EditLength{d->panel, edge, true});
+        else emit gestured(session::UseShapeLength{d->panel, edge});
+    });
+}
+
+void TableView::typeLength(const session::Outcome::LengthField& what, const QString& text) {
+    // The panel as it is when the bar first opens is what the preview is shown against.
+    if (!card_->isVisible())
+        if (const Drawn* d = chosen()) ghost_ = d->pattern;
+    typing_ = what;
+    card_->open(what, text);
+    placeEditor();
+    update();
+}
+
+namespace {
+
+// Where a table point is, as a unit step away from the edge's panel: the right of the edge as it runs,
+// since outlines go counter-clockwise.
+QPointF stepAway(const TableView& view, const Pattern& pattern, const Edge& edge) {
+    const Vec2 a = pattern.vertices[edge.start].position, b = pattern.vertices[edge.end].position;
+    const double chord = std::max(std::hypot(b.x - a.x, b.y - a.y), 1e-9);
+    const Vec2 middle = midpoint(pattern, edge);
+    const QPointF from = view.toScreen(middle);
+    QPointF out = view.toScreen({middle.x + (b.y - a.y) / chord, middle.y - (b.x - a.x) / chord}) - from;
+    return out / std::max(std::hypot(out.x(), out.y()), 1e-9);
+}
+
+} // namespace
+
+std::optional<TableView::Anchors> TableView::anchors() const {
+    const Drawn* d = chosen();
+    if (!typing_ || !typing_->keeping || !card_->isVisible() || !d || !d->pattern.contains(typing_->edge)) return std::nullopt;
+    const Edge& edge = d->pattern.edge(typing_->edge);
+    const QPointF start = toScreen(d->pattern.vertices[edge.start].position), end = toScreen(d->pattern.vertices[edge.end].position);
+    const QPointF along = end - start;
+    // The ends are told apart by where they are on the screen: left and right for an edge that runs
+    // across, top and bottom for one that runs up.
+    const bool across = std::abs(along.x()) >= std::abs(along.y());
+    const bool startFirst = across ? along.x() >= 0.0 : along.y() >= 0.0;
+    Anchors set;
+    set.at[0] = startFirst ? start : end;
+    set.at[2] = startFirst ? end : start;
+    set.at[1] = (start + end) / 2.0;
+    set.keeps[0] = startFirst ? SetLength::Keeping::Start : SetLength::Keeping::End;
+    set.keeps[1] = SetLength::Keeping::Middle;
+    set.keeps[2] = startFirst ? SetLength::Keeping::End : SetLength::Keeping::Start;
+    set.word[0] = across ? "Left" : "Top";
+    set.word[1] = "Midpoint";
+    set.word[2] = across ? "Right" : "Bottom";
+    set.outward = stepAway(*this, d->pattern, edge);
+    // On a short edge the three would lie on top of each other: they go in a row beside it, with a line from each.
+    const double length = std::hypot(along.x(), along.y());
+    set.beside = length < 190.0;
+    if (!set.beside) {
+        for (int i = 0; i < 3; ++i) set.target[i] = set.at[i];
+    } else {
+        const QPointF unit = length > 1e-6 ? (set.at[2] - set.at[0]) / std::hypot(set.at[2].x() - set.at[0].x(), set.at[2].y() - set.at[0].y()) : QPointF(1, 0);
+        const QPointF centre = set.at[1] - set.outward * 57.0;
+        set.target[0] = centre - unit * 88.0;
+        set.target[1] = centre;
+        set.target[2] = centre + unit * 88.0;
+    }
+    return set;
+}
+
+QString TableView::anchorWord(SetLength::Keeping keeping) const {
+    const std::optional<Anchors> set = anchors();
+    if (set)
+        for (int i = 0; i < 3; ++i)
+            if (set->keeps[i] == keeping) return set->word[i];
+    return {};
+}
+
+QPointF TableView::anchorPosition(SetLength::Keeping keeping) const {
+    const std::optional<Anchors> set = anchors();
+    if (set)
+        for (int i = 0; i < 3; ++i)
+            if (set->keeps[i] == keeping) return set->target[i];
+    return {};
+}
+
+std::optional<SetLength::Keeping> TableView::anchorAt(QPointF screen) const {
+    const std::optional<Anchors> set = anchors();
+    if (!set) return std::nullopt;
+    for (int i = 0; i < 3; ++i)
+        if (QLineF(screen, set->target[i]).length() <= 22.0) return set->keeps[i];
+    return std::nullopt;
+}
+
+void TableView::placeEditor() {
+    if (!typing_ || !card_->isVisible()) return;
+    // By the edge's label, on the side away from the panel; where it has none (it was left out for
+    // lying over another), by the pointer.
+    QPointF anchor = pointer_;
+    QPointF outward(0, -1);
+    const Drawn* d = chosen();
+    for (const auto& [box, edge] : lengthLabels_) {
+        if (!(edge == typing_->edge)) continue;
+        anchor = box.center();
+        if (d && d->pattern.contains(edge)) outward = stepAway(*this, d->pattern, d->pattern.edge(edge));
+    }
+    const QSize size = card_->size();
+    QPointF at = anchor - QPointF(size.width() / 2.0, size.height() / 2.0);
+    if (std::abs(outward.y()) >= std::abs(outward.x())) at.ry() += outward.y() * (size.height() / 2.0 + 18);
+    else at.rx() += outward.x() * (size.width() / 2.0 + 24);
+    const int margin = 6;
+    const int x = std::clamp(qRound(at.x()), margin, std::max(margin, width() - size.width() - margin));
+    const int y = std::clamp(qRound(at.y()), margin, std::max(margin, height() - size.height() - margin));
+    if (card_->pos() != QPoint(x, y)) card_->move(x, y);
+}
+
+void TableView::paintLengthEdit(QPainter& p) {
+    const Drawn* d = chosen();
+    if (!typing_ || !card_->isVisible() || !d) return;
+    // The outline as it was, dashed, where the preview has moved it.
+    QColor faint = theme::quiet;
+    faint.setAlpha(150);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(faint, 1.0, Qt::DashLine));
+    bool moved = false;
+    for (const Edge& edge : ghost_.edges) {
+        if (edge.seam) continue;
+        QPolygonF along;
+        for (const Vec2& v : edgePoints(ghost_, edge)) along << toScreen(v);
+        p.drawPolyline(along);
+    }
+    if (!d->pattern.contains(typing_->edge)) return;
+    const Edge& edge = d->pattern.edge(typing_->edge);
+    const std::optional<Anchors> set = anchors();
+    const QPointF out = set ? set->outward : stepAway(*this, d->pattern, edge);
+    // How far each end of the edge has moved: an arrow from where it was.
+    p.setPen(QPen(theme::selected, 1.5));
+    for (const uint32_t corner : {edge.start, edge.end}) {
+        const CornerRef& name = d->pattern.vertices[corner].name;
+        if (!ghost_.contains(name)) continue;
+        const QPointF was = toScreen(ghost_.position(name)), now = toScreen(d->pattern.vertices[corner].position);
+        const QPointF shift = now - was;
+        const double length = std::hypot(shift.x(), shift.y());
+        if (length < 6.0) continue;
+        moved = true;
+        const QPointF from = was + out * 20.0, to = now + out * 20.0, unit = shift / length;
+        p.drawLine(from, to);
+        const QPointF side(-unit.y(), unit.x());
+        p.drawLine(to, to - unit * 6.0 + side * 4.0);
+        p.drawLine(to, to - unit * 6.0 - side * 4.0);
+    }
+    (void)moved;
+    if (!set) return;
+    // The anchors: which end stays where it is. The one chosen is filled and marked on the edge itself.
+    QFont small = p.font();
+    small.setPointSizeF(std::max(7.0, small.pointSizeF() - 1.0));
+    p.setFont(small);
+    const QFontMetricsF metrics(small);
+    for (int i = 0; i < 3; ++i) {
+        const bool on = *typing_->keeping == set->keeps[i];
+        if (set->beside) {
+            p.setPen(QPen(faint, 1.0));
+            p.drawLine(set->at[i], set->target[i] + (set->at[i] - set->target[i]) * (14.0 / std::max(1.0, std::hypot(set->at[i].x() - set->target[i].x(), set->at[i].y() - set->target[i].y()))));
+        }
+        if (on) {
+            p.setBrush(theme::selected);
+            p.setPen(QPen(theme::table, 2.0));
+            p.drawEllipse(set->at[i], 5.0, 5.0);  // fixed, on the edge
+        }
+        p.setBrush(on ? QColor(61, 51, 32) : theme::panel);
+        p.setPen(QPen(on ? theme::selected : theme::quiet, 2.0));
+        p.drawEllipse(set->target[i], on ? 14.0 : 10.0, on ? 14.0 : 10.0);
+        if (on) {
+            p.setBrush(theme::selected);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(set->target[i], 4.0, 4.0);  // the pin
+        }
+        const QString words = set->word[i] + (on ? " fixed" : "");
+        const QSizeF size = metrics.size(0, words) + QSizeF(10, 4);
+        const QRectF label(set->target[i] + QPointF(-size.width() / 2.0, 20.0), size);
+        p.setPen(Qt::NoPen);
+        p.setBrush(theme::table);
+        p.drawRoundedRect(label, 3, 3);
+        p.setPen(on ? theme::selected : theme::quiet);
+        p.drawText(label, Qt::AlignCenter, words);
+    }
 }
 
 namespace {
@@ -75,7 +280,7 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         const Vec2 middle = own ? turned(Vec2{(own->min.x + own->max.x) / 2.0, (own->min.y + own->max.y) / 2.0}, panel.angle) : Vec2{};
         d.pivot = {middle.x + panel.x, middle.y + panel.y};
         if (selected && *selected == result.panel && others.empty()) {
-            for (const Vertex& v : d.pattern.vertices) d.cornerLocks.push_back(session::cornerLock(doc, result.panel, v.name));
+            for (const Vertex& v : d.pattern.vertices) d.cornerLocks.push_back(session::cornerLock(doc, d.pattern, result.panel, v.name));
             for (const Edge& e : d.pattern.edges)
                 d.handleLocks.push_back(e.cubic ? std::pair{session::handleLock(doc, result.panel, e.name, false), session::handleLock(doc, result.panel, e.name, true)}
                                                 : std::pair<std::string, std::string>{});
@@ -494,12 +699,24 @@ void TableView::paintEvent(QPaintEvent*) {
             p.drawText(pointer_ + QPointF(14, 22), readout_);
         }
     }
+    paintLengthEdit(p);
+    placeEditor();  // the labels have their places now
 }
 
 void TableView::mousePressEvent(QMouseEvent* event) {
     panFrom_ = event->position();
     pointer_ = event->position();
     if (event->button() != Qt::LeftButton) return;
+    if (typing_) {
+        if (const std::optional<SetLength::Keeping> keeps = anchorAt(event->position())) {
+            typing_->keeping = *keeps;
+            emit keepingChosen(typing_->operation, *keeps);
+            card_->field()->setFocus();  // typing goes on
+            update();
+            return;
+        }
+        card_->cancel();  // a click elsewhere leaves it, and does what it was going to do
+    }
     if (choosing_) {
         // Only the candidates can be clicked while a layer's reference is chosen.
         if (const std::optional<Reference> picked = choiceAt(event->position())) emit referencePicked(*picked);
@@ -520,6 +737,13 @@ void TableView::mousePressEvent(QMouseEvent* event) {
         return;
     }
     if (!grab) {
+        // A length label stands outside the outline, on empty table, where a click chooses nothing. The
+        // labels are shown for the chosen panel only, so pressing one must keep the panel chosen: else
+        // they are gone before the second click of a double-click arrives. A corner or handle under
+        // the label is taken first, above.
+        if (!grouped())
+            for (const auto& [box, edge] : lengthLabels_)
+                if (box.contains(event->position())) return;
         // The panel under the pointer; the selected one wins where they overlap.
         const Drawn* under = nullptr;
         for (const Drawn& d : drawn_)
@@ -726,6 +950,7 @@ std::optional<TableView::Offer> TableView::offerAt(QPointF screen) const {
 
     switch (tool_) {
     case Tool::Curve:
+    case Tool::Length:
     case Tool::Mirror:
     case Tool::Sew:
         nearest = reach;
@@ -812,6 +1037,7 @@ void TableView::pressWithTool(QPointF screen, bool snapping) {
         if (offer->edge) {
             const SeamSide side{offer->panel, *offer->edge};
             if (tool_ == Tool::Curve) emit gestured(session::BendEdge{side.panel, side.edge});
+            if (tool_ == Tool::Length) emit gestured(session::EditLength{side.panel, side.edge, true});
             if (tool_ == Tool::Mirror) emit gestured(session::MirrorAcross{side.panel, side.edge});
             if (tool_ == Tool::Sew && !sewFrom_) {
                 sewFrom_ = side;

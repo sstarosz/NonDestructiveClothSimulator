@@ -25,6 +25,7 @@ using Kind = ExprNode::Kind;
 constexpr std::array<std::string_view, std::variant_size_v<OpData>> typeNames = {
     "Rect", "Circle", "RingSector", "Instance", "Offcut", "Curve",
     "Bezier", "Line", "LineBetween", "Cut", "Mirror", "AdjustPoint", "AddPoint", "Scale",
+    "SetLength",
 };
 // Units by their names in a file, in Unit's order; never renamed once released.
 constexpr std::array<std::string_view, 4> unitNames = {"length", "angle", "fraction", "none"};
@@ -36,6 +37,7 @@ static_assert(std::is_same_v<std::variant_alternative_t<9, OpData>, Cut>);
 static_assert(std::is_same_v<std::variant_alternative_t<11, OpData>, AdjustPoint>);
 static_assert(std::is_same_v<std::variant_alternative_t<12, OpData>, AddPoint>);
 static_assert(std::is_same_v<std::variant_alternative_t<13, OpData>, Scale>);
+static_assert(std::is_same_v<std::variant_alternative_t<14, OpData>, SetLength>);
 
 template <std::size_t... I>
 std::optional<OpData> emptyOperation(std::size_t index, std::index_sequence<I...>) {
@@ -113,6 +115,7 @@ std::vector<long long> extras(const OpData& data) {
     if (const Offcut* offcut = std::get_if<Offcut>(&data)) return {static_cast<long long>(OpId(offcut->of).value)};
     if (const Cut* cut = std::get_if<Cut>(&data)) return {cut->keep == Cut::Side::Right ? 1 : 0};
     if (const Mirror* mirror = std::get_if<Mirror>(&data)) return {mirror->appliedLast ? 1 : 0};
+    if (const SetLength* set = std::get_if<SetLength>(&data)) return {static_cast<long long>(set->keeping)};
     return {};
 }
 bool setExtras(OpData& data, const std::vector<long long>& values) {
@@ -122,6 +125,10 @@ bool setExtras(OpData& data, const std::vector<long long>& values) {
     if (Offcut* offcut = std::get_if<Offcut>(&data)) offcut->of = OpRef<Cut>(OpId{static_cast<uint32_t>(values[0])});
     if (Cut* cut = std::get_if<Cut>(&data)) cut->keep = values[0] != 0 ? Cut::Side::Right : Cut::Side::Left;
     if (Mirror* mirror = std::get_if<Mirror>(&data)) mirror->appliedLast = values[0] != 0;
+    if (SetLength* set = std::get_if<SetLength>(&data)) {
+        if (values[0] < 0 || values[0] > static_cast<long long>(SetLength::Keeping::End)) return false;  // not a way of keeping we know
+        set->keeping = static_cast<SetLength::Keeping>(values[0]);
+    }
     return true;
 }
 
@@ -379,7 +386,7 @@ std::variant<Document, FileError> fromText(std::string_view text) {
                         throw Problem{"a reference of this " + type + " is of the wrong kind"};
                 std::vector<long long> more(words.count());
                 for (long long& value : more) value = words.whole();
-                if (!setExtras(*data, more)) throw Problem{"a " + type + " has a different number of settings"};
+                if (!setExtras(*data, more)) throw Problem{"a " + type + " has a different number of settings, or one that is not allowed"};
                 DocumentAccess::restore(doc, *panel, id, std::move(*data), enabled);
             } else if (what == "seam") {
                 const SeamId id{fresh(words.id())};

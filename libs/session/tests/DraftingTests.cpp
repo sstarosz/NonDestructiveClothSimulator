@@ -224,7 +224,7 @@ TEST_CASE("selected corners move together, as one undo step")
     EXPECT((drafting.selection.corners.size() == 1), "clicking a selected corner with Shift takes it out");
 }
 
-TEST_CASE("two edges are sewn once; a locked corner and a length that is no setting say why")
+TEST_CASE("two edges are sewn once; a locked corner says why, and a length that follows its corners is given a setting")
 {
     Document doc;
     const Param width = doc.add(Parameter{.name = "width", .value = 20_cm});
@@ -246,7 +246,8 @@ TEST_CASE("two edges are sewn once; a locked corner and a length that is no sett
     EXPECT((typed.typeLength && typed.typeLength->operation == OpId(backRect)), "a rectangle's width is a setting to type");
     drag(drafting, editor, MoveCorner{back, backRect.bottomRight(), 0, 0, DragPhase::Begin}, 2.0, 0.0);
     const Outcome moved = drafting.handle(editor, EditLength{back, backRect.bottom()});
-    EXPECT((!moved.typeLength && !moved.notice.empty()), "once a corner was dragged the length follows the corners, and it says so");
+    EXPECT((moved.typeLength && !(moved.typeLength->operation == OpId(backRect)) && count<SetLength>(editor.document(), back) == 1),
+           "once a corner was dragged the length follows the corners: the edge is given a length of its own to type");
 }
 
 TEST_CASE("the scale gizmo scales a Rect, a Circle or a RingSector itself and adds no layer, one undo step a drag")
@@ -851,4 +852,168 @@ TEST_CASE("Add beside makes a copy, an instance or a mirrored instance just righ
     EXPECT((last<Instance>(editor.document(), mirrored).mirrored), "a mirrored instance is its mirror image");
     EXPECT((editor.shapes().ok()), "all of them evaluate");
     EXPECT((editor.undo() && editor.undo() && editor.undo() && editor.document().panels().size() == 1), "each is one undo step");
+}
+
+TEST_CASE("double-clicking an edge that nothing sets gives it a length of its own, as long as it is now, one undo step")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "shirt"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    doc.add(panel, AdjustPoint{.corner = rect.topRight(), .dx = -3_cm, .dy = -4_cm});  // the shoulder slopes: its length is nobody's setting
+    Editor editor(doc);
+    Drafting drafting;
+    const double before = editor.shapes()[panel].length(rect.top());
+
+    const Outcome typed = drafting.handle(editor, EditLength{panel, rect.top()});
+    REQUIRE(typed.typeLength.has_value());
+    EXPECT((count<SetLength>(editor.document(), panel) == 1 && std::holds_alternative<SetLength>(editor.document().get(typed.typeLength->operation))), "a length is added, and it is the one to type");
+    EXPECT((typed.typeLength->field == FieldId{0} && typed.typeLength->label.find("Length of") == 0), "its one field, named for the edge");
+    EXPECT((last<SetLength>(editor.document(), panel).edge == rect.top() && last<SetLength>(editor.document(), panel).keeping == SetLength::Keeping::Middle), "of the edge, moving both ends");
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.top())), (before), "the shape has not changed");
+    EXPECT((editor.shapes().ok()), "and it is no problem");
+
+    const Outcome again = drafting.handle(editor, EditLength{panel, rect.top()});
+    EXPECT((again.typeLength && again.typeLength->operation == typed.typeLength->operation && count<SetLength>(editor.document(), panel) == 1), "the second double-click types into the same length, it adds none");
+
+    REQUIRE(editor.change([&](Document& d) { d.set(typed.typeLength->operation, typed.typeLength->field, Expr(12_cm)); }));
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.top())), (12.0), "typing the number gives the edge that length");
+
+    EXPECT((editor.undo() && editor.undo() && count<SetLength>(editor.document(), panel) == 0), "undo takes the typed length back, and one more the added layer");
+
+    // A rectangle's top is its width's business, as it was.
+    Document plain;
+    const PanelId box = plain.add(Panel{.name = "box"});
+    const OpRef<Rect> square = plain.add(box, Rect{.width = 20_cm, .height = 30_cm});
+    Editor boxEditor(plain);
+    const Outcome width = drafting.handle(boxEditor, EditLength{box, square.top()});
+    EXPECT((width.typeLength && width.typeLength->operation == OpId(square) && count<SetLength>(boxEditor.document(), box) == 0), "an edge with a setting of its own still types that, and adds nothing");
+}
+
+TEST_CASE("an edge that cannot be given a length is refused with why, and no layer is left behind")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    doc.add(panel, Bezier{.edge = rect.top(), .startHandle = {-2_cm, 3_cm}, .endHandle = {2_cm, 3_cm}});
+    const PanelId disc = doc.add(Panel{.name = "disc"});
+    const OpRef<Circle> circle = doc.add(disc, Circle{.radius = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+
+    const Outcome curve = drafting.handle(editor, EditLength{panel, rect.top()});
+    EXPECT((!curve.typeLength && curve.refused && !curve.notice.empty() && count<SetLength>(editor.document(), panel) == 0), "a free curve says why");
+    const Outcome round = drafting.handle(editor, EditLength{disc, circle.arc()});
+    EXPECT((!round.typeLength && round.refused && !round.notice.empty() && count<SetLength>(editor.document(), disc) == 0), "so does a whole circle");
+    EXPECT((editor.shapes().ok() && !editor.canUndo()), "nothing changed, nothing to undo");
+}
+
+TEST_CASE("on a symmetric panel the length is given to the drawn side and keeps the fold where it is")
+{
+    Half half;
+    half.doc.add(half.panel, AdjustPoint{.corner = half.rect.topRight(), .dx = -2_cm, .dy = 0_cm});
+    Editor editor(half.doc);
+    Drafting drafting;
+
+    const Outcome typed = drafting.handle(editor, EditLength{half.panel, half.fold.image(half.rect.top())});
+    REQUIRE(typed.typeLength.has_value());
+    EXPECT((last<SetLength>(editor.document(), half.panel).edge == half.rect.top()), "a double-click on the mirrored top makes the length of the drawn top");
+    EXPECT((last<SetLength>(editor.document(), half.panel).keeping == SetLength::Keeping::End), "which keeps its end, the corner on the fold");
+    REQUIRE(editor.change([&](Document& d) { d.set(typed.typeLength->operation, typed.typeLength->field, Expr(12_cm)); }));
+    EXPECT_NEAR((editor.shapes()[half.panel].length(half.fold.image(half.rect.top()))), (12.0), "both halves of the top follow");
+    EXPECT_NEAR((editor.shapes()[half.panel].position(half.rect.topLeft()).x), (0.0), "and the fold stays on the axis");
+
+    const Outcome side = drafting.handle(editor, EditLength{half.panel, half.rect.right()});
+    REQUIRE(side.typeLength.has_value());
+    EXPECT((last<SetLength>(editor.document(), half.panel).edge == half.rect.right() && last<SetLength>(editor.document(), half.panel).keeping == SetLength::Keeping::Middle),
+           "an edge away from the fold moves both its ends");
+}
+
+TEST_CASE("the scale gizmo does not scale a rectangle's numbers past a length given to one of its edges")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "trousers"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    doc.add(panel, SetLength{.edge = rect.top(), .length = 30_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.handle(editor, ScalePanel{panel, 1.0, 1.0, DragPhase::Begin});
+    drafting.handle(editor, ScalePanel{panel, 2.0, 2.0, DragPhase::Continue});
+    drafting.handle(editor, ScalePanel{panel, 2.0, 2.0, DragPhase::End});
+    EXPECT((count<Scale>(editor.document(), panel) == 1 && asNumber(editor.document().get(rect).width) == 20.0), "a Scale layer is added and the rectangle's own width is left alone");
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.top())), (60.0), "so the top is scaled with the rest");
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.bottom())), (40.0), "and so is the bottom");
+}
+
+TEST_CASE("the Length tool gives an edge a length of its own even where its shape sets it, and is then done")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "trousers"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 40_cm, .height = 80_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    drafting.tool = Tool::Length;
+
+    const Outcome made = drafting.handle(editor, EditLength{panel, rect.top(), true});
+    REQUIRE(made.typeLength.has_value());
+    EXPECT((count<SetLength>(editor.document(), panel) == 1 && last<SetLength>(editor.document(), panel).edge == rect.top()), "the top is given a length, though the rectangle's width sets it");
+    EXPECT((made.toolDone && drafting.tool == Tool::Select), "the tool has done its work");
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.top())), (40.0), "the shape has not changed yet");
+
+    REQUIRE(editor.change([&](Document& d) { d.set(made.typeLength->operation, made.typeLength->field, Expr(50_cm)); }));
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.top())), (50.0), "typing the waist widens the top");
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.bottom())), (40.0), "and the bottom keeps the rectangle's width");
+
+    drafting.tool = Tool::Length;
+    const Outcome again = drafting.handle(editor, EditLength{panel, rect.top(), true});
+    EXPECT((again.typeLength && again.typeLength->operation == made.typeLength->operation && count<SetLength>(editor.document(), panel) == 1), "a second click types into the same length");
+
+    const Outcome ankle = drafting.handle(editor, EditLength{panel, rect.bottom(), true});
+    EXPECT((ankle.typeLength && count<SetLength>(editor.document(), panel) == 2), "and the bottom can be given its own");
+
+    Document curved;
+    const PanelId bent = curved.add(Panel{.name = "bent"});
+    const OpRef<Rect> bentRect = curved.add(bent, Rect{.width = 20_cm, .height = 30_cm});
+    curved.add(bent, Bezier{.edge = bentRect.top(), .startHandle = {-2_cm, 3_cm}, .endHandle = {2_cm, 3_cm}});
+    Editor bentEditor(curved);
+    drafting.tool = Tool::Length;
+    const Outcome refused = drafting.handle(bentEditor, EditLength{bent, bentRect.top(), true});
+    EXPECT((refused.refused && !refused.toolDone && drafting.tool == Tool::Length), "an edge that cannot have a length is refused, and the tool stays for another");
+}
+
+TEST_CASE("a length is the shape's setting or the edge's own, and either can be chosen again")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "trousers"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 40_cm, .height = 80_cm});
+    Editor editor(doc);
+    Drafting drafting;
+
+    const Outcome shape = drafting.handle(editor, EditLength{panel, rect.top()});
+    REQUIRE(shape.typeLength.has_value());
+    EXPECT((!shape.typeLength->ownLength && shape.typeLength->canSwitch && shape.typeLength->operation == OpId(rect)), "a rectangle's top is its width, and the window may offer an edge of its own");
+
+    const Outcome own = drafting.handle(editor, EditLength{panel, rect.top(), true});
+    REQUIRE(own.typeLength.has_value());
+    EXPECT((own.typeLength->ownLength && own.typeLength->canSwitch && own.typeLength->keeping == SetLength::Keeping::Middle && own.typeLength->edge == rect.top()),
+           "an own length says so, which end it keeps, and that the shape's setting can be chosen again");
+    REQUIRE(editor.change([&](Document& d) { d.set(own.typeLength->operation, own.typeLength->field, Expr(55_cm)); }));
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.top())), (55.0), "the top has its own length");
+
+    const Outcome back = drafting.handle(editor, UseShapeLength{panel, rect.top()});
+    EXPECT((back.typeLength && back.typeLength->operation == OpId(rect) && !back.typeLength->ownLength && count<SetLength>(editor.document(), panel) == 0), "choosing the shape's setting removes the own length");
+    EXPECT_NEAR((editor.shapes()[panel].length(rect.top())), (40.0), "and the top is the rectangle's width again");
+    EXPECT((editor.undo() && count<SetLength>(editor.document(), panel) == 1), "in one undo step");
+
+    // An edge whose corners were moved is nobody's setting; there is nothing to go back to.
+    REQUIRE(editor.change([&](Document& d) { d.add(panel, AdjustPoint{.corner = rect.topRight(), .dx = 3_cm, .dy = 0_cm}); }));
+    const Outcome lost = drafting.handle(editor, UseShapeLength{panel, rect.top()});
+    EXPECT((!lost.typeLength && !lost.notice.empty()), "when the shape's setting no longer gives the length, it says so");
+
+    Document shirt;
+    const PanelId front = shirt.add(Panel{.name = "front"});
+    const OpRef<Rect> body = shirt.add(front, Rect{.width = 20_cm, .height = 30_cm});
+    shirt.add(front, AdjustPoint{.corner = body.topRight(), .dx = -3_cm, .dy = -4_cm});
+    Editor shirtEditor(shirt);
+    const Outcome shoulder = drafting.handle(shirtEditor, EditLength{front, body.top()});
+    EXPECT((shoulder.typeLength && shoulder.typeLength->ownLength && shoulder.typeLength->canSwitch), "an edge whose shape has a setting for it can switch, even after a corner was moved");
 }

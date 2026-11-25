@@ -11,7 +11,7 @@
 
 namespace clothcad::session {
 
-enum class Tool { Select, Move, Rotate, Scale, Rectangle, Circle, Ring, Point, Curve, Line, Mirror, Cut, Split, Sew, Pull };
+enum class Tool { Select, Move, Rotate, Scale, Rectangle, Circle, Ring, Point, Curve, Line, Length, Mirror, Cut, Split, Sew, Pull };
 
 // What a gizmo does, in both views: W, E and R.
 enum class GizmoMode { Move, Rotate, Scale };

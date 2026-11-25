@@ -37,11 +37,19 @@ DrawnEdge drawnSide(const Document& doc, PanelId panel, const EdgeRef& edge) {
     return {original, true};
 }
 
-std::string cornerLock(const Document& doc, PanelId panel, const CornerRef& image) {
+std::string cornerLock(const Document& doc, const Pattern& shape, PanelId panel, const CornerRef& image) {
     const CornerRef corner = drawnSide(doc, panel, image).corner;
     // The operation that made the corner decides where it is.
     if (doc.contains(corner.op) && usesAFormula(doc.get(corner.op)))
         return "Locked: this corner's position comes from a formula. Change the formula in its layer.";
+    // So does a length that a formula gives to an edge it ends.
+    for (OpId op : doc.operations(panel)) {
+        const SetLength* set = std::get_if<SetLength>(&doc.get(op));
+        if (!set || !doc.enabled(op) || !usesAFormula(doc.get(op)) || !shape.contains(set->edge)) continue;
+        const Edge& edge = shape.edge(set->edge);
+        if (shape.vertices[edge.start].name == corner || shape.vertices[edge.end].name == corner)
+            return "Locked: this corner is an end of an edge whose length comes from a formula. Change the formula in its layer.";
+    }
     // So does any adjustment already made to it.
     for (PanelId anyPanel : doc.panels())
         for (OpId op : doc.operations(anyPanel))

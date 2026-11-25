@@ -105,6 +105,13 @@ void type(QLineEdit* field, const QString& text) {
     emit field->editingFinished();
 }
 
+// Types into the box that opens on the table over an edge's length, and presses Enter.
+void typeOnTable(TableView* table, const QString& text) {
+    REQUIRE(table->lengthEditor() != nullptr);
+    type(table->lengthEditor(), text);
+    emit table->lengthEditor()->returnPressed();
+}
+
 template <class T> OpId first(const Document& doc, PanelId panel) {
     for (OpId op : doc.operations(panel))
         if (std::holds_alternative<T>(doc.get(op))) return op;
@@ -525,12 +532,57 @@ TEST_CASE("a double-click on an edge opens its length for typing", "[qt]")
     const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
     const QPointF at = w.table()->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2});
     send(w.table(), QEvent::MouseButtonDblClick, at, Qt::LeftButton, Qt::LeftButton, {});
-    const OpId rect = first<Rect>(w.doc(), plain);
-    EXPECT((w.window.attributes()->isOpen(rect)), "the layer that sets the length is open");
-    ValueField* field = w.window.attributes()->field(rect, FieldId{0});
-    REQUIRE(field != nullptr);
-    type(field, "42");
+    REQUIRE(w.table()->lengthEditor() != nullptr);
+    EXPECT((w.table()->lengthEditor()->text() == "30 cm"), "a box opens on the table, with the length in it");
+    EXPECT((!w.window.attributes()->hasFocus() && !w.window.attributes()->isAncestorOf(QApplication::focusWidget())), "and the Attribute Editor is not where it is typed");
+    typeOnTable(w.table(), "42");
     EXPECT((w.width(plain) == 42.0), "and the typed length is the edge's");
+    EXPECT((w.table()->lengthEditor() == nullptr), "the box closes");
+
+    send(w.table(), QEvent::MouseButtonDblClick, at, Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(w.table()->lengthEditor() != nullptr);
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(w.table()->lengthEditor(), &escape);
+    EXPECT((w.table()->lengthEditor() == nullptr && w.width(plain) == 42.0), "Esc leaves it as it was");
+    send(w.table(), QEvent::MouseButtonDblClick, at, Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(w.table()->lengthEditor() != nullptr);
+    typeOnTable(w.table(), "no length");
+    EXPECT((w.width(plain) == 42.0 && w.table()->lengthEditor() != nullptr && !w.table()->lengthCard()->problem().isEmpty()), "a length that does not read changes nothing, is said on the bar, and the bar stays");
+}
+
+TEST_CASE("a double-click on an edge nothing sets gives it a length of its own; as a formula it holds the edge's corners", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    // The top-right corner dragged in: the top edge is no longer the rectangle's width.
+    const QPointF corner = w.table()->toScreen(w.corner(plain, 1, 1));
+    drag(w.table(), corner, by(corner, w.table(), -5, 0));
+    const std::size_t layers = w.doc().operations(plain).size();
+    REQUIRE(layers == 2);
+
+    const Vec2 left = w.corner(plain, -1, 1), right = w.corner(plain, 1, 1);
+    send(w.table(), QEvent::MouseButtonDblClick, w.table()->toScreen({(left.x + right.x) / 2, (left.y + right.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(w.doc().operations(plain).size() == layers + 1);
+    const OpId set = w.doc().operations(plain).back();
+    REQUIRE(std::holds_alternative<SetLength>(w.doc().get(set)));
+    const EdgeRef top = std::get<SetLength>(w.doc().get(set)).edge;
+    const auto topLength = [&] { return w.window.session().editor().shapes()[plain].length(top); };
+    EXPECT((std::abs(topLength() - (right.x - left.x)) < 1e-6), "the new length is as long as the edge was, so the shape did not change");
+    typeOnTable(w.table(), "12");
+    EXPECT_NEAR((topLength()), (12.0), "the typed length is the edge's");
+
+    w.table()->grab();  // painted again, so that the labels are where they are now
+    const auto topLabel = std::find_if(w.table()->lengthLabels().begin(), w.table()->lengthLabels().end(), [&](const auto& l) { return l.second == top; });
+    REQUIRE(topLabel != w.table()->lengthLabels().end());
+    send(w.table(), QEvent::MouseButtonDblClick, topLabel->first.center(), Qt::LeftButton, Qt::LeftButton, {});
+    typeOnTable(w.table(), "= width");
+    EXPECT_NEAR((topLength()), (20.0), "a formula gives it as well");
+    const Vec2 held = w.corner(plain, 1, 3);  // the top-right corner: the top is now shorter than the bottom
+    const QPointF where = w.table()->toScreen(held);
+    drag(w.table(), where, by(where, w.table(), 3, 0));
+    EXPECT((w.doc().operations(plain).size() == layers + 1 && std::abs(w.corner(plain, 1, 3).x - held.x) < 1e-9), "an end of an edge a formula sets is not dragged");
+    EXPECT((w.window.helpLine().contains("formula")), "and the help line says why");
 }
 
 // ---- The drawing tools on the table ----
@@ -780,6 +832,184 @@ TEST_CASE("Sew joins two edges once; Mirror reflects a panel across a straight e
     choose(w, Tool::Mirror);
     click(table, table->toScreen(between(w.corner(plain, 1, -1), w.corner(plain, 1, 1), 0.5)));
     EXPECT((lastIs<Mirror>(w.doc(), plain) && std::abs(w.width(plain) - 60.0) < 0.1), "a click on the right edge mirrors the panel across it");
+}
+
+TEST_CASE("a length label is double-clicked as a person does it: the first click keeps the panel chosen, so the label is still there", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    w.table()->grab();  // painted once, so that the labels have places
+    REQUIRE(!w.table()->lengthLabels().empty());
+    const QPointF at = w.table()->lengthLabels().front().first.center();
+    send(w.table(), QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, {});
+    send(w.table(), QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, {});
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{plain} && !w.table()->lengthLabels().empty()), "one click on a label leaves the panel chosen, and its labels shown");
+    w.table()->grab();
+    send(w.table(), QEvent::MouseButtonDblClick, at, Qt::LeftButton, Qt::LeftButton, {});
+    send(w.table(), QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, {});
+    EXPECT((w.table()->lengthEditor() != nullptr), "the second click then opens a box on the table to type that length");
+}
+
+TEST_CASE("the Length tool on the shelf gives a clicked edge a length of its own; what it keeps is chosen in its layer", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    choose(w, Tool::Length);
+    EXPECT((w.window.helpLine().contains("Click an edge")), "the tool says what to do");
+    // The top edge of the 30 by 10 rectangle, which its width shares with the bottom.
+    const Vec2 left = w.corner(plain, -1, 1), right = w.corner(plain, 1, 1);
+    click(w.table(), w.table()->toScreen({(left.x + right.x) / 2, (left.y + right.y) / 2}));
+    REQUIRE(lastIs<SetLength>(w.doc(), plain));
+    const OpId set = w.doc().operations(plain).back();
+    EXPECT((w.table()->lengthEditor() != nullptr), "a box opens on the table to type its length");
+    EXPECT((w.window.shelf()->action(Tool::Select)->isChecked()), "the tool is done, and Select is back");
+    typeOnTable(w.table(), "40");
+    const EdgeRef top = std::get<SetLength>(w.doc().get(set)).edge;
+    EXPECT_NEAR((w.window.session().editor().shapes()[plain].length(top)), (40.0), "the top has the typed length");
+    EXPECT((w.width(plain) == 40.0), "and the panel is wider at the top than the rectangle was");
+
+    QComboBox* keeps = w.window.attributes()->findChild<QComboBox*>("keeps");
+    REQUIRE(keeps != nullptr);
+    EXPECT((keeps->count() == 3 && keeps->currentIndex() == 0 && keeps->itemText(1).contains("corner")), "the layer offers what to keep, in words of corners, and starts with both ends moving");
+    const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
+    const auto topRightX = [&] { return w.window.session().editor().shapes()[plain].position(rect.topRight()).x; };
+    EXPECT_NEAR((topRightX()), (35.0), "with both ends moving, the top-right corner went out 5 cm");
+    keeps->setCurrentIndex(1);
+    emit keeps->activated(1);
+    EXPECT((std::get<SetLength>(w.doc().get(set)).keeping == SetLength::Keeping::Start), "choosing one keeps that end");
+    EXPECT_NEAR((topRightX()), (30.0), "and the corner of that end stays where the rectangle had it");
+    EXPECT_NEAR((w.window.session().editor().shapes()[plain].length(top)), (40.0), "while the top keeps its length");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((std::get<SetLength>(w.doc().get(set)).keeping == SetLength::Keeping::Middle), "undo takes the choice back");
+}
+
+TEST_CASE("a length is typed on the table with a live preview; Enter keeps it and Escape takes all of it back", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
+    TableView* table = w.table();
+    const auto shape = [&]() -> const Pattern& { return w.window.session().editor().shapes()[plain]; };
+    const auto layers = [&] { return w.doc().operations(plain).size(); };
+    const auto bar = [&] { return table->lengthCard(); };
+    const auto scope = [&] { return bar()->findChild<QComboBox*>("lengthScope"); };
+    const auto doubleClickBottom = [&] {
+        const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+        send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    };
+    const auto typeLive = [&](const QString& text) {
+        REQUIRE(table->lengthEditor() != nullptr);
+        table->lengthEditor()->setText(text);  // each edit is reported at once
+    };
+    const auto chooseScope = [&](int index) {
+        REQUIRE(scope() != nullptr);
+        scope()->setCurrentIndex(index);
+        emit scope()->activated(index);
+    };
+    const auto keeping = [&] { return std::get<SetLength>(w.doc().get(w.doc().operations(plain).back())).keeping; };
+    const auto clickAnchor = [&](SetLength::Keeping which) {
+        const QPointF at = table->anchorPosition(which);
+        send(table, QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, {});
+        send(table, QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, {});
+    };
+
+    // The shape's own setting is typed at first, and it shows at once.
+    doubleClickBottom();
+    REQUIRE(table->lengthEditor() != nullptr);
+    EXPECT((scope()->isVisible() && scope()->currentIndex() == 1 && scope()->itemText(1).contains("width")), "a rectangle's edge offers 'Edge only' or the shape's width, and the width is chosen");
+    EXPECT((table->anchorWord(SetLength::Keeping::Middle).isEmpty()), "the shape's setting has no end to keep, so there are no anchors");
+    typeLive("26");
+    EXPECT_NEAR((shape().length(rect.bottom())), (26.0), "what is typed is shown before Enter");
+    EXPECT((layers() == 1), "and it is the rectangle's own width, no layer is added");
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(table->lengthEditor(), &escape);
+    EXPECT((table->lengthEditor() == nullptr && std::abs(shape().length(rect.bottom()) - 30.0) < 1e-9), "Escape closes the bar and the width is as it was");
+    EXPECT((!w.window.shelf()->undo()->isEnabled()), "with nothing left to undo");
+
+    // This edge only: a length of its own, with anchors on the edge.
+    doubleClickBottom();
+    chooseScope(0);
+    EXPECT((layers() == 2 && keeping() == SetLength::Keeping::Middle), "'Edge only' gives it a length of its own, both ends moving");
+    EXPECT((table->anchorWord(SetLength::Keeping::Start) == "Left" && table->anchorWord(SetLength::Keeping::End) == "Right" && table->anchorWord(SetLength::Keeping::Middle) == "Midpoint"),
+           "three anchors on the edge, named as the screen shows them: the bottom runs left to right");
+    typeLive("20");
+    EXPECT_NEAR((shape().length(rect.bottom())), (20.0), "the typed length is shown at once");
+    EXPECT_NEAR((shape().length(rect.top())), (30.0), "and the top is the rectangle's width, so the panel is a trapezoid");
+    EXPECT_NEAR((shape().position(rect.bottomLeft()).x), (5.0), "both ends moved in by the same amount");
+    clickAnchor(SetLength::Keeping::Start);
+    EXPECT((keeping() == SetLength::Keeping::Start && table->lengthEditor() != nullptr), "a click on the left anchor keeps that end, and the bar stays open");
+    EXPECT_NEAR((shape().position(rect.bottomLeft()).x), (0.0), "the left corner is where it was");
+    EXPECT_NEAR((shape().position(rect.bottomRight()).x), (20.0), "the other end took all of it");
+    clickAnchor(SetLength::Keeping::End);
+    EXPECT((keeping() == SetLength::Keeping::End), "another anchor keeps the other end instead");
+    clickAnchor(SetLength::Keeping::Middle);
+    EXPECT((keeping() == SetLength::Keeping::Middle), "and the midpoint lets both ends move");
+
+    // Escape takes all of it back: the preview, the anchors and the length that was made.
+    QApplication::sendEvent(table->lengthEditor(), &escape);
+    EXPECT((table->lengthEditor() == nullptr && layers() == 1 && std::abs(shape().length(rect.bottom()) - 30.0) < 1e-9), "Escape takes it all back, the layer that was made too");
+    EXPECT((!w.window.shelf()->undo()->isEnabled()), "so nothing is left to undo");
+
+    // Something wrong is said under the field, and Enter waits.
+    doubleClickBottom();
+    chooseScope(0);
+    typeLive("-5");
+    EXPECT((!bar()->problem().isEmpty() && std::abs(shape().length(rect.bottom()) - 30.0) < 1e-9), "a length that cannot be is said on the bar, and the shape is as it was");
+    emit table->lengthEditor()->returnPressed();
+    EXPECT((table->lengthEditor() != nullptr), "Enter does not close it while that is so");
+    typeLive("no length");
+    EXPECT((!bar()->problem().isEmpty()), "a text that is no length is said too");
+    typeLive("22");
+    EXPECT((bar()->problem().isEmpty()), "and the words go when it works");
+
+    // Enter keeps it, as one undo step with the length that was made.
+    emit table->lengthEditor()->returnPressed();
+    EXPECT((table->lengthEditor() == nullptr && layers() == 2 && std::abs(shape().length(rect.bottom()) - 22.0) < 1e-9), "Enter keeps what was typed");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((layers() == 1 && std::abs(shape().length(rect.bottom()) - 30.0) < 1e-9), "one undo takes the length and its layer back");
+    w.window.shelf()->redo()->trigger();
+    EXPECT((layers() == 2 && std::abs(shape().length(rect.bottom()) - 22.0) < 1e-9), "and redo brings them");
+
+    // Back to the shape's setting, from the bar.
+    doubleClickBottom();
+    REQUIRE(table->lengthEditor() != nullptr);
+    EXPECT((scope()->currentIndex() == 0), "an edge with a length of its own opens on it");
+    chooseScope(1);
+    EXPECT((layers() == 1 && scope()->currentIndex() == 1 && table->lengthEditor()->text() == "30 cm"), "the shape's setting again: the edge's own length is gone, and the width is in the field");
+    QApplication::sendEvent(table->lengthEditor(), &escape);
+    EXPECT((layers() == 2 && std::abs(shape().length(rect.bottom()) - 22.0) < 1e-9), "and Escape takes even that back");
+
+    // A click on any part of the bar stays on the bar: the caption, the gaps, the words under the field.
+    // Qt hands a click that a part has no use for to what is under it, which is the table: it would
+    // leave the bar and choose nothing, and the panel would be deselected.
+    doubleClickBottom();
+    typeLive("-1");
+    REQUIRE(!bar()->problem().isEmpty());
+    const std::vector<QWidget*> parts = {bar(), bar()->findChild<QLabel*>("lengthCaption"), bar()->findChild<QLabel*>("lengthProblem"), bar()->findChild<QFrame*>("lengthNumber")};
+    for (QWidget* part : parts) {
+        REQUIRE(part != nullptr);
+        const QPointF inside = part->rect().center();
+        const QPoint corner(2, 2);  // a gap at the edge of the bar
+        for (const QPointF at : {inside, QPointF(corner)}) {
+            QMouseEvent press(QEvent::MouseButtonPress, at, part->mapToGlobal(at), Qt::LeftButton, Qt::LeftButton, {});
+            QApplication::sendEvent(part, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, at, part->mapToGlobal(at), Qt::LeftButton, Qt::NoButton, {});
+            QApplication::sendEvent(part, &release);
+        }
+    }
+    EXPECT((table->lengthEditor() != nullptr && w.window.selectedPanels() == std::vector<PanelId>{plain}), "a click on the bar keeps the bar open and the panel chosen");
+    typeLive("25");
+    emit table->lengthEditor()->returnPressed();
+    doubleClickBottom();
+    typeLive("26");
+    EXPECT_NEAR((shape().length(rect.bottom())), (26.0), "typed");
+
+    // A click elsewhere on the table leaves the bar like Escape.
+    click(table, table->toScreen({-1000, -1000}));
+    EXPECT((table->lengthEditor() == nullptr && std::abs(shape().length(rect.bottom()) - 25.0) < 1e-9), "a click elsewhere leaves it, as it was");
 }
 
 TEST_CASE("a layer's edge is chosen again by clicking it on the table", "[qt]")
@@ -1709,7 +1939,9 @@ TEST_CASE("the selected panel's lengths are labelled on the table; a double-clic
                                     [&](const auto& l) { return l.second == rect.bottom(); });
     REQUIRE(label != w.table()->lengthLabels().end());
     send(w.table(), QEvent::MouseButtonDblClick, label->first.center(), Qt::LeftButton, Qt::LeftButton, {});
-    EXPECT((w.window.attributes()->isOpen(OpId(rect)) && w.window.attributes()->field(OpId(rect), FieldId{0}) != nullptr), "the layer that sets that length is open, to type it");
+    EXPECT((w.table()->lengthEditor() != nullptr && w.table()->lengthEditor()->text() == "= width"), "the second click opens the box on the table, with the formula in it");
+    typeOnTable(w.table(), "26");
+    EXPECT((w.width(driven) == 26.0), "a number typed there replaces the formula, in the layer behind it");
 
     w.window.select(std::nullopt);
     w.table()->grab();  // paints it
@@ -2195,7 +2427,7 @@ TEST_CASE("every sample meshes; random clicks, drags and keys on both views and 
     const std::vector<QAction*> tools = [&] {
         std::vector<QAction*> found;
         for (const Tool tool : {Tool::Select, Tool::Move, Tool::Rotate, Tool::Scale, Tool::Rectangle, Tool::Circle, Tool::Ring, Tool::Point, Tool::Curve,
-                                Tool::Line, Tool::Mirror, Tool::Cut, Tool::Split, Tool::Sew})
+                                Tool::Line, Tool::Length, Tool::Mirror, Tool::Cut, Tool::Split, Tool::Sew})
             found.push_back(w.window.shelf()->action(tool));
         return found;
     }();
@@ -2251,4 +2483,135 @@ TEST_CASE("the layers scroll on their own, apart from the rest of the Attribute 
     REQUIRE(row != nullptr);
     EXPECT((list->widget()->isAncestorOf(row)), "the layer rows are inside the list's own scroll area");
     EXPECT((list->minimumHeight() > 0), "which keeps some height of its own");
+}
+
+TEST_CASE("the choice of what a length keeps can be changed through the list's own keys, on the T-shirt, the cloth running", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    const OpRef<Rect> body(first<Rect>(w.doc(), front));
+    // As the Length tool does it: a click on the shoulder.
+    emit w.window.table()->gestured(session::EditLength{front, body.top(), true});
+    REQUIRE(std::holds_alternative<SetLength>(w.doc().get(w.doc().operations(front).back())));
+    const OpId set = w.doc().operations(front).back();
+    w.window.attributes()->openLayer(set);
+    w.window.shelf()->simulate()->setChecked(true);
+    w.window.tick();
+    // The keys of a closed list choose the next or the previous entry, and report it the way a mouse pick does.
+    // The list is made again by that report, so the one that is asked is looked up every time.
+    for (const int key : {Qt::Key_Down, Qt::Key_Down, Qt::Key_Up, Qt::Key_Up, Qt::Key_Down}) {
+        QComboBox* keeps = w.window.attributes()->findChild<QComboBox*>("keeps");
+        REQUIRE(keeps != nullptr);
+        const int was = static_cast<int>(std::get<SetLength>(w.doc().get(set)).keeping);
+        QKeyEvent pressed(QEvent::KeyPress, key, Qt::NoModifier);
+        QApplication::sendEvent(keeps, &pressed);
+        w.window.tick();
+        EXPECT((static_cast<int>(std::get<SetLength>(w.doc().get(set)).keeping) == was + (key == Qt::Key_Down ? 1 : -1)), "the key chose the next or the previous entry");
+    }
+}
+
+TEST_CASE("the list in the length bar is opened and an entry chosen with the mouse, as a person does", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const auto layers = [&] { return w.doc().operations(plain).size(); };
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(table->lengthEditor() != nullptr);
+    QComboBox* scope = table->lengthCard()->findChild<QComboBox*>("lengthScope");
+    REQUIRE(scope != nullptr);
+    // The entry is picked in the list's own window: a press and a release on it.
+    const auto pick = [&](int row) {
+        // A click on the list gives it the focus, which the field loses, and opens it.
+        scope->setFocus(Qt::MouseFocusReason);
+        const QPointF on = scope->rect().center();
+        QMouseEvent open(QEvent::MouseButtonPress, on, scope->mapToGlobal(on), Qt::LeftButton, Qt::LeftButton, {});
+        QApplication::sendEvent(scope, &open);
+        QApplication::processEvents();
+        EXPECT((table->lengthEditor() != nullptr), "opening the list does not close the bar");
+        // Qt ignores a release on a list that has only just opened, for about a double-click's time.
+        std::this_thread::sleep_for(std::chrono::milliseconds(QApplication::doubleClickInterval() + 100));
+        QApplication::processEvents();
+        QAbstractItemView* view = scope->view();
+        REQUIRE(view != nullptr);
+        const QPoint at = view->visualRect(view->model()->index(row, 0)).center();
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(at), view->viewport()->mapToGlobal(QPointF(at)), Qt::LeftButton, Qt::LeftButton, {});
+        QApplication::sendEvent(view->viewport(), &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(at), view->viewport()->mapToGlobal(QPointF(at)), Qt::LeftButton, Qt::NoButton, {});
+        QApplication::sendEvent(view->viewport(), &release);
+        QApplication::processEvents();
+    };
+    pick(0);
+    EXPECT((table->lengthEditor() != nullptr && scope->currentIndex() == 0 && layers() == 2), "choosing 'Edge only' in the list gives the edge a length of its own, and the bar stays");
+    pick(1);
+    EXPECT((table->lengthEditor() != nullptr && scope->currentIndex() == 1 && layers() == 1), "choosing the shape's setting in the list gives it up again, and the bar stays");
+    EXPECT((w.window.selectedPanels() == std::vector<PanelId>{plain}), "and the panel is still chosen");
+}
+
+TEST_CASE("the length in the bar is typed or dragged sideways, as in the Attribute Editor", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
+    TableView* table = w.table();
+    const auto bottom = [&] { return w.window.session().editor().shapes()[plain].length(rect.bottom()); };
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(table->lengthEditor() != nullptr);
+    QLineEdit* field = table->lengthEditor();
+    EXPECT((field->text() == "30 cm"), "the number is shown with its unit, as in the Attribute Editor");
+
+    // A press on the number and a pull sideways, as a hand does it: the number follows, and is shown at once.
+    const auto pull = [&](int pixels, Qt::KeyboardModifiers keys = {}) {
+        const QPointF from = QPointF(field->width() / 2.0, field->height() / 2.0);
+        QMouseEvent press(QEvent::MouseButtonPress, from, field->mapToGlobal(from), Qt::LeftButton, Qt::LeftButton, keys);
+        QApplication::sendEvent(field, &press);
+        for (int i = 1; i <= 5; ++i) {
+            const QPointF at = from + QPointF(pixels * i / 5.0, 0);
+            QMouseEvent move(QEvent::MouseMove, at, field->mapToGlobal(at), Qt::NoButton, Qt::LeftButton, keys);
+            QApplication::sendEvent(field, &move);
+        }
+        const QPointF to = from + QPointF(pixels, 0);
+        QMouseEvent release(QEvent::MouseButtonRelease, to, field->mapToGlobal(to), Qt::LeftButton, Qt::NoButton, keys);
+        QApplication::sendEvent(field, &release);
+    };
+    pull(40);
+    EXPECT_NEAR((bottom()), (34.0), "pulling right makes it more: a tenth of a centimetre a pixel");
+    EXPECT((field->text() == "34 cm" && table->lengthEditor() != nullptr && w.window.selectedPanels() == std::vector<PanelId>{plain}), "the field shows it, the bar stays, the panel stays chosen");
+    pull(-30);
+    EXPECT_NEAR((bottom()), (31.0), "pulling left makes it less");
+    pull(5, Qt::ShiftModifier);
+    EXPECT_NEAR((bottom()), (36.0), "Shift pulls ten times as far");
+    pull(10, Qt::AltModifier);
+    EXPECT_NEAR((bottom()), (36.1), "Alt pulls a tenth as far");
+
+    // What is typed is where a pull starts from.
+    field->setText("20");
+    EXPECT_NEAR((bottom()), (20.0), "typing shows at once");
+    pull(10);
+    EXPECT_NEAR((bottom()), (21.0), "a pull goes on from what was typed");
+
+    // A plain click only places the cursor.
+    const double before = bottom();
+    const QPointF at(field->width() / 2.0, field->height() / 2.0);
+    QMouseEvent press(QEvent::MouseButtonPress, at, field->mapToGlobal(at), Qt::LeftButton, Qt::LeftButton, {});
+    QApplication::sendEvent(field, &press);
+    QMouseEvent release(QEvent::MouseButtonRelease, at, field->mapToGlobal(at), Qt::LeftButton, Qt::NoButton, {});
+    QApplication::sendEvent(field, &release);
+    EXPECT_NEAR((bottom()), (before), "a click without a pull changes nothing");
+
+    // A formula is not pulled.
+    field->setText("= width");
+    const QString formula = field->text();
+    pull(30);
+    EXPECT((field->text() == formula), "a formula stays as it is when pulled");
+
+    // Escape takes all of it back, pulls too.
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    QApplication::sendEvent(field, &escape);
+    EXPECT((table->lengthEditor() == nullptr && std::abs(bottom() - 30.0) < 1e-9 && !w.window.shelf()->undo()->isEnabled()), "and Escape takes it all back");
 }
