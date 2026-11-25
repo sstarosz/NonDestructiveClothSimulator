@@ -854,6 +854,105 @@ TEST_CASE("Add beside makes a copy, an instance or a mirrored instance just righ
     EXPECT((editor.undo() && editor.undo() && editor.undo() && editor.document().panels().size() == 1), "each is one undo step");
 }
 
+TEST_CASE("an instance is sewn as its source as it is made, in the same undo step, and says so")
+{
+    Row row;
+    const OpRef<Rect> a(row.doc.operations(row.a).front()), b(row.doc.operations(row.b).front());
+    row.doc.add(Seam{.a = {row.a, a.right()}, .b = {row.b, b.left()}});
+    row.doc.add(Seam{.a = {row.a, a.left()}, .b = {row.b, b.right()}});
+    Editor editor(row.doc);
+    Drafting drafting;
+
+    const Outcome alone = drafting.handle(editor, AddBeside{row.a, Follow::MirroredInstance});
+    EXPECT((editor.document().seams().size() == 2 && alone.notice.empty()), "the back has no instance yet: nothing is sewn, and nothing to say");
+    const Outcome second = drafting.handle(editor, AddBeside{row.b, Follow::MirroredInstance});
+    EXPECT((editor.document().seams().size() == 4 && editor.shapes().seams.back().sewn()), "both seams come with the other instance");
+    EXPECT((second.notice == "2 seams sewn as on b." && !second.refused), "and the help line says so");
+    EXPECT((editor.undo() && editor.document().seams().size() == 2 && editor.document().panels().size() == 4), "one undo takes the instance and its seams");
+
+    const Outcome copied = drafting.handle(editor, AddBeside{row.b, Follow::Copy});
+    EXPECT((editor.document().seams().size() == 2 && copied.notice.empty()), "a copy brings no seams");
+}
+
+TEST_CASE("instances of several selected panels are sewn to each other, in one undo step")
+{
+    Row row;
+    const OpRef<Rect> a(row.doc.operations(row.a).front()), b(row.doc.operations(row.b).front());
+    row.doc.add(Seam{.a = {row.a, a.right()}, .b = {row.b, b.left()}});
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+
+    const Outcome made = drafting.handle(editor, DuplicateSelection{Follow::Instance});
+    const Document& doc = editor.document();
+    REQUIRE((doc.panels().size() == 5 && doc.seams().size() == 2));
+    const PanelId first = doc.panels()[3], second = doc.panels()[4];
+    EXPECT((doc.instanceOf(first) && doc.instanceOf(first)->source == row.a && !doc.instanceOf(first)->mirrored && doc.instanceOf(second)->source == row.b), "an instance of each");
+    EXPECT((doc.get(first).name == "a instance" && doc.get(second).name == "b instance"), "named after its source");
+    const Seam& sewn = doc.get(doc.seams().back());
+    EXPECT((sewn.a.panel == first && sewn.b.panel == second), "sewn to each other");
+    EXPECT((made.notice == "1 seam sewn as on the panels they follow."), "and the help line says so");
+    EXPECT((std::abs(doc.get(first).x - 72.0) < 1e-9 && std::abs(doc.get(second).x - 112.0) < 1e-9), "laid out as their sources are");
+    EXPECT((drafting.selection.panels() == std::vector<PanelId>{first, second}), "and selected");
+    EXPECT((editor.undo() && editor.document().panels().size() == 3 && editor.document().seams().size() == 1), "one undo step");
+}
+
+TEST_CASE("mirrored instances of a group are laid out as its mirror image")
+{
+    Document start;
+    const PanelId wide = start.add(Panel{.name = "wide", .x = 0, .y = 0});
+    start.add(wide, Rect{.width = 30_cm, .height = 10_cm});
+    const PanelId narrow = start.add(Panel{.name = "narrow", .x = 35, .y = 4});
+    start.add(narrow, Rect{.width = 10_cm, .height = 10_cm});
+    Editor editor(start);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{wide, narrow}, Pick::Replace});
+
+    drafting.handle(editor, DuplicateSelection{Follow::MirroredInstance});
+    const Document& doc = editor.document();
+    REQUIRE(doc.panels().size() == 4);
+    const auto box = [&](PanelId panel) {
+        const Bounds own = *bounds(editor.shapes()[panel]);
+        const Panel& placed = doc.get(panel);
+        return Bounds{{own.min.x + placed.x, own.min.y + placed.y}, {own.max.x + placed.x, own.max.y + placed.y}};
+    };
+    // The originals: 0 to 30 and 35 to 45. Mirrored, 12 cm beyond: the narrow one 57 to 67, the wide one 72 to 102.
+    const Bounds w = box(doc.panels()[2]), n = box(doc.panels()[3]);
+    EXPECT((std::abs(n.min.x - 57.0) < 1e-9 && std::abs(n.max.x - 67.0) < 1e-9), "the right one is on the left");
+    EXPECT((std::abs(w.min.x - 72.0) < 1e-9 && std::abs(w.max.x - 102.0) < 1e-9), "and the left one on the right, as far apart");
+    EXPECT((std::abs(w.min.y) < 1e-9 && std::abs(n.min.y - 4.0) < 1e-9), "each on its row");
+}
+
+TEST_CASE("Sew as source sews the selected instances for seams made after them, as one undo step")
+{
+    Row row;
+    const OpRef<Rect> a(row.doc.operations(row.a).front()), b(row.doc.operations(row.b).front());
+    Editor editor(row.doc);
+    Drafting drafting;
+    drafting.handle(editor, SelectPanels{{row.a, row.b}, Pick::Replace});
+    const Outcome noInstance = drafting.handle(editor, SewAsSource{});
+    EXPECT((noInstance.refused && noInstance.notice.find("Select an instance") == 0 && !editor.canUndo()), "with no instance selected it says what to do");
+
+    drafting.handle(editor, DuplicateSelection{Follow::Instance});
+    const std::vector<PanelId> instances = drafting.selection.panels();
+    REQUIRE(instances.size() == 2);
+    const std::uint64_t made = editor.step();
+    const Outcome unsewn = drafting.handle(editor, SewAsSource{});
+    EXPECT((unsewn.refused && unsewn.notice.find("without seams") != std::string::npos && editor.step() == made), "sources without seams: it says so, and adds no undo step");
+
+    drafting.handle(editor, SewEdges{{row.a, a.right()}, {row.b, b.left()}});
+    drafting.handle(editor, SelectPanel{instances.front()});
+    const Outcome done = drafting.handle(editor, SewAsSource{});
+    EXPECT((!done.refused && done.notice == "1 seam sewn as on a." && editor.document().seams().size() == 2), "one selected instance brings its seam");
+    EXPECT((editor.undo() && editor.document().seams().size() == 1), "one undo step");
+    REQUIRE(editor.redo());
+
+    const std::uint64_t sewn = editor.step();
+    drafting.handle(editor, SelectPanels{instances, Pick::Replace});
+    const Outcome again = drafting.handle(editor, SewAsSource{});
+    EXPECT((again.refused && again.notice.find("Nothing to add") == 0 && editor.step() == sewn && editor.document().seams().size() == 2), "with all there it adds none and says so");
+}
+
 TEST_CASE("double-clicking an edge that nothing sets gives it a length of its own, as long as it is now, one undo step")
 {
     Document doc;

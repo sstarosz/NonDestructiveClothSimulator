@@ -1841,6 +1841,42 @@ TEST_CASE("the shelf gives a mirrored instance and bakes the selected panel", "[
     EXPECT((!asNumber(fields(w.doc().get(rect))[0].value)), "undo brings the formula back");
 }
 
+TEST_CASE("the shelf instances every selected panel with its seams, and sews an instance as its source later", "[qt]")
+{
+    Window w;
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> frontRect = doc.add(front, Rect{.width = 20_cm, .height = 60_cm});
+    const PanelId back = doc.add(Panel{.name = "back", .x = 40});
+    const OpRef<Rect> backRect = doc.add(back, Rect{.width = 20_cm, .height = 60_cm});
+    doc.add(Seam{.a = {front, frontRect.right()}, .b = {back, backRect.left()}});
+    w.window.open(doc, "legs");
+    Shelf& shelf = *w.window.shelf();
+    EXPECT((!shelf.sewAsSource()->isEnabled()), "nothing is selected");
+    w.window.select(front);
+    EXPECT((!shelf.sewAsSource()->isEnabled()), "a panel with its own shape is selected");
+
+    emit w.window.table()->gestured(session::SelectPanels{{front, back}, session::Pick::Replace});
+    shelf.mirroredInstance()->trigger();
+    REQUIRE((w.doc().panels().size() == 4 && w.doc().seams().size() == 2));
+    const std::vector<PanelId> made = w.window.selectedPanels();
+    REQUIRE(made.size() == 2);
+    EXPECT((w.doc().instanceOf(made[0]) && w.doc().instanceOf(made[1]) && w.doc().instanceOf(made[1])->mirrored), "two mirrored instances, both selected");
+    EXPECT((w.window.helpLine() == "1 seam sewn as on the panels they follow."), "the help line says what was sewn");
+    EXPECT((shelf.sewAsSource()->isEnabled()), "an instance is selected");
+    shelf.undo()->trigger();
+    EXPECT((w.doc().panels().size() == 2 && w.doc().seams().size() == 1), "one undo takes the instances and their seam");
+
+    shelf.redo()->trigger();
+    emit w.window.table()->gestured(session::SewEdges{{front, frontRect.left()}, {back, backRect.right()}});
+    w.window.select(made[0]);
+    shelf.sewAsSource()->trigger();
+    EXPECT((w.doc().seams().size() == 4), "the seam made on the sources afterwards is copied");
+    EXPECT((w.window.helpLine().startsWith("1 seam sewn as on ")), "and the help line says so");
+    shelf.undo()->trigger();
+    EXPECT((w.doc().seams().size() == 3), "one undo takes it back");
+}
+
 TEST_CASE("a parameter is renamed, refused a name that cannot be typed, and removed with its problem shown", "[qt]")
 {
     Window w;

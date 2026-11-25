@@ -37,6 +37,16 @@ the body follows too.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
   back at.
 - **Seams** between named edges, which follow the edges through every edit.
+- **Instances come sewn**: an instance (or mirrored instance) is sewn as its
+  source is, in the same undo step: a seam within the source is made within
+  the instance, and a seam to a neighbour is made once the neighbour has an
+  instance of the same kind too, whichever of the two is made first. Select a
+  front and a back sewn together and press "Mirrored instance": the other leg
+  comes with its seams, laid out on the table as the mirror image of the two.
+  The centre seams, between a panel and its own instance, you sew by hand.
+  For seams made on a source after its instance, select the instances and
+  press "Sew as source" (Sew tab). The copies are ordinary seams that you can
+  reverse or delete.
 - **3D**: panels arranged around a body (each sample opens on the avatar in
   `assets/`; Body > Avatar from OBJ… loads another),
   meshed and simulated: gravity, seams drawing closed,
@@ -277,8 +287,21 @@ holds and hands it what the user did.
   pasted, duplicated and deleted together, but the docks, corners and lengths
   work on one panel only: the shown one, or the single panel selected. They
   cannot be stretched one way together (the help line says so). The 3D view
-  and the Outliner show the shown panel only. A paste or Ctrl+D does not copy
-  seams between panels, and a copy of a turned panel is not turned.
+  and the Outliner show the shown panel only. The instance buttons and "Sew as
+  source" work on all the selected panels. A paste or Ctrl+D does not copy
+  seams, and a copy or an instance of a turned panel is not turned.
+- An instance's seams are copied when it is made, or by "Sew as source"; they
+  do not follow later changes: a seam removed, reversed or moved on the source
+  stays as it was on the instances. A plain and a mirrored instance are never
+  sewn together this way. An instance's seam is found only towards instances
+  of the panels its own source is sewn to (a back right that follows the front
+  left, not the front right, is not found). Of several instances still free,
+  the newest is taken. An edge of an instance that you have sewn by hand to
+  something else gets the source's seam as well. Ticking "Mirrored" on one of
+  two sewn instances later twists their seams (reverse them). A panel made an
+  instance by adding the layer, or given another source, is not sewn by itself:
+  press "Sew as source". An instance stands in space where the table has it,
+  not mirrored from its source's place.
 - A panel grows away from its sewn edges that kept their length. If every
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.

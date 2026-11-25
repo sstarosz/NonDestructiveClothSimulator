@@ -183,7 +183,8 @@ struct UseShapeLength {
 // How a panel added next to another relates to it: a copy of its own, or
 // something that follows the source (an instance, or its mirror image).
 enum class Follow { Copy, Instance, MirroredInstance };
-// A new panel just right of `source`, selected (Duplicate, and the shelf's instance buttons).
+// A new panel just right of `source`, selected. An instance is sewn as its
+// source is, as far as there is something to sew it to (Document::sewAsSource).
 struct AddBeside {
     PanelId source;
     Follow how;
@@ -201,9 +202,17 @@ struct DeleteSelection {
 };
 // The selected panels are what Paste will copy: only remembered, nothing in the document changes.
 struct CopySelection {};
-// What Ctrl+D does: the selected panels copied just right of where they are,
-// keeping their layout; the copies become the selection, one undo step.
-struct DuplicateSelection {};
+// What Ctrl+D and the shelf's instance buttons do: the selected panels each get
+// a copy (or an instance, or a mirrored instance) just right of the group,
+// keeping their layout; for mirrored instances the layout is mirrored too. The
+// new panels become the selection. Instances are sewn as their sources are, so
+// a front and a back sewn together give two instances sewn together. One undo step.
+struct DuplicateSelection {
+    Follow how = Follow::Copy;
+};
+// The selected instances sewn as the panels they follow are sewn, for seams made
+// on a source after its instance (Document::sewAsSource). One undo step.
+struct SewAsSource {};
 // The copied panels, copied again as a group with its middle at `at` on the
 // table, each keeping its place in the group; with no place (the 3D view has
 // none), just right of the originals. The copies are selected.
@@ -213,7 +222,8 @@ struct PastePanel {
 
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
                              DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, UseShapeLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
-                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, DuplicateSelection, PastePanel, SelectPanels>;
+                             ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, DuplicateSelection, PastePanel, SelectPanels,
+                             SewAsSource>;
 
 // What a gesture came to, beyond the document: words for the help line, and
 // what the window should do next.
@@ -297,6 +307,7 @@ private:
     Outcome on(Editor&, const CopySelection&);
     Outcome on(Editor&, const DuplicateSelection&);
     Outcome on(Editor&, const PastePanel&);
+    Outcome on(Editor&, const SewAsSource&);
     // `panel` joins the selection as the one shown, or goes out of it; the others stay.
     void join(PanelId panel);
     void drop(PanelId panel);

@@ -96,14 +96,17 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     reset_->setToolTip("Reset the cloth  ·  drop it again from where the panels are placed");
 
     instance_ = new QAction(icon(Icon::Instance, theme::instance), "Instance", this);
-    instance_->setToolTip("Instance  ·  a panel that follows the selected one entirely");
+    instance_->setToolTip("Instance  ·  a panel that follows the selected one entirely, sewn as it is.\nSeveral selected panels get one each.");
     mirroredInstance_ = new QAction(icon(Icon::Mirror, theme::instance), "Mirrored instance", this);
-    mirroredInstance_->setToolTip("Mirrored instance  ·  follows the selected panel, flipped left to right");
+    mirroredInstance_->setToolTip("Mirrored instance  ·  follows the selected panel, flipped left to right, sewn as it is.\nSeveral selected panels get one each.");
     bake_ = new QAction(icon(Icon::Lock, theme::formula), "Bake", this);
     bake_->setToolTip("Bake  ·  replace every formula of the selected panel with the number it comes to now,\nso that it follows no parameter. Useful on a copy.");
     placeFromTable_ = new QAction(icon(Icon::Reset, theme::quiet), "Place in space from the table", this);
     placeFromTable_->setToolTip("Place in space from the table  ·  put the selected panel in space where the table has it, as when it was new");
-    for (QAction* panelAction : {instance_, mirroredInstance_, bake_, placeFromTable_}) panelAction->setEnabled(false);
+    sewAsSource_ = new QAction(icon(Icon::Instance, theme::seam), "Sew as source", this);
+    sewAsSource_->setToolTip("Sew as source  ·  sew the selected instances as the panels they follow are sewn,\nfor seams made after the instances were");
+    for (QAction* panelAction : {instance_, mirroredInstance_, bake_, placeFromTable_, sewAsSource_}) panelAction->setEnabled(false);
+    connect(sewAsSource_, &QAction::triggered, this, &Shelf::sewAsSourceRequested);
     connect(placeFromTable_, &QAction::triggered, this, &Shelf::placeFromTableRequested);
     connect(instance_, &QAction::triggered, this, &Shelf::instanceRequested);
     connect(mirroredInstance_, &QAction::triggered, this, &Shelf::mirroredInstanceRequested);
@@ -143,6 +146,7 @@ Shelf::Shelf(QWidget* parent) : QWidget(parent) {
     draft->addAction(placeFromTable_);
     QToolBar* sew = row("Sew");
     sew->addAction(action(Tool::Sew));
+    sew->addAction(sewAsSource_);
     QToolBar* simulate = row("Simulate");
     simulate->addAction(action(Tool::Pull));
     connect(tabs_, &QTabBar::currentChanged, rows_, &QStackedWidget::setCurrentIndex);
