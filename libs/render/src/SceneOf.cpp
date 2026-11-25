@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 
 namespace clothcad::render {
 
@@ -14,6 +15,149 @@ constexpr Colour bodyColour{0.55f, 0.56f, 0.6f};
 constexpr Colour clothColour{0.82f, 0.83f, 0.86f};
 constexpr Colour selectedColour{1.0f, 0.75f, 0.27f};
 constexpr Colour instanceColour{0.75f, 0.62f, 0.95f};
+// The table's seam blue, deeper: it is seen against pale cloth, not the dark table.
+constexpr Colour seamColour{0.18f, 0.46f, 0.98f};
+
+constexpr float seamWidth = 2.0f, selectedSeamWidth = 4.0f;      // a seam's edges, in pixels of the screen's own scale
+constexpr float threadWidth = 1.0f;                              // the lines from each particle to the one it is sewn to: thin, so a cross reads
+constexpr float threadAlpha = 0.75f;                             // many lie close together: a little of what is behind shows
+constexpr float seamLift = 0.5f;                             // cm
+constexpr float inactiveAlpha = 0.3f;  // a deactivated panel is seen through
+// cm: a stitch this short has brought its two sides together, and they are shaded as one.
+constexpr double joinedWithin = 0.5;
+
+Point normalOf(sim::Vec3 sum) { return pointOf(sim::length(sum) > 0.0 ? sim::normalized(sum) : sim::Vec3{0.0, 1.0, 0.0}); }
+
+// For every panel's particles, the faces around each added up, weighted by
+// their area. Particles a closed stitch pairs share theirs, so that cloth is
+// shaded across a seam as it is inside a panel; where three seams meet, all of
+// them do. Across a reversed seam the other panel's front faces the other way,
+// so its share is taken, and given back, turned round. A particle keeps its own
+// where the shared one would face away from it (cloth folded flat at a seam).
+// A hidden panel has its share too: its neighbours look the same without it.
+std::vector<std::vector<sim::Vec3>> clothNormals(const sim::ClothMesh& mesh, const sim::Placement& positions) {
+    std::vector<std::vector<sim::Vec3>> sums(mesh.panels.size());
+    std::vector<std::uint32_t> first(mesh.panels.size() + 1, 0);  // where each panel's particles start among all
+    for (std::size_t i = 0; i < mesh.panels.size(); ++i) {
+        const sim::PanelMesh& panel = mesh.panels[i];
+        const bool placed = i < positions.size() && positions[i].size() == panel.points.size();
+        first[i + 1] = first[i] + (placed ? static_cast<std::uint32_t>(panel.points.size()) : 0);
+        if (!placed) continue;
+        sums[i].resize(panel.points.size());
+        for (const auto& t : panel.triangles) {
+            const sim::Vec3 face = sim::cross(positions[i][t[1]] - positions[i][t[0]], positions[i][t[2]] - positions[i][t[0]]);  // its length is twice the area
+            for (const std::uint32_t corner : t) sums[i][corner] = sums[i][corner] + face;
+        }
+    }
+
+    // The particles closed stitches bring together, gathered into groups: each
+    // points towards its group's first, and says whether it is turned round
+    // against the one it points to.
+    std::vector<std::uint32_t> towards(first.back());
+    std::iota(towards.begin(), towards.end(), 0u);
+    std::vector<char> turned(first.back(), 0);
+    const auto firstOfGroup = [&](std::uint32_t particle) {
+        bool flipped = false;
+        while (towards[particle] != particle) {
+            flipped = flipped != (turned[particle] != 0);
+            particle = towards[particle];
+        }
+        return std::pair{particle, flipped};
+    };
+    struct Member {
+        std::uint32_t panel, point;
+    };
+    std::vector<Member> members;
+    for (const sim::Stitch& stitch : mesh.stitches) {
+        const std::size_t a = stitch.panelA, b = stitch.panelB;
+        if (a >= sums.size() || b >= sums.size() || stitch.pointA >= sums[a].size() || stitch.pointB >= sums[b].size()) continue;
+        if (sim::length(positions[a][stitch.pointA] - positions[b][stitch.pointB]) > joinedWithin) continue;
+        const auto [groupA, flippedA] = firstOfGroup(first[a] + stitch.pointA);
+        const auto [groupB, flippedB] = firstOfGroup(first[b] + stitch.pointB);
+        if (groupA != groupB) {
+            towards[groupB] = groupA;
+            turned[groupB] = (flippedA != flippedB) != stitch.reversed;
+        }
+        members.push_back({stitch.panelA, stitch.pointA});
+        members.push_back({stitch.panelB, stitch.pointB});
+    }
+    // Each particle once, however many stitches hold it.
+    const auto order = [](const Member& m) { return std::pair{m.panel, m.point}; };
+    std::ranges::sort(members, {}, order);
+    const auto repeated = std::ranges::unique(members, {}, order);
+    members.erase(repeated.begin(), repeated.end());
+
+    std::vector<sim::Vec3> shared(first.back());
+    for (const Member& m : members) {
+        const auto [group, flipped] = firstOfGroup(first[m.panel] + m.point);
+        shared[group] = shared[group] + sums[m.panel][m.point] * (flipped ? -1.0 : 1.0);
+    }
+    for (const Member& m : members) {
+        const auto [group, flipped] = firstOfGroup(first[m.panel] + m.point);
+        const sim::Vec3 together = shared[group] * (flipped ? -1.0 : 1.0);
+        if (sim::dot(together, sums[m.panel][m.point]) > 0.0) sums[m.panel][m.point] = together;
+    }
+    return sums;
+}
+
+// A panel's back: its colour, darker and cooler, so that which way it faces
+// shows at a glance and what it is (selected, an instance) still does.
+Colour behind(Colour front) { return {front.red * 0.58f, front.green * 0.61f, front.blue * 0.77f, front.alpha}; }
+
+// The lines of every seam there is something to see of: one along both its sewn
+// edges, and one from each particle to the particle it is sewn to, which shows
+// which end meets which (a twisted seam's lines cross). A closed seam has none,
+// so that the cloth is seen as it will be, unless it is the selected one, which
+// is in amber and comes last, to lie on top. A seam switched off has none
+// either, and a hidden panel's side of a seam is left out with the lines to it.
+void addSeams(Scene& scene, const session::Session& session, const SceneOptions& options) {
+    const Document& doc = session.document();
+    const sim::ClothMesh& mesh = session.shownMesh();
+    const sim::Placement& positions = session.shownPositions();
+    const float pixel = static_cast<float>(options.pixel);
+    const auto placed = [&](std::size_t panel, std::uint32_t point) {
+        return panel < positions.size() && panel < mesh.panels.size() && positions[panel].size() == mesh.panels[panel].points.size() && point < positions[panel].size();
+    };
+    std::vector<Lines> selected;
+    // A seam's stitches follow each other.
+    for (std::size_t from = 0, to = 0; from < mesh.stitches.size(); from = to) {
+        const SeamId id = mesh.stitches[from].seam;
+        for (to = from + 1; to < mesh.stitches.size() && mesh.stitches[to].seam == id; ++to) {}
+        // A mesh a few frames old may name a seam that is gone.
+        if (!doc.contains(id) || !session.seamShown(id)) continue;
+        const bool chosen = options.seam == id;
+        Colour colour = chosen ? selectedColour : seamColour;
+        Lines threads{.points = {}, .colour = colour, .width = threadWidth * pixel, .lift = seamLift};
+        if (!chosen) threads.colour.alpha = threadAlpha;
+        bool closed = true;
+        for (std::size_t k = from; k < to; ++k) {
+            const sim::Stitch& stitch = mesh.stitches[k];
+            if (!placed(stitch.panelA, stitch.pointA) || !placed(stitch.panelB, stitch.pointB)) continue;
+            const sim::Vec3 a = positions[stitch.panelA][stitch.pointA], b = positions[stitch.panelB][stitch.pointB];
+            closed = closed && sim::length(a - b) <= joinedWithin;
+            if (session.panelShown(mesh.panels[stitch.panelA].panel) && session.panelShown(mesh.panels[stitch.panelB].panel))
+                threads.points.insert(threads.points.end(), {pointOf(a), pointOf(b)});
+        }
+        if (closed && !chosen) continue;
+        Lines edges{.points = {}, .colour = colour, .width = (chosen ? selectedSeamWidth : seamWidth) * pixel, .lift = seamLift};
+        const Seam& seam = doc.get(id);
+        for (const SeamSide& side : {seam.a, seam.b}) {
+            const sim::PanelMesh* panel = mesh.find(side.panel);
+            if (!panel || !session.panelShown(side.panel)) continue;
+            const auto i = static_cast<std::size_t>(panel - mesh.panels.data());
+            const sim::EdgeParticles* along = panel->along(side.edge);
+            if (!along || i >= positions.size() || positions[i].size() != panel->points.size()) continue;
+            for (std::size_t k = 1; k < along->points.size(); ++k)
+                edges.points.insert(edges.points.end(), {pointOf(positions[i][along->points[k - 1]]), pointOf(positions[i][along->points[k]])});
+        }
+        for (Lines* lines : {&edges, &threads}) {
+            if (lines->points.empty()) continue;
+            if (chosen) selected.push_back(std::move(*lines));
+            else scene.lines.push_back(std::move(*lines));
+        }
+    }
+    for (Lines& lines : selected) scene.lines.push_back(std::move(lines));
+}
 
 // The floor: a line every 10 cm for two metres around the middle, stronger every metre.
 void addFloor(Scene& scene) {
@@ -41,7 +185,7 @@ std::vector<Point> normalsOf(const std::vector<Point>& points, const std::vector
     }
     std::vector<Point> normals;
     normals.reserve(points.size());
-    for (const sim::Vec3& sum : sums) normals.push_back(pointOf(sim::length(sum) > 0.0 ? sim::normalized(sum) : sim::Vec3{0.0, 1.0, 0.0}));
+    for (const sim::Vec3& sum : sums) normals.push_back(normalOf(sum));
     return normals;
 }
 
@@ -67,15 +211,18 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     const sim::ClothMesh& mesh = session.shownMesh();
     const sim::Placement& positions = session.shownPositions();
     Lines wire{{}, {0.1f, 0.12f, 0.16f, 0.55f}};
+    const std::vector<std::vector<sim::Vec3>> normals = clothNormals(mesh, positions);
     for (std::size_t i = 0; i < mesh.panels.size() && i < positions.size(); ++i) {
         const sim::PanelMesh& panel = mesh.panels[i];
-        if (positions[i].size() != panel.points.size() || panel.triangles.empty()) continue;
+        if (positions[i].size() != panel.points.size() || panel.triangles.empty() || !session.panelShown(panel.panel)) continue;
         bool instance = false;
         if (doc.contains(panel.panel))
             for (OpId op : doc.operations(panel.panel)) instance = instance || std::holds_alternative<Instance>(doc.get(op));
         const bool selected = options.selected && *options.selected == panel.panel;
         Surface surface;
         surface.colour = selected ? selectedColour : instance ? instanceColour : clothColour;
+        if (!session.panelActive(panel.panel)) surface.colour.alpha = inactiveAlpha;
+        surface.back = behind(surface.colour);
         surface.panel = panel.panel;
         surface.points.reserve(panel.points.size());
         for (const sim::Vec3& p : positions[i]) surface.points.push_back(pointOf(p));
@@ -84,11 +231,13 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
             if (options.mesh)
                 for (int side = 0; side < 3; ++side) wire.points.insert(wire.points.end(), {surface.points[t[side]], surface.points[t[(side + 1) % 3]]});
         }
-        surface.normals = normalsOf(surface.points, surface.triangles);
+        surface.normals.reserve(panel.points.size());
+        for (const sim::Vec3& sum : normals[i]) surface.normals.push_back(normalOf(sum));
         scene.surfaces.push_back(std::move(surface));
     }
     addFloor(scene);
     if (!wire.points.empty()) scene.lines.push_back(std::move(wire));
+    addSeams(scene, session, options);
     return scene;
 }
 
@@ -100,8 +249,11 @@ std::optional<std::pair<sim::Vec3, sim::Vec3>> extentOf(const session::Session& 
         box->second = {std::max(box->second.x, p.x), std::max(box->second.y, p.y), std::max(box->second.z, p.z)};
     };
     for (const sim::Vec3& p : session.bodySurface().points) take(p);
-    for (const std::vector<sim::Vec3>& panel : session.shownPositions())
-        for (const sim::Vec3& p : panel) take(p);
+    const std::vector<sim::PanelMesh>& panels = session.shownMesh().panels;
+    const sim::Placement& positions = session.shownPositions();
+    for (std::size_t i = 0; i < positions.size() && i < panels.size(); ++i)
+        if (session.panelShown(panels[i].panel))
+            for (const sim::Vec3& p : positions[i]) take(p);
     return box;
 }
 

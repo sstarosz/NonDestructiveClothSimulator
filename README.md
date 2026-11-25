@@ -51,6 +51,23 @@ the body follows too.
   `assets/`; Body > Avatar from OBJ… loads another),
   meshed and simulated: gravity, seams drawing closed,
   cloth against body, floor and cloth.
+- **Front and back**: a panel's front is the side the table shows, drawn in
+  the panel's colour; its back is a darker, cooler shade of it (grey cloth,
+  the amber selection and violet instances alike). A panel that has not been
+  turned in space has its front towards +z, where the body faces.
+- **Seams in 3D**: while a seam is open, both its edges are lined in blue and
+  a thin line runs from each point to the point it is sewn to, so you see which
+  end meets which: the lines of a twisted seam cross. Once the seam has closed
+  its lines are gone. Choosing a seam's row in the Outliner shows it in amber,
+  open or closed, in 3D, and lights it on the table. The eye on a seam's row
+  hides its lines; the eye on "Seams" hides or shows all of them.
+- **Hide and deactivate panels**: each panel's row in the Outliner has an eye,
+  which hides it in the 3D view only (it is still simulated), and a button that
+  deactivates it, as in Marvelous Designer: it stays where it is, seen through,
+  nothing touches it and its seams hold nothing, until it is activated again.
+  Neither changes the pattern.
+- **Smooth across seams**: where a seam has closed, the cloth on both sides is
+  shaded as one piece.
 - **Gizmos as in Maya**, in the 3D view and on the table alike: Q selects
   only, W moves (an arrow per axis, a square per plane, the middle across
   the view), E turns (a ring per axis, one about the line of sight, and
@@ -359,6 +376,16 @@ holds and hands it what the user did.
   file beside the program there is no body, and the cloth falls to the floor.
 - The avatar's armpits pinch a top without sleeves (sample 6) at its
   underarm points: a few edges there stretch up to about 30 %.
+- Which panels and seams are hidden or deactivated is not saved in the file
+  and is not an undo step; a panel or seam deleted and brought back by undo is
+  shown and active.
+  A panel activated again where cloth has moved into it is pushed apart from it
+  at once, which can jolt.
+- Cloth does not resist folding across a seam as it does inside a panel, and a
+  pressed seam is shaded round like any other fold.
+- A seam is chosen only by its row in the Outliner, not by clicking it on the
+  table or in 3D. Where the graphics card draws no wide lines, the seams' lines
+  in 3D are one pixel wide.
 - The 3D view draws without smoothing of edges (no multisampling) and one
   picture at a time (the processor waits for each before the next). Drawing
   into a window is checked only by hand: the tests draw off screen.

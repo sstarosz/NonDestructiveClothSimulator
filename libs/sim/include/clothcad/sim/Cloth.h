@@ -76,6 +76,13 @@ public:
     void letGo();
     bool holding() const { return held_.has_value(); }
 
+    // Which panels take no part, by their index in the mesh; all the others
+    // do. A panel left out stays exactly where it is: it does not move,
+    // nothing touches it and its seams hold nothing. Taken back, it carries on
+    // from there, and its seams are drawn closed again. A new cloth leaves
+    // none out. A hold on a panel that is left out ends.
+    void leaveOut(const std::vector<uint32_t>& panels);
+
     // Moves time on by `seconds` (a sixtieth by default; values are kept
     // between a 240th and a 30th).
     void step(const Body& body, double seconds = 1.0 / 60.0);
@@ -103,6 +110,7 @@ private:
     struct Thread {
         uint32_t a, b;
         double left;  // how much thread is still to be drawn in
+        bool holds = true;  // false while a panel it sews is left out
     };
 
     void share(std::vector<Link>& links, double compliance, double stepSquared) const;
@@ -111,7 +119,9 @@ private:
     Fabric fabric_;
     std::vector<uint32_t> firstOf_;  // per panel: its first particle, or none
     std::vector<Vec3> at_, before_, speed_;
-    std::vector<double> lightness_;  // one over a particle's mass; zero when pinned
+    std::vector<double> lightness_;  // one over a particle's mass; zero when it stands still: pinned, held or left out
+    std::vector<double> own_;        // per particle: its lightness while it takes part and is not held
+    std::vector<char> out_;          // per panel: whether it is left out
     std::vector<Link> edges_, folds_;
     std::vector<Thread> threads_;
     std::vector<uint32_t> near_, firstNear_;  // per particle: the limbs within reach this step
@@ -122,7 +132,8 @@ private:
     double apart_ = 0.0;                 // how far apart particles are kept
     std::vector<uint32_t> panelOf_;      // per particle: its panel
     std::vector<Vec2> flat_;             // per particle: where it is in its panel's flat pattern
-    std::vector<char> sewn_;             // per particle: whether a stitch holds it
+    std::vector<char> alone_;            // per particle: cloth against cloth passes it by (a stitch holds it, or its panel is left out)
+    void findAlone();
     struct Pair {
         uint32_t a, b;
     };

@@ -52,6 +52,7 @@ struct Stitch {
     uint32_t panelA, pointA;  // panelA and panelB index ClothMesh::panels
     uint32_t panelB, pointB;
     SeamId seam;
+    bool reversed = false;  // its seam sews start to start: the two panels' fronts face opposite ways across it
 };
 
 struct ClothMesh {

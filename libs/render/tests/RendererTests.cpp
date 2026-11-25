@@ -97,6 +97,47 @@ TEST_CASE("the back of a surface is lit too, a little darker")
     EXPECT((seen.red > 0.7f && seen.red < 0.95f), "lit from behind: 0.28 + 0.72 * 0.8");
 }
 
+TEST_CASE("a surface with a back colour shows it only from behind, the side it is wound clockwise on")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Scene scene = facing();
+    Surface sheet = square(60.0f, 0.0f, {1.0f, 0.0f, 0.0f});
+    sheet.back = Colour{0.0f, 1.0f, 0.0f};
+    sheet.lit = false;
+    scene.surfaces.push_back(sheet);
+    const auto front = renderer()->draw(scene, 160, 120);
+    REQUIRE(front);
+    EXPECT((near(front->at(80 + 10, 60), {1.0f, 0.0f, 0.0f})), "counter-clockwise towards the camera: the front colour");
+    scene.surfaces[0].triangles = {0, 2, 1, 0, 3, 2};  // the same square, wound the other way
+    const auto back = renderer()->draw(scene, 160, 120);
+    REQUIRE(back);
+    EXPECT((near(back->at(80 + 10, 60), {0.0f, 1.0f, 0.0f})), "seen from behind: the back colour");
+}
+
+TEST_CASE("a flat panel looks different from behind than from the front")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    doc.add(panel, Rect{.width = 60_cm, .height = 60_cm});
+    doc.arrange(panel, Arrangement{.placed = true, .x = 0, .y = 100, .z = 0});
+    session::Session session(doc, session::Threading::OneStepPerAdvance);
+    session.update();
+    // A spot on the panel, looking level at it from `yaw` degrees round it.
+    const auto seen = [&](double yaw) {
+        OrbitCamera camera;
+        camera.pitch = 0.0;
+        camera.yaw = yaw;
+        const auto picture = renderer()->draw(sceneOf(session, camera, 4.0 / 3.0, {.body = false}), 160, 120);
+        REQUIRE(picture);
+        return picture->at(80 + 5, 60 - 5);
+    };
+    const Colour front = seen(0.0), back = seen(180.0);
+    EXPECT((front.red > 0.7f), "from +z, where the body faces: the front, in the cloth's grey");
+    EXPECT((back.red < front.red * 0.65f), "from behind: much darker");
+    EXPECT((back.blue / back.red > front.blue / front.red + 0.2f), "and cooler, not only shaded");
+}
+
 TEST_CASE("a surface that is not lit keeps its colour flat, in the overlay too, whichever way it faces")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
@@ -127,6 +168,64 @@ TEST_CASE("lines are drawn over the background and pictures may change size")
     EXPECT(found, "a line across the middle");
     const auto bigger = renderer()->draw(scene, 300, 200);
     EXPECT((bigger && bigger->width == 300 && bigger->height == 200), "a picture of another size");
+}
+
+TEST_CASE("a lifted line shows on a surface it lies just behind, but not through one well in front of it")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    const Colour yellow{1.0f, 1.0f, 0.0f};
+    // Whether the line across the middle of a grey square shows.
+    const auto shows = [&](float depth, float lift) {
+        Scene scene = facing();
+        Surface sheet = square(60.0f, 0.0f, {0.5f, 0.5f, 0.5f});
+        sheet.lit = false;
+        scene.surfaces.push_back(sheet);
+        scene.lines.push_back({.points = {{-20.0f, 100.0f, depth}, {20.0f, 100.0f, depth}}, .colour = yellow, .lift = lift});
+        const auto picture = renderer()->draw(scene, 160, 120);
+        REQUIRE(picture);
+        bool found = false;
+        for (int y = 56; y <= 64; ++y) found = found || near(picture->at(86, y), yellow);
+        return found;
+    };
+    EXPECT(!shows(-0.2f, 0.0f), "just behind the surface, a line is hidden");
+    EXPECT(shows(-0.2f, 0.5f), "lifted, it shows");
+    EXPECT(!shows(-5.0f, 0.5f), "what is well behind stays hidden");
+}
+
+TEST_CASE("a wider line covers more of the picture, where the card draws wider lines")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    if (renderer()->widestLine() < 5.0f) SKIP("This card draws no wider lines.");
+    const Colour yellow{1.0f, 1.0f, 0.0f};
+    const auto rows = [&](float width) {
+        Scene scene = facing();
+        scene.lines.push_back({.points = {{-100.0f, 100.0f, 0.0f}, {100.0f, 100.0f, 0.0f}}, .colour = yellow, .width = width});
+        const auto picture = renderer()->draw(scene, 101, 75);
+        REQUIRE(picture);
+        int covered = 0;
+        for (int y = 0; y < 75; ++y) covered += near(picture->at(50, y), yellow);
+        return covered;
+    };
+    EXPECT(rows(1.0f) <= 2, "one pixel wide as it was");
+    EXPECT(rows(5.0f) >= 4, "five wide");
+}
+
+TEST_CASE("a surface that lets light through shows what is behind it, whatever order they are given in")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Scene scene = facing();
+    Surface glass = square(60.0f, 0.0f, {0.0f, 0.0f, 1.0f, 0.5f});
+    glass.lit = false;
+    Surface behind = square(60.0f, -20.0f, {1.0f, 0.0f, 0.0f});
+    behind.lit = false;
+    scene.surfaces = {glass, behind};  // the one in front given first
+    scene.lines.push_back({.points = {{-20.0f, 100.0f, -5.0f}, {20.0f, 100.0f, -5.0f}}, .colour = {0.0f, 1.0f, 0.0f}});
+    const auto picture = renderer()->draw(scene, 160, 120);
+    REQUIRE(picture);
+    EXPECT((near(picture->at(80, 52), {0.5f, 0.0f, 0.5f})), "half the surface behind, half its own colour");
+    bool line = false;
+    for (int y = 56; y <= 64; ++y) line = line || near(picture->at(86, y), {0.0f, 0.5f, 0.5f});
+    EXPECT(line, "a line behind it shows through too");
 }
 
 TEST_CASE("the body is in the picture of a session")

@@ -161,3 +161,19 @@ TEST_CASE("bad outlines are reported, not thrown")
     doc.add(huge, Rect{.width = 5000_cm, .height = 5000_cm});
     EXPECT((!meshOf(doc, evaluate(doc), {.particleDistance = 0.1_cm}).find(huge)->problem.empty()), "a mesh that would be enormous is refused");
 }
+
+TEST_CASE("a stitch says whether its seam is reversed")
+{
+    Document doc;
+    const PanelId a = doc.add(Panel{.name = "a"});
+    const OpRef<Rect> first = doc.add(a, Rect{.width = 10_cm, .height = 10_cm});
+    const PanelId b = doc.add(Panel{.name = "b"});
+    const OpRef<Rect> second = doc.add(b, Rect{.width = 10_cm, .height = 10_cm});
+    const SeamId plain = doc.add(Seam{.a = {a, first.right()}, .b = {b, second.left()}});
+    doc.add(Seam{.a = {a, first.top()}, .b = {b, second.top()}, .reversed = true});
+    const ClothMesh mesh = meshOf(doc, evaluate(doc));
+    REQUIRE(!mesh.stitches.empty());
+    bool right = true;
+    for (const Stitch& stitch : mesh.stitches) right = right && stitch.reversed == !(stitch.seam == plain);
+    EXPECT(right, "as its seam has it");
+}

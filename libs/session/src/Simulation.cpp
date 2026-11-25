@@ -1,5 +1,6 @@
 #include "clothcad/session/Simulation.h"
 
+#include <algorithm>
 #include <chrono>
 #include <utility>
 
@@ -38,6 +39,7 @@ void Simulation::start(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placemen
         cloth_.emplace(*mesh, arranged);
         held_.reset();
         mesh_ = std::move(mesh);
+        leaveThemOut();
         failed_ = false;
         publish();
     });
@@ -51,6 +53,7 @@ void Simulation::follow(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placeme
         if (held_ && mesh == mesh_) cloth_->hold(held_->panel, held_->point, held_->to);
         else held_.reset();
         mesh_ = std::move(mesh);
+        leaveThemOut();
         publish();
     });
 }
@@ -75,6 +78,7 @@ void Simulation::restore(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placem
         if (!cloth_) return;
         cloth_.emplace(sim::Cloth::resumed(*mesh, positions, time, !sewing));
         mesh_ = std::move(mesh);
+        leaveThemOut();
         held_.reset();
         failed_ = false;
         publish();
@@ -83,6 +87,25 @@ void Simulation::restore(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placem
 
 void Simulation::setBody(sim::Body body) {
     hand([this, body = std::move(body)]() mutable { body_ = std::move(body); });
+}
+
+void Simulation::leaveOut(std::vector<PanelId> panels) {
+    hand([this, panels = std::move(panels)]() mutable {
+        leftOut_ = std::move(panels);
+        if (!cloth_) return;
+        if (held_ && mesh_ && std::find(leftOut_.begin(), leftOut_.end(), mesh_->panels[held_->panel].panel) != leftOut_.end()) held_.reset();
+        leaveThemOut();
+        publish();
+    });
+}
+
+// Tells the cloth which of its mesh's panels take no part.
+void Simulation::leaveThemOut() {
+    if (!cloth_ || !mesh_) return;
+    std::vector<std::uint32_t> panels;
+    for (std::size_t i = 0; i < mesh_->panels.size(); ++i)
+        if (std::find(leftOut_.begin(), leftOut_.end(), mesh_->panels[i].panel) != leftOut_.end()) panels.push_back(static_cast<std::uint32_t>(i));
+    cloth_->leaveOut(panels);
 }
 
 void Simulation::run(bool on) {

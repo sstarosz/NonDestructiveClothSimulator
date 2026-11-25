@@ -10,7 +10,7 @@ endif()
 
 # The shaders, compiled to SPIR-V arrays in headers, so the program needs no files beside it.
 set(shader_headers)
-foreach(shader surface.vert:surfaceVertexCode surface.frag:surfaceFragmentCode line.frag:lineFragmentCode)
+foreach(shader surface.vert:surfaceVertexCode surface.frag:surfaceFragmentCode line.vert:lineVertexCode line.frag:lineFragmentCode)
     string(REPLACE ":" ";" parts ${shader})
     list(GET parts 0 file)
     list(GET parts 1 name)

@@ -141,6 +141,12 @@ void draw(Icon which, Pen& d) {
         p.drawEllipse(QPointF(12, 12), 3, 3);
         break;
     }
+    case Icon::Active: {  // a power sign: a ring open at the top, and a stroke through the opening
+        QPainterPath ring; ring.moveTo(8, 6); ring.arcTo(QRectF(4, 5, 16, 16), 120, 300); p.drawPath(ring);
+        d.line({12, 2}, {12, 11});
+        break;
+    }
+    case Icon::Inactive: p.drawEllipse(QPointF(12, 12), 8, 8); d.line({6.5, 17.5}, {17.5, 6.5}); break;
     case Icon::EyeShut: {
         QPainterPath lid; lid.moveTo(2, 11); lid.cubicTo(6, 17, 18, 17, 22, 11); p.drawPath(lid);
         d.line({3, 3}, {21, 21});

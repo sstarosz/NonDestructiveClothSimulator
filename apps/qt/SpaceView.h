@@ -51,7 +51,8 @@ public:
     ~SpaceView() override;
 
     // What to show, and with which tool: it says which gizmo the selected panel shows.
-    void show(const session::Session& session, std::optional<PanelId> selected, session::Tool tool, bool mesh, bool body = true);
+    void show(const session::Session& session, std::optional<PanelId> selected, session::Tool tool, bool mesh, bool body = true,
+              std::optional<SeamId> seam = {});
     void showTime(std::optional<double> seconds, bool sewing);
     void frame();  // everything in view
 
@@ -126,6 +127,8 @@ private:
         std::optional<PanelId> selected;
         bool mesh = false;
         bool body = true;
+        std::optional<SeamId> seam{};
+        double pixel = 1.0;
         bool operator==(const Shown&) const = default;
     };
     std::optional<Shown> shown_;

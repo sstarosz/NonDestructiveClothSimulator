@@ -52,6 +52,9 @@ public:
     // at rest, `time` seconds on; `sewing` as it was then.
     void restore(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement positions, double time, bool sewing);
     void setBody(sim::Body body);
+    // The panels that take no part (see sim::Cloth::leaveOut); the others do.
+    // Kept for every cloth from now on, until told otherwise.
+    void leaveOut(std::vector<PanelId> panels);
     // Lets time pass, or holds the cloth still.
     void run(bool on);
     // Forgets the cloth.
@@ -79,6 +82,7 @@ private:
     using Change = std::function<void()>;
     void hand(Change change);  // runs it at once, or on the cloth's thread before its next step
     void publish();
+    void leaveThemOut();
     bool stepOnce();
     void work();
 
@@ -89,6 +93,7 @@ private:
     std::optional<sim::Cloth> cloth_;
     std::shared_ptr<const sim::ClothMesh> mesh_;
     sim::Body body_;
+    std::vector<PanelId> leftOut_;
     struct Held {
         std::uint32_t panel, point;
         sim::Vec3 to;

@@ -62,6 +62,8 @@ Cloth::Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric) : fab
     }
     before_ = at_;
     speed_.assign(at_.size(), Vec3{});
+    own_ = lightness_;
+    out_.assign(mesh.panels.size(), 0);
     for (const Stitch& stitch : mesh.stitches) {
         if (stitch.panelA >= firstOf_.size() || stitch.panelB >= firstOf_.size()) continue;
         if (firstOf_[stitch.panelA] == none || firstOf_[stitch.panelB] == none) continue;
@@ -73,8 +75,7 @@ Cloth::Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric) : fab
     // enough that neighbours in the mesh are left alone, far enough that one
     // layer's particles cannot slip between another's.
     checkTheSeams();
-    sewn_.assign(at_.size(), 0);
-    for (const Thread& thread : threads_) sewn_[thread.a] = sewn_[thread.b] = 1;
+    findAlone();
     if (!edges_.empty()) {
         std::vector<double> lengths;
         lengths.reserve(edges_.size());
@@ -82,6 +83,44 @@ Cloth::Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric) : fab
         std::nth_element(lengths.begin(), lengths.begin() + lengths.size() / 2, lengths.end());
         apart_ = 0.6 * lengths[lengths.size() / 2];
     }
+}
+
+void Cloth::findAlone() {
+    alone_.assign(at_.size(), 0);
+    for (const Thread& thread : threads_)
+        if (thread.holds) alone_[thread.a] = alone_[thread.b] = 1;
+    for (std::size_t i = 0; i < at_.size(); ++i)
+        if (out_[panelOf_[i]]) alone_[i] = 1;
+}
+
+void Cloth::leaveOut(const std::vector<uint32_t>& panels) {
+    std::vector<char> out(out_.size(), 0);
+    for (const uint32_t panel : panels)
+        if (panel < out.size()) out[panel] = 1;
+    if (out == out_) return;
+    if (held_ && out[panelOf_[held_->particle]]) letGo();
+    for (std::size_t i = 0; i < at_.size(); ++i) {
+        const uint32_t panel = panelOf_[i];
+        if (out[panel] == out_[panel]) continue;
+        lightness_[i] = out[panel] ? 0.0 : own_[i];
+        speed_[i] = {};
+        before_[i] = at_[i];
+    }
+    out_ = std::move(out);
+    bool joined = false;
+    for (Thread& thread : threads_) {
+        const bool holds = !out_[panelOf_[thread.a]] && !out_[panelOf_[thread.b]];
+        if (holds && !thread.holds) {  // taken back: drawn closed again from where its two sides are
+            thread.left = length(at_[thread.b] - at_[thread.a]);
+            joined = true;
+        }
+        thread.holds = holds;
+    }
+    if (joined) {
+        seamsClosed_ = false;
+        drawnInAt_ = -1.0;
+    }
+    findAlone();
 }
 
 // Lists the pairs of particles that could come within `apart_` of each other
@@ -109,7 +148,7 @@ void Cloth::findClosePairs(double seconds) {
     for (std::size_t i = at_.size(); i-- > 0;) sorted[--first[slot(cellOf(at_[i].x), cellOf(at_[i].y), cellOf(at_[i].z))]] = static_cast<uint32_t>(i);
 
     for (uint32_t i = 0; i < at_.size(); ++i) {
-        if (sewn_[i]) continue;
+        if (alone_[i]) continue;
         const long long cx = cellOf(at_[i].x), cy = cellOf(at_[i].y), cz = cellOf(at_[i].z);
         for (long long x = cx - 1; x <= cx + 1; ++x)
             for (long long y = cy - 1; y <= cy + 1; ++y)
@@ -117,7 +156,7 @@ void Cloth::findClosePairs(double seconds) {
                     const std::size_t s = slot(x, y, z);
                     for (uint32_t n = first[s]; n < first[s + 1]; ++n) {
                         const uint32_t j = sorted[n];
-                        if (j <= i || sewn_[j]) continue;
+                        if (j <= i || alone_[j]) continue;
                         if (lightness_[i] == 0.0 && lightness_[j] == 0.0) continue;
                         const Vec3 between = at_[j] - at_[i];
                         if (dot(between, between) > range * range) continue;
@@ -278,7 +317,7 @@ Cloth Cloth::continued(const ClothMesh& mesh, const Placement& arrangedNow, cons
 }
 
 void Cloth::hold(uint32_t panel, uint32_t point, Vec3 to) {
-    if (panel >= firstOf_.size() || firstOf_[panel] == none || point >= positions_[panel].size()) return;
+    if (panel >= firstOf_.size() || firstOf_[panel] == none || point >= positions_[panel].size() || out_[panel]) return;
     const uint32_t particle = firstOf_[panel] + point;
     if (held_ && held_->particle == particle) {
         held_->to = to;
@@ -297,7 +336,7 @@ void Cloth::letGo() {
 
 void Cloth::pin(uint32_t panel, uint32_t point) {
     if (panel >= firstOf_.size() || firstOf_[panel] == none || point >= positions_[panel].size()) return;
-    lightness_[firstOf_[panel] + point] = 0.0;
+    own_[firstOf_[panel] + point] = lightness_[firstOf_[panel] + point] = 0.0;
 }
 
 // How a correction to a link is shared between its two ends: by their
@@ -381,6 +420,7 @@ void Cloth::step(const Body& body, double seconds) {
             solve(edges_);
             if (pass == 0) solve(folds_);
             for (Thread& thread : threads_) {
+                if (!thread.holds) continue;
                 // A stitch is a thread being drawn in: it may be no longer than
                 // the thread has left, and it carries weight like any thread.
                 if (pass == 0) thread.left = std::max(0.0, thread.left - seamSpeed * h);
@@ -460,9 +500,10 @@ double Cloth::fastest() const {
 
 void Cloth::checkTheSeams() {
     if (seamsClosed_) return;
-    if (std::any_of(threads_.begin(), threads_.end(), [](const Thread& t) { return t.left > 0.0; })) return;
+    if (std::any_of(threads_.begin(), threads_.end(), [](const Thread& t) { return t.holds && t.left > 0.0; })) return;
     if (drawnInAt_ < 0.0) drawnInAt_ = time_;
-    const bool allClosed = std::all_of(threads_.begin(), threads_.end(), [&](const Thread& t) { return length(at_[t.b] - at_[t.a]) <= closedWithin; });
+    const bool allClosed = std::all_of(threads_.begin(), threads_.end(),
+                                       [&](const Thread& t) { return !t.holds || length(at_[t.b] - at_[t.a]) <= closedWithin; });
     seamsClosed_ = allClosed || time_ - drawnInAt_ >= givingUpAfter;
 }
 

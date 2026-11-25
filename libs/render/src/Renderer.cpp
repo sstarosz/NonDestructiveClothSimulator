@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <optional>
 #include <utility>  // before Vulkan-Hpp: some of its versions use std::exchange without it
@@ -17,13 +18,15 @@ namespace {
 // The shaders, compiled to SPIR-V when the project is built.
 #include "shaders/surface.vert.h"
 #include "shaders/surface.frag.h"
+#include "shaders/line.vert.h"
 #include "shaders/line.frag.h"
 
-// What the shaders are handed with every draw: 96 bytes, within the 128 every card allows.
+// What the shaders are handed with every draw: 112 bytes, within the 128 every card allows.
 struct Push {
     Matrix viewProjection;
     Colour colour;
-    std::array<float, 4> toLight;
+    std::array<float, 4> toLight;  // for lines: where the eye is, and how far they are lifted towards it
+    Colour back;                   // the colour of a side seen from behind
 };
 
 struct Vertex {
@@ -32,6 +35,31 @@ struct Vertex {
 };
 
 constexpr vk::Format pictureFormat = vk::Format::eR8G8B8A8Unorm;
+
+// Where the camera of a perspective matrix stands: the one point it gives no
+// place in the picture (x, y and w all zero). None for a matrix with no such point.
+std::optional<Point> eyeOf(const Matrix& m) {
+    const auto determinant = [](const std::array<std::array<double, 3>, 3>& a) {
+        return a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+               a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+    };
+    std::array<std::array<double, 3>, 3> rows{};
+    std::array<double, 3> wanted{};
+    for (int i = 0; i < 3; ++i) {
+        const int row = i == 2 ? 3 : i;
+        for (int column = 0; column < 3; ++column) rows[i][column] = m.at(row, column);
+        wanted[i] = -m.at(row, 3);
+    }
+    const double whole = determinant(rows);
+    if (std::abs(whole) < 1e-12) return std::nullopt;
+    std::array<double, 3> eye{};
+    for (int column = 0; column < 3; ++column) {
+        std::array<std::array<double, 3>, 3> with = rows;
+        for (int i = 0; i < 3; ++i) with[i][column] = wanted[i];
+        eye[column] = determinant(with) / whole;
+    }
+    return Point{static_cast<float>(eye[0]), static_cast<float>(eye[1]), static_cast<float>(eye[2])};
+}
 
 std::uint32_t memoryType(const vk::raii::PhysicalDevice& physical, std::uint32_t allowed, vk::MemoryPropertyFlags wanted) {
     const vk::PhysicalDeviceMemoryProperties memory = physical.getMemoryProperties();
@@ -117,7 +145,8 @@ struct Renderer::Inside {
     vk::raii::CommandPool pool{nullptr};
     vk::raii::CommandBuffer commands{nullptr};
     vk::raii::Fence done{nullptr};
-    vk::raii::ShaderModule surfaceVertex{nullptr}, surfaceFragment{nullptr}, lineFragment{nullptr};
+    vk::raii::ShaderModule surfaceVertex{nullptr}, surfaceFragment{nullptr}, lineVertex{nullptr}, lineFragment{nullptr};
+    float widestLine = 1.0f;  // pixels
     vk::raii::PipelineLayout layout{nullptr};
     std::vector<Pass> passes;
     Buffer vertices, indices;
@@ -137,12 +166,13 @@ struct Renderer::Inside {
         struct Indexed {
             std::uint32_t count, first;
             std::int32_t base;
-            Colour colour;
+            Colour colour, back;
             bool lit;
         };
         struct Plain {
             std::uint32_t count, first;
             Colour colour;
+            float width, lift;
         };
         std::vector<Indexed> surfaces;
         std::vector<Plain> lines;
@@ -161,6 +191,7 @@ Renderer::~Renderer() {
 }
 
 const std::string& Renderer::deviceName() const { return inside_->deviceName; }
+float Renderer::widestLine() const { return inside_->widestLine; }
 VkInstance_T* Renderer::instance() const { return static_cast<VkInstance>(*inside_->instance); }
 
 std::expected<std::unique_ptr<Renderer>, std::string> Renderer::create(Options options) try {
@@ -211,7 +242,13 @@ std::expected<std::unique_ptr<Renderer>, std::string> Renderer::create(Options o
             if (std::strcmp(have.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     const float priority = 1.0f;
     const vk::DeviceQueueCreateInfo queue({}, in.family, 1, &priority);
-    in.device = vk::raii::Device(in.physical, vk::DeviceCreateInfo({}, queue, {}, deviceExtensions));
+    // Wider lines where the card draws them (the seams); one pixel where it does not.
+    vk::PhysicalDeviceFeatures features;
+    if (in.physical.getFeatures().wideLines) {
+        features.wideLines = VK_TRUE;
+        in.widestLine = in.physical.getProperties().limits.lineWidthRange[1];
+    }
+    in.device = vk::raii::Device(in.physical, vk::DeviceCreateInfo({}, queue, {}, deviceExtensions, &features));
     in.queue = vk::raii::Queue(in.device, in.family, 0);
     in.pool = vk::raii::CommandPool(in.device, vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, in.family));
     in.commands = std::move(vk::raii::CommandBuffers(in.device, vk::CommandBufferAllocateInfo(*in.pool, vk::CommandBufferLevel::ePrimary, 1)).front());
@@ -220,6 +257,7 @@ std::expected<std::unique_ptr<Renderer>, std::string> Renderer::create(Options o
     const auto module = [&](const auto& code) { return vk::raii::ShaderModule(in.device, vk::ShaderModuleCreateInfo({}, sizeof code, code)); };
     in.surfaceVertex = module(surfaceVertexCode);
     in.surfaceFragment = module(surfaceFragmentCode);
+    in.lineVertex = module(lineVertexCode);
     in.lineFragment = module(lineFragmentCode);
     const vk::PushConstantRange push(vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0, sizeof(Push));
     in.layout = vk::raii::PipelineLayout(in.device, vk::PipelineLayoutCreateInfo({}, {}, push));
@@ -262,11 +300,11 @@ const Pass& Renderer::Inside::passFor(vk::Format format, vk::ImageLayout finalLa
                                                       vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |
                                                           vk::ColorComponentFlagBits::eA);
     const vk::PipelineColorBlendStateCreateInfo blending({}, VK_FALSE, vk::LogicOp::eCopy, blend);
-    const std::array dynamic{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-    const vk::PipelineDynamicStateCreateInfo dynamicState({}, dynamic);
-
-    const auto pipeline = [&](vk::PrimitiveTopology topology, const vk::raii::ShaderModule& fragment) {
-        const std::array stages{vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eVertex, *surfaceVertex, "main"),
+    const auto pipeline = [&](vk::PrimitiveTopology topology, const vk::raii::ShaderModule& vertex, const vk::raii::ShaderModule& fragment) {
+        std::vector<vk::DynamicState> dynamic{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        if (topology == vk::PrimitiveTopology::eLineList) dynamic.push_back(vk::DynamicState::eLineWidth);
+        const vk::PipelineDynamicStateCreateInfo dynamicState({}, dynamic);
+        const std::array stages{vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eVertex, *vertex, "main"),
                                 vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eFragment, *fragment, "main")};
         const vk::PipelineInputAssemblyStateCreateInfo assembly({}, topology);
         // Cloth has two sides: nothing is culled.
@@ -276,8 +314,8 @@ const Pass& Renderer::Inside::passFor(vk::Format format, vk::ImageLayout finalLa
                                   vk::GraphicsPipelineCreateInfo({}, stages, &vertexInput, &assembly, nullptr, &viewport, &raster, &samples, &depth, &blending,
                                                                  &dynamicState, *layout, *pass.renderPass, 0));
     };
-    pass.surfaces = pipeline(vk::PrimitiveTopology::eTriangleList, surfaceFragment);
-    pass.lines = pipeline(vk::PrimitiveTopology::eLineList, lineFragment);
+    pass.surfaces = pipeline(vk::PrimitiveTopology::eTriangleList, surfaceVertex, surfaceFragment);
+    pass.lines = pipeline(vk::PrimitiveTopology::eLineList, lineVertex, lineFragment);
     passes.push_back(std::move(pass));
     return passes.back();
 }
@@ -299,7 +337,7 @@ Renderer::Inside::Draws Renderer::Inside::upload(const Scene& scene) {
             if (s.triangles.empty() || s.points.empty()) continue;
             for (std::size_t i = 0; i < s.points.size(); ++i) vertex[vertexAt + i] = {s.points[i], i < s.normals.size() ? s.normals[i] : Point{0, 0, 1}};
             std::copy(s.triangles.begin(), s.triangles.end(), index + indexAt);
-            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.lit});
+            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.back.value_or(s.colour), s.lit});
             vertexAt += static_cast<std::uint32_t>(s.points.size());
             indexAt += static_cast<std::uint32_t>(s.triangles.size());
         }
@@ -309,7 +347,7 @@ Renderer::Inside::Draws Renderer::Inside::upload(const Scene& scene) {
     for (const Lines& l : scene.lines) {
         if (l.points.size() < 2) continue;
         for (std::size_t i = 0; i < l.points.size(); ++i) vertex[vertexAt + i] = {l.points[i], {}};
-        draws.lines.push_back({static_cast<std::uint32_t>(l.points.size() / 2 * 2), vertexAt, l.colour});
+        draws.lines.push_back({static_cast<std::uint32_t>(l.points.size() / 2 * 2), vertexAt, l.colour, l.width, l.lift});
         vertexAt += static_cast<std::uint32_t>(l.points.size());
     }
     return draws;
@@ -323,22 +361,34 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
     commands.setScissor(0, vk::Rect2D({0, 0}, extent));
     commands.bindVertexBuffers(0, {*vertices.buffer}, {vk::DeviceSize(0)});
     commands.bindIndexBuffer(*indices.buffer, 0, vk::IndexType::eUint32);
-    Push push{scene.viewProjection, {}, {scene.toLight.x, scene.toLight.y, scene.toLight.z, 0.0f}};
+    Push push{scene.viewProjection, {}, {scene.toLight.x, scene.toLight.y, scene.toLight.z, 0.0f}, {}};
     const vk::ShaderStageFlags stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
     // The light's w says whether a surface is lit (0) or drawn in its colour alone (1).
-    for (const Draws::Indexed& d : draws.surfaces) {
-        push.colour = d.colour;
-        push.toLight[3] = d.lit ? 0.0f : 1.0f;
-        commands.pushConstants<Push>(*layout, stages, 0, push);
-        commands.drawIndexed(d.count, 1, d.first, d.base, 0);
-    }
+    const auto drawSurfaces = [&](bool seeThrough) {
+        for (const Draws::Indexed& d : draws.surfaces) {
+            if ((d.colour.alpha < 1.0f) != seeThrough) continue;
+            push.colour = d.colour;
+            push.back = d.back;
+            push.toLight[3] = d.lit ? 0.0f : 1.0f;
+            commands.pushConstants<Push>(*layout, stages, 0, push);
+            commands.drawIndexed(d.count, 1, d.first, d.base, 0);
+        }
+    };
+    drawSurfaces(false);
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.lines);
+    const std::optional<Point> eye = eyeOf(scene.viewProjection);
+    Push forLines = push;
     for (const Draws::Plain& d : draws.lines) {
-        push.colour = d.colour;
-        commands.pushConstants<Push>(*layout, stages, 0, push);
+        forLines.colour = d.colour;
+        forLines.toLight = eye ? std::array<float, 4>{eye->x, eye->y, eye->z, d.lift} : std::array<float, 4>{};
+        commands.setLineWidth(std::clamp(d.width, 1.0f, widestLine));
+        commands.pushConstants<Push>(*layout, stages, 0, forLines);
         commands.draw(d.count, 1, d.first, 0);
     }
+    // Last, what lets light through: over everything it is in front of.
+    commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
+    drawSurfaces(true);
     if (!draws.overlay.empty()) {
         // In front of everything drawn so far: the depth starts again, so the
         // overlay hides only its own parts behind each other.
@@ -347,6 +397,7 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
         commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
         for (const Draws::Indexed& d : draws.overlay) {
             push.colour = d.colour;
+            push.back = d.back;
             push.toLight[3] = d.lit ? 0.0f : 1.0f;
             commands.pushConstants<Push>(*layout, stages, 0, push);
             commands.drawIndexed(d.count, 1, d.first, d.base, 0);

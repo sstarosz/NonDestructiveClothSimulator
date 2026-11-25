@@ -45,6 +45,11 @@ struct SelectPanel {
     std::optional<PanelId> panel;  // empty: clicked on nothing
     Pick how = Pick::Replace;
 };
+// A seam chosen (its row in the Outliner). Panels and a seam are not selected
+// together: choosing one lets go of the other. Empty: no seam.
+struct SelectSeam {
+    std::optional<SeamId> seam;
+};
 // A box dragged over panels. Replace with none inside chooses nothing.
 struct SelectPanels {
     std::vector<PanelId> panels;
@@ -223,7 +228,7 @@ struct PastePanel {
 using Gesture = std::variant<SelectPanel, MovePanel, MoveCorner, MoveHandle, DrawRect, DrawCircle, PlaceRing, BendEdge,
                              DrawLine, CutAway, SplitAt, MirrorAcross, EditLength, UseShapeLength, RotatePanel, SelectCorners, SewEdges, AddPointOn,
                              ScalePanel, MoveInSpace, TurnInSpace, AddBeside, DeletePanel, DeleteSelection, CopySelection, DuplicateSelection, PastePanel, SelectPanels,
-                             SewAsSource>;
+                             SewAsSource, SelectSeam>;
 
 // What a gesture came to, beyond the document: words for the help line, and
 // what the window should do next.
@@ -263,6 +268,7 @@ public:
         std::optional<PanelId> panel;
         std::vector<CornerRef> corners;  // of `panel`
         std::vector<PanelId> others;
+        std::optional<SeamId> seam{};  // the selected seam; there is none while a panel is selected
         // Every selected panel, `panel` first.
         std::vector<PanelId> panels() const;
         bool has(PanelId candidate) const;
@@ -308,6 +314,7 @@ private:
     Outcome on(Editor&, const DuplicateSelection&);
     Outcome on(Editor&, const PastePanel&);
     Outcome on(Editor&, const SewAsSource&);
+    Outcome on(Editor&, const SelectSeam&);
     // `panel` joins the selection as the one shown, or goes out of it; the others stay.
     void join(PanelId panel);
     void drop(PanelId panel);
