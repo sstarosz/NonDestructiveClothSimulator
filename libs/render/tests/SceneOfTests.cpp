@@ -79,7 +79,7 @@ TEST_CASE("every panel has a darker, cooler back; the body has none")
     EXPECT(coolerAndDarker(chosen.surfaces[1]), "the selected panel");
 }
 
-TEST_CASE("both edges of a seam are lined where the cloth has them; the selected seam in amber")
+TEST_CASE("an open seam is lined along both edges; a closed one has no lines unless it is selected")
 {
     Document doc;
     const PanelId left = doc.add(Panel{.name = "left"});
@@ -92,11 +92,11 @@ TEST_CASE("both edges of a seam are lined where the cloth has them; the selected
     session::Session session(doc, session::Threading::OneStepPerAdvance);
     session.update();
     OrbitCamera camera;
-    // The seams' lines are the ones drawn nearer than they are.
+    // The lines along the seams' edges: those drawn nearer than they are, and wide.
     const auto seams = [&](const SceneOptions& options) {
         std::vector<Lines> found;
         for (const Lines& lines : sceneOf(session, camera, 1.5, options).lines)
-            if (lines.lift > 0.0f) found.push_back(lines);
+            if (lines.lift > 0.0f && lines.width >= 2.0f * static_cast<float>(options.pixel)) found.push_back(lines);
         return found;
     };
     // Whether a line runs along both sewn edges, where the shown particles are.
@@ -131,15 +131,21 @@ TEST_CASE("both edges of a seam are lined where the cloth has them; the selected
     EXPECT(chosen[0].width > flat[0].width, "and wider");
     EXPECT((seams({.pixel = 2.0})[0].width == flat[0].width * 2.0f), "as wide on a screen with twice the pixels");
 
+    session.setSeamShown(seam, false);
+    EXPECT((seams({}).empty() && seams({.seam = seam}).empty()), "a hidden seam has no lines, selected or not");
+    session.setSeamShown(seam, true);
+
     session.simulate(true);
-    for (int i = 0; i < 30; ++i) session.update();
-    const std::vector<Lines> draped = seams({});
+    for (int i = 0; i < 240; ++i) session.update();
+    REQUIRE(!session.cloth().sewing);
+    EXPECT(seams({}).empty(), "closed, the seam is left undrawn");
+    const std::vector<Lines> draped = seams({.seam = seam});
     REQUIRE(draped.size() == 1);
-    EXPECT(alongBothEdges(draped[0]), "the line follows the draped cloth");
+    EXPECT(alongBothEdges(draped[0]), "selected, it is lined where the draped cloth is");
     bool moved = false;
     for (std::size_t i = 0; i < draped[0].points.size() && i < flat[0].points.size(); ++i)
-        moved = moved || std::abs(draped[0].points[i].x - flat[0].points[i].x) > 1.0f;
-    EXPECT(moved, "and has left where the flat panels had it");
+        moved = moved || std::abs(draped[0].points[i].y - flat[0].points[i].y) > 1.0f;
+    EXPECT(moved, "which is not where the flat panels had it");
 
     REQUIRE(session.editor().change([&](Document& d) { d.remove(seam); }));
     session.update();
@@ -175,6 +181,38 @@ TEST_CASE("a hidden panel is not drawn while the cloth still runs; a deactivated
     EXPECT(faded.surfaces[1].colour.alpha == 1.0f, "the active one is solid");
 }
 
+TEST_CASE("an open seam joins each particle to the one it is sewn to, so that a twisted seam's lines cross")
+{
+    // Two squares side by side, sewn by the edges that face each other.
+    for (const bool twisted : {false, true}) {
+        Document doc;
+        const PanelId left = doc.add(Panel{.name = "left"});
+        const OpRef<Rect> leftRect = doc.add(left, Rect{.width = 20_cm, .height = 20_cm});
+        doc.arrange(left, Arrangement{.placed = true, .x = -20, .y = 100, .z = 0});
+        const PanelId right = doc.add(Panel{.name = "right"});
+        const OpRef<Rect> rightRect = doc.add(right, Rect{.width = 20_cm, .height = 20_cm});
+        doc.arrange(right, Arrangement{.placed = true, .x = 20, .y = 100, .z = 0});
+        doc.add(Seam{.a = {left, leftRect.right()}, .b = {right, rightRect.left()}, .reversed = twisted});
+        session::Session session(doc, session::Threading::OneStepPerAdvance);
+        session.update();
+        std::vector<Lines> threads;
+        for (const Lines& lines : sceneOf(session, OrbitCamera{}, 1.5, {}).lines)
+            if (lines.lift > 0.0f && lines.width < 2.0f) threads.push_back(lines);
+        REQUIRE(threads.size() == 1);
+        REQUIRE(threads[0].points.size() == session.shownMesh().stitches.size() * 2);
+        bool across = true, level = true, mirrored = true;
+        for (std::size_t i = 0; i + 1 < threads[0].points.size(); i += 2) {
+            const Point a = threads[0].points[i], b = threads[0].points[i + 1];
+            across = across && std::abs(a.x + 10.0f) < 0.01f && std::abs(b.x - 10.0f) < 0.01f;
+            level = level && std::abs(a.y - b.y) < 0.01f;
+            mirrored = mirrored && std::abs((a.y - 100.0f) + (b.y - 100.0f)) < 0.01f;
+        }
+        EXPECT(across, "each from the one edge to the other");
+        if (twisted) EXPECT((mirrored && !level), "twisted, the bottom goes to the top: the lines cross");
+        else EXPECT(level, "sewn straight, each goes straight across");
+    }
+}
+
 TEST_CASE("a hidden panel's side of a seam has no line")
 {
     Document doc;
@@ -186,17 +224,20 @@ TEST_CASE("a hidden panel's side of a seam has no line")
     session::Session session(doc, session::Threading::OneStepPerAdvance);
     session.update();
     OrbitCamera camera;
-    const auto seamPoints = [&] {
+    // The points of the seam's lines along its edges (wide) or between them (thin).
+    const auto seamPoints = [&](bool wide) {
         std::size_t points = 0;
         for (const Lines& lines : sceneOf(session, camera, 1.5, {}).lines)
-            if (lines.lift > 0.0f) points += lines.points.size();
+            if (lines.lift > 0.0f && (lines.width >= 2.0f) == wide) points += lines.points.size();
         return points;
     };
-    const std::size_t both = seamPoints();
+    const std::size_t both = seamPoints(true);
+    REQUIRE(seamPoints(false) > 0);
     session.setPanelShown(left, false);
-    EXPECT(seamPoints() == both / 2, "only the shown side");
+    EXPECT(seamPoints(true) == both / 2, "only the shown side");
+    EXPECT(seamPoints(false) == 0, "and no lines to the hidden one");
     session.setPanelShown(right, false);
-    EXPECT(seamPoints() == 0, "none");
+    EXPECT(seamPoints(true) == 0, "none");
 }
 
 namespace {

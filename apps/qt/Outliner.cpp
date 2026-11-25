@@ -19,7 +19,8 @@ constexpr int baseOnlyRole = Qt::UserRole + 2;  // a panel kept as a base for in
 constexpr int seamRole = Qt::UserRole + 3;
 constexpr int failedRole = Qt::UserRole + 4;  // a panel with a problem in one of its steps
 
-bool listed(const std::vector<PanelId>& panels, PanelId panel) { return std::find(panels.begin(), panels.end(), panel) != panels.end(); }
+template <class Id>
+bool listed(const std::vector<Id>& list, Id id) { return std::find(list.begin(), list.end(), id) != list.end(); }
 
 // What a panel is, for its icon: an instance follows another; a mirror makes two halves.
 Icon iconOf(const Document& doc, PanelId panel, QColor& colour) {
@@ -87,6 +88,10 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
         }
         if (const std::optional<SeamId> seam = seamOf(item)) {
             QMenu menu(this);
+            QAction* shown = menu.addAction("Shown in 3D", [this, seam](bool on) { emit seamShownChanged(*seam, on); });
+            shown->setCheckable(true);
+            shown->setChecked(!listed(hiddenSeams_, *seam));
+            menu.addSeparator();
             menu.addAction(icon(Icon::Delete, theme::error), "Delete", [this, seam] { emit seamDeleteRequested(*seam); });
             menu.exec(viewport()->mapToGlobal(where));
             return;
@@ -141,6 +146,16 @@ bool Outliner::pressButton(const QMouseEvent* event) {
         emit bodyShownChanged(!bodyNow_.shown);
         return true;
     }
+    if (column == eyeColumn) {
+        if (item == seams_ && seams_->childCount() > 0) {
+            toggleAllSeams();
+            return true;
+        }
+        if (const std::optional<SeamId> seam = seamOf(item)) {
+            emit seamShownChanged(*seam, listed(hiddenSeams_, *seam));
+            return true;
+        }
+    }
     const std::optional<PanelId> panel = panelOf(item);
     if (!panel || item->data(0, baseOnlyRole).toBool()) return false;
     // What is reported may make the rows again: nothing of this one is used afterwards.
@@ -191,6 +206,39 @@ void Outliner::showPanelStates(const std::vector<PanelId>& hidden, const std::ve
     inactive_ = inactive;
     const QSignalBlocker quiet(this);
     for (int i = 0; i < panels_->childCount(); ++i) showState(panels_->child(i));
+}
+
+void Outliner::toggleAllSeams() {
+    // Read first: what is reported changes the rows.
+    const std::vector<SeamId> seams = seamsShown();
+    const std::vector<SeamId> hidden = hiddenSeams_;
+    const bool show = std::all_of(seams.begin(), seams.end(), [&](SeamId seam) { return listed(hidden, seam); });
+    for (const SeamId seam : seams)
+        if (listed(hidden, seam) == show) emit seamShownChanged(seam, show);
+}
+
+void Outliner::showSeamRows() {
+    bool any = false;
+    for (int i = 0; i < seams_->childCount(); ++i) {
+        QTreeWidgetItem* item = seams_->child(i);
+        const std::optional<SeamId> seam = seamOf(item);
+        if (!seam) continue;
+        const bool shown = !listed(hiddenSeams_, *seam);
+        any = any || shown;
+        item->setIcon(eyeColumn, icon(shown ? Icon::Eye : Icon::EyeShut, theme::quiet));
+        item->setToolTip(eyeColumn, shown ? "Its lines are shown in 3D while it is open or selected. Click to hide them." : "Hidden in 3D. Click to show it.");
+        item->setForeground(0, shown ? theme::seam : theme::quiet);
+    }
+    const bool none = seams_->childCount() == 0;
+    seams_->setIcon(eyeColumn, none ? QIcon() : icon(any ? Icon::Eye : Icon::EyeShut, theme::quiet));
+    seams_->setToolTip(eyeColumn, none ? QString() : any ? "Click to hide the lines of every seam in 3D." : "Every seam is hidden in 3D. Click to show them.");
+}
+
+void Outliner::showSeamStates(const std::vector<SeamId>& hidden) {
+    if (hidden == hiddenSeams_) return;
+    hiddenSeams_ = hidden;
+    const QSignalBlocker quiet(this);
+    showSeamRows();
 }
 
 void Outliner::setBaseOnly(PanelId panel, bool on) { emit baseOnlyChanged(panel, on); }
@@ -266,13 +314,13 @@ void Outliner::show(const Document& doc, const Result& shapes, std::optional<Pan
             return doc.contains(s.panel) ? doc.get(s.panel).name : std::string("?");
         };
         auto* item = new QTreeWidgetItem(seams_, {QString::fromStdString(side(sewn.a) + "  ↔  " + side(sewn.b))});
-        item->setForeground(0, theme::seam);
         item->setData(0, seamRole, id.value);
         item->setToolTip(0, QString::fromStdString(nameOf(Reference(sewn.a.edge), doc) + "\n" + nameOf(Reference(sewn.b.edge), doc)));
         if (seam && *seam == id) setCurrentItem(item);
     }
     seams_->setText(1, QString::number(doc.seams().size()));
     seams_->setForeground(1, theme::quiet);
+    showSeamRows();
     if (!selected && !seam) setCurrentItem(nullptr);
     showing_ = false;
 }

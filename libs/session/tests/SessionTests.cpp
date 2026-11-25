@@ -355,3 +355,32 @@ TEST_CASE("a panel is hidden without leaving the cloth; deactivated, it stands s
     session.open(Document{});
     EXPECT((session.hiddenPanels().empty() && session.inactivePanels().empty()), "another document starts with all shown and active");
 }
+
+TEST_CASE("a seam is hidden and shown again, and forgotten when it is gone")
+{
+    Skirt start;
+    const PanelId other = start.doc.add(Panel{.name = "other"});
+    const OpRef<Rect> rect = start.doc.add(other, Rect{.width = 40_cm, .height = 40_cm});
+    const SeamId seam = start.doc.add(Seam{.a = {start.panel, start.rect.right()}, .b = {other, rect.left()}});
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.update();
+    std::uint64_t version = session.sceneVersion();
+    EXPECT(session.seamShown(seam), "shown to begin with");
+    session.setSeamShown(seam, false);
+    EXPECT((!session.seamShown(seam) && session.sceneVersion() > version), "hidden is something to draw again");
+    version = session.sceneVersion();
+    session.setSeamShown(seam, false);
+    EXPECT(session.sceneVersion() == version, "hidden again changes nothing");
+    EXPECT(!session.editor().canUndo(), "and the document is untouched");
+    REQUIRE(session.editor().change([&](Document& doc) { doc.remove(seam); }));
+    session.update();
+    EXPECT(session.hiddenSeams().empty(), "a seam that is gone is forgotten");
+    session.setSeamShown(seam, false);
+    EXPECT(session.hiddenSeams().empty(), "and cannot be hidden");
+    REQUIRE(session.editor().undo());
+    session.update();
+    EXPECT(session.seamShown(seam), "brought back, it is shown");
+    session.setSeamShown(seam, false);
+    session.open(Document{});
+    EXPECT(session.hiddenSeams().empty(), "another document starts with all shown");
+}

@@ -11,13 +11,15 @@ namespace clothcad::session {
 namespace {
 constexpr std::size_t keptDrapes = 64;  // about 70 kB each at 2,800 particles
 
-bool listed(const std::vector<PanelId>& panels, PanelId panel) { return std::find(panels.begin(), panels.end(), panel) != panels.end(); }
+template <class Id>
+bool listed(const std::vector<Id>& list, Id id) { return std::find(list.begin(), list.end(), id) != list.end(); }
 
-// Puts `panel` into the list or takes it out; whether that changed anything.
-bool keep(std::vector<PanelId>& panels, PanelId panel, bool in) {
-    if (listed(panels, panel) == in) return false;
-    if (in) panels.push_back(panel);
-    else std::erase(panels, panel);
+// Puts `id` into the list or takes it out; whether that changed anything.
+template <class Id>
+bool keep(std::vector<Id>& list, Id id, bool in) {
+    if (listed(list, id) == in) return false;
+    if (in) list.push_back(id);
+    else std::erase(list, id);
     return true;
 }
 }  // namespace
@@ -32,11 +34,12 @@ void Session::open(Document document) {
     drapes_.clear();
     hidden_.clear();
     inactive_.clear();
+    hiddenSeams_.clear();
     simulation_->leaveOut({});
     editor_.replace(std::move(document));
 }
 
-// ---- Panels hidden and deactivated -----------------------------------------------
+// ---- Panels hidden and deactivated, seams hidden ---------------------------------
 
 void Session::setPanelShown(PanelId panel, bool shown) {
     if (document().contains(panel) && keep(hidden_, panel, !shown)) ++sceneVersion_;
@@ -53,10 +56,17 @@ void Session::setPanelActive(PanelId panel, bool active) {
 
 bool Session::panelActive(PanelId panel) const { return !listed(inactive_, panel); }
 
-// A panel that is gone takes with it that it was hidden or deactivated: its id may be given out again.
-void Session::forgetGonePanels() {
-    const auto gone = [&](PanelId panel) { return !document().contains(panel); };
+void Session::setSeamShown(SeamId seam, bool shown) {
+    if (document().contains(seam) && keep(hiddenSeams_, seam, !shown)) ++sceneVersion_;
+}
+
+bool Session::seamShown(SeamId seam) const { return !listed(hiddenSeams_, seam); }
+
+// A panel or seam that is gone takes with it what was set for it: its id may be given out again.
+void Session::forgetTheGone() {
+    const auto gone = [&](auto id) { return !document().contains(id); };
     if (std::erase_if(hidden_, gone) > 0) ++sceneVersion_;
+    if (std::erase_if(hiddenSeams_, gone) > 0) ++sceneVersion_;
     if (std::erase_if(inactive_, gone) > 0) {
         simulation_->leaveOut(inactive_);
         ++sceneVersion_;
@@ -181,7 +191,7 @@ std::optional<std::string> Session::update(bool meshWanted) {
     std::optional<std::string> problem;
     if (preparing_.valid() && preparing_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) body_ = preparing_.get();
     if (!bodyReady()) simulating_ = false;
-    forgetGonePanels();
+    forgetTheGone();
     if (!meshWanted) {
         simulation_->run(false);
         return problem;

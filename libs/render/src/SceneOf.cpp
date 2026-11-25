@@ -18,7 +18,9 @@ constexpr Colour instanceColour{0.75f, 0.62f, 0.95f};
 // The table's seam blue, deeper: it is seen against pale cloth, not the dark table.
 constexpr Colour seamColour{0.18f, 0.46f, 0.98f};
 
-constexpr float seamWidth = 2.0f, selectedSeamWidth = 4.0f;  // in pixels of the screen's own scale
+constexpr float seamWidth = 2.0f, selectedSeamWidth = 4.0f;      // a seam's edges, in pixels of the screen's own scale
+constexpr float threadWidth = 1.0f;                              // the lines from each particle to the one it is sewn to: thin, so a cross reads
+constexpr float threadAlpha = 0.75f;                             // many lie close together: a little of what is behind shows
 constexpr float seamLift = 0.5f;                             // cm
 constexpr float inactiveAlpha = 0.3f;  // a deactivated panel is seen through
 // cm: a stitch this short has brought its two sides together, and they are shaded as one.
@@ -102,21 +104,42 @@ std::vector<std::vector<sim::Vec3>> clothNormals(const sim::ClothMesh& mesh, con
 // shows at a glance and what it is (selected, an instance) still does.
 Colour behind(Colour front) { return {front.red * 0.58f, front.green * 0.61f, front.blue * 0.77f, front.alpha}; }
 
-// A line along both edges of every seam the mesh has sewn, where its particles
-// are now; none along a hidden panel. The selected seam comes last, so that it
-// lies on top.
+// The lines of every seam there is something to see of: one along both its sewn
+// edges, and one from each particle to the particle it is sewn to, which shows
+// which end meets which (a twisted seam's lines cross). A closed seam has none,
+// so that the cloth is seen as it will be, unless it is the selected one, which
+// is in amber and comes last, to lie on top. A seam switched off has none
+// either, and a hidden panel's side of a seam is left out with the lines to it.
 void addSeams(Scene& scene, const session::Session& session, const SceneOptions& options) {
     const Document& doc = session.document();
     const sim::ClothMesh& mesh = session.shownMesh();
     const sim::Placement& positions = session.shownPositions();
     const float pixel = static_cast<float>(options.pixel);
-    std::optional<Lines> selected;
-    for (std::size_t s = 0; s < mesh.stitches.size(); ++s) {
-        const SeamId id = mesh.stitches[s].seam;
-        // A seam's stitches follow each other. A mesh a few frames old may name a seam that is gone.
-        if ((s > 0 && mesh.stitches[s - 1].seam == id) || !doc.contains(id)) continue;
+    const auto placed = [&](std::size_t panel, std::uint32_t point) {
+        return panel < positions.size() && panel < mesh.panels.size() && positions[panel].size() == mesh.panels[panel].points.size() && point < positions[panel].size();
+    };
+    std::vector<Lines> selected;
+    // A seam's stitches follow each other.
+    for (std::size_t from = 0, to = 0; from < mesh.stitches.size(); from = to) {
+        const SeamId id = mesh.stitches[from].seam;
+        for (to = from + 1; to < mesh.stitches.size() && mesh.stitches[to].seam == id; ++to) {}
+        // A mesh a few frames old may name a seam that is gone.
+        if (!doc.contains(id) || !session.seamShown(id)) continue;
         const bool chosen = options.seam == id;
-        Lines lines{.points = {}, .colour = chosen ? selectedColour : seamColour, .width = (chosen ? selectedSeamWidth : seamWidth) * pixel, .lift = seamLift};
+        Colour colour = chosen ? selectedColour : seamColour;
+        Lines threads{.points = {}, .colour = colour, .width = threadWidth * pixel, .lift = seamLift};
+        if (!chosen) threads.colour.alpha = threadAlpha;
+        bool closed = true;
+        for (std::size_t k = from; k < to; ++k) {
+            const sim::Stitch& stitch = mesh.stitches[k];
+            if (!placed(stitch.panelA, stitch.pointA) || !placed(stitch.panelB, stitch.pointB)) continue;
+            const sim::Vec3 a = positions[stitch.panelA][stitch.pointA], b = positions[stitch.panelB][stitch.pointB];
+            closed = closed && sim::length(a - b) <= joinedWithin;
+            if (session.panelShown(mesh.panels[stitch.panelA].panel) && session.panelShown(mesh.panels[stitch.panelB].panel))
+                threads.points.insert(threads.points.end(), {pointOf(a), pointOf(b)});
+        }
+        if (closed && !chosen) continue;
+        Lines edges{.points = {}, .colour = colour, .width = (chosen ? selectedSeamWidth : seamWidth) * pixel, .lift = seamLift};
         const Seam& seam = doc.get(id);
         for (const SeamSide& side : {seam.a, seam.b}) {
             const sim::PanelMesh* panel = mesh.find(side.panel);
@@ -125,13 +148,15 @@ void addSeams(Scene& scene, const session::Session& session, const SceneOptions&
             const sim::EdgeParticles* along = panel->along(side.edge);
             if (!along || i >= positions.size() || positions[i].size() != panel->points.size()) continue;
             for (std::size_t k = 1; k < along->points.size(); ++k)
-                lines.points.insert(lines.points.end(), {pointOf(positions[i][along->points[k - 1]]), pointOf(positions[i][along->points[k]])});
+                edges.points.insert(edges.points.end(), {pointOf(positions[i][along->points[k - 1]]), pointOf(positions[i][along->points[k]])});
         }
-        if (lines.points.empty()) continue;
-        if (chosen) selected = std::move(lines);
-        else scene.lines.push_back(std::move(lines));
+        for (Lines* lines : {&edges, &threads}) {
+            if (lines->points.empty()) continue;
+            if (chosen) selected.push_back(std::move(*lines));
+            else scene.lines.push_back(std::move(*lines));
+        }
     }
-    if (selected) scene.lines.push_back(std::move(*selected));
+    for (Lines& lines : selected) scene.lines.push_back(std::move(lines));
 }
 
 // The floor: a line every 10 cm for two metres around the middle, stronger every metre.

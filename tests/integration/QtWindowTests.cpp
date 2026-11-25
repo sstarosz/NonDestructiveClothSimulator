@@ -1722,7 +1722,7 @@ TEST_CASE("a seam's row in the Outliner lights the seam on the table and in 3D; 
     clickSeam(1);
     EXPECT((w.window.selectedSeam() == listed[1] && !w.window.selected()), "the seam is selected instead of the panel");
     EXPECT(w.window.table()->litSeamEdges().size() == 2, "its two edges are lit on the table");
-    EXPECT(amberLines() == 1, "and it is amber in 3D");
+    EXPECT(amberLines() == 2, "and it is amber in 3D: its edges, and the lines between them");
     EXPECT((outliner.currentItem() && outliner.currentItem()->parent() == outliner.topLevelItem(2) &&
             outliner.topLevelItem(2)->indexOfChild(outliner.currentItem()) == 1),
            "its row stays chosen");
@@ -1803,6 +1803,58 @@ TEST_CASE("a panel's eye hides it in 3D and its other button takes it out of the
     press(-1, Outliner::eyeColumn);
     EXPECT(!w.window.bodyShown(), "the body's eye works as before");
     EXPECT(w.window.selected() == front, "and leaves the selection too");
+}
+
+TEST_CASE("a seam's eye hides its lines in 3D, and the eye on Seams hides them all; the selection stays", "[qt]")
+{
+    Window w;
+    Outliner& outliner = *w.window.outliner();
+    const std::vector<SeamId> listed = outliner.seamsShown();
+    REQUIRE(listed.size() >= 2);
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    w.window.tick();
+    QTreeWidgetItem* seams = outliner.topLevelItem(2);
+    seams->setExpanded(true);
+    // A click with the mouse on the eye of a row.
+    const auto pressEye = [&](QTreeWidgetItem* row) {
+        REQUIRE(row != nullptr);
+        outliner.scrollToItem(row);
+        const QPointF at(outliner.columnViewportPosition(Outliner::eyeColumn) + outliner.columnWidth(Outliner::eyeColumn) / 2.0,
+                         outliner.visualItemRect(row).center().y());
+        REQUIRE(outliner.viewport()->rect().contains(at.toPoint()));
+        send(outliner.viewport(), QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, {});
+        send(outliner.viewport(), QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, {});
+        w.window.tick();
+    };
+    const auto seamLines = [&] {
+        int count = 0;
+        for (const render::Lines& lines : w.window.space()->sceneFor(200, 200).lines) count += lines.lift > 0.0f;
+        return count;
+    };
+    const int all = seamLines();
+    REQUIRE(all == 2 * static_cast<int>(listed.size()));
+
+    pressEye(seams->child(0));
+    EXPECT((!w.window.session().seamShown(listed[0]) && seamLines() == all - 2), "that seam's lines are gone");
+    EXPECT((w.window.selected() == front && !w.window.selectedSeam()), "and the selection is as it was");
+    pressEye(seams->child(0));
+    EXPECT((w.window.session().seamShown(listed[0]) && seamLines() == all), "and back");
+
+    pressEye(seams);
+    EXPECT((w.window.session().hiddenSeams().size() == listed.size() && seamLines() == 0), "the eye on Seams hides them all");
+    EXPECT(seams->isExpanded(), "without folding the list away");
+    pressEye(seams->child(1));
+    EXPECT(seamLines() == 2, "one can be shown by itself");
+    pressEye(seams);
+    EXPECT(seamLines() == 0, "with any shown, the eye on Seams hides them");
+    pressEye(seams);
+    EXPECT((w.window.session().hiddenSeams().empty() && seamLines() == all), "with all hidden, it shows them");
+
+    pressEye(seams->child(0));
+    w.window.select(w.panel("back"));
+    w.window.tick();
+    EXPECT(outliner.topLevelItem(2)->child(0)->toolTip(Outliner::eyeColumn).startsWith("Hidden"), "its row still says so after the rows are made again");
 }
 
 TEST_CASE("a seam whose edges differ in length shows its lengths in orange; an even one does not", "[qt]")

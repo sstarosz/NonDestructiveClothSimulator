@@ -3,11 +3,13 @@
 // panels where they are arranged), the floor, and the mesh's triangles when
 // asked. Colours keep their meaning: the selected panel amber, an instance
 // violet. A panel's front (the side the table shows) has that colour; its back
-// is a darker, cooler shade of it. Both edges of every seam are lined in
-// blue, where the cloth has them now; the selected seam in amber, wider. A
+// is a darker, cooler shade of it. A seam that is still open is lined in blue
+// along both its edges, with a thin line from each particle to the one it is
+// sewn to, where the cloth has them now. A closed seam has no lines, and both
+// its sides are shaded as one cloth, with the same normals; the selected seam
+// is lined in amber, wider, open or closed. A hidden seam has no lines. A
 // hidden panel is left out, with its side of every seam; a deactivated one is
-// seen through. Where a seam has closed, both its sides are shaded as one
-// cloth, with the same normals.
+// seen through.
 //
 //   render::Scene scene = render::sceneOf(session, camera, width / double(height), {.selected = panel});
 

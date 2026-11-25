@@ -402,6 +402,10 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         session_.setPanelActive(panel, active);
         tick();
     });
+    connect(outliner_, &Outliner::seamShownChanged, this, [this](SeamId seam, bool shown) {
+        session_.setSeamShown(seam, shown);
+        tick();
+    });
 
     buildMenus();
     timer_ = new QTimer(this);
@@ -592,6 +596,7 @@ void MainWindow::tick() {
     space_->showTime(session_.clothShown() ? std::optional<double>(session_.cloth().time) : std::nullopt, session_.clothShown() && session_.cloth().sewing);
     outliner_->showBody(bodyNow());
     outliner_->showPanelStates(session_.hiddenPanels(), session_.inactivePanels());
+    outliner_->showSeamStates(session_.hiddenSeams());
     showMeshCounts();
     (void)took;
 }

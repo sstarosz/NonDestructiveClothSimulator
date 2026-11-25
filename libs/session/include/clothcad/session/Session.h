@@ -65,9 +65,9 @@ public:
     // Whether the cloth meets the body. A hidden body is out of the simulation.
     void setBodyPresent(bool present) { bodyPresent_ = present; }
 
-    // ---- Panels hidden and deactivated ----
-    // Neither changes the document, neither is an undo step or saved, and
-    // neither starts a drape again. Both are forgotten for a panel that is gone.
+    // ---- Panels hidden and deactivated, seams hidden ----
+    // None of this changes the document, is an undo step or saved, or starts a
+    // drape again. It is forgotten for a panel or seam that is gone.
     // A hidden panel is not drawn in 3D; it takes part in the cloth as before.
     void setPanelShown(PanelId panel, bool shown);
     bool panelShown(PanelId panel) const;
@@ -77,6 +77,10 @@ public:
     void setPanelActive(PanelId panel, bool active);
     bool panelActive(PanelId panel) const;
     const std::vector<PanelId>& inactivePanels() const { return inactive_; }
+    // A hidden seam has no lines in 3D; it sews as before.
+    void setSeamShown(SeamId seam, bool shown);
+    bool seamShown(SeamId seam) const;
+    const std::vector<SeamId>& hiddenSeams() const { return hiddenSeams_; }
 
     // ---- The cloth in motion ----
     // Lets the cloth fall, or holds it where it is. It starts the first time,
@@ -158,8 +162,9 @@ private:
     };
     BodyInUse bodyInUse_;
 
-    void forgetGonePanels();
+    void forgetTheGone();
     std::vector<PanelId> hidden_, inactive_;
+    std::vector<SeamId> hiddenSeams_;
 
     std::unique_ptr<Simulation> simulation_;
     Simulation::News cloth_;

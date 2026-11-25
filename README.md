@@ -55,9 +55,12 @@ the body follows too.
   the panel's colour; its back is a darker, cooler shade of it (grey cloth,
   the amber selection and violet instances alike). A panel that has not been
   turned in space has its front towards +z, where the body faces.
-- **Seams in 3D**: both edges of every seam are lined in blue, on the flat
-  panels and on the draped cloth. Choosing a seam's row in the Outliner lights
-  it in amber, in 3D and on the table.
+- **Seams in 3D**: while a seam is open, both its edges are lined in blue and
+  a thin line runs from each point to the point it is sewn to, so you see which
+  end meets which: the lines of a twisted seam cross. Once the seam has closed
+  its lines are gone. Choosing a seam's row in the Outliner shows it in amber,
+  open or closed, in 3D, and lights it on the table. The eye on a seam's row
+  hides its lines; the eye on "Seams" hides or shows all of them.
 - **Hide and deactivate panels**: each panel's row in the Outliner has an eye,
   which hides it in the 3D view only (it is still simulated), and a button that
   deactivates it, as in Marvelous Designer: it stays where it is, seen through,
@@ -373,8 +376,9 @@ holds and hands it what the user did.
   file beside the program there is no body, and the cloth falls to the floor.
 - The avatar's armpits pinch a top without sleeves (sample 6) at its
   underarm points: a few edges there stretch up to about 30 %.
-- Which panels are hidden or deactivated is not saved in the file and is not
-  an undo step; a panel deleted and brought back by undo is shown and active.
+- Which panels and seams are hidden or deactivated is not saved in the file
+  and is not an undo step; a panel or seam deleted and brought back by undo is
+  shown and active.
   A panel activated again where cloth has moved into it is pushed apart from it
   at once, which can jolt.
 - Cloth does not resist folding across a seam as it does inside a panel, and a
