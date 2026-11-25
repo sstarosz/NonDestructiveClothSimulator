@@ -23,7 +23,7 @@ TEST_CASE("an empty panel is offered shapes; a panel with a shape is offered cha
     addOffered(doc, panel, Offer::Rectangle);
     bool changes = true;
     for (const Offered& offer : offersFor(doc, panel)) changes = changes && !offer.starting;
-    EXPECT((changes && offersFor(doc, panel).size() == 9), "then nine changes, no shape");
+    EXPECT((changes && offersFor(doc, panel).size() == 10), "then ten changes, no shape");
 }
 
 TEST_CASE("an added shape works at once; a change that needs an edge asks for it")
@@ -66,4 +66,25 @@ TEST_CASE("a scale can be added from the list, and starts at the size the panel 
     EXPECT((std::holds_alternative<Scale>(doc.get(scale.operation)) && !scale.toChoose), "it needs nothing chosen");
     const Result result = evaluate(doc);
     EXPECT((result.ok() && std::abs(result[panel].length(rect.bottom()) - 30.0) < 1e-9), "and changes nothing until it is set");
+}
+
+TEST_CASE("a length for one edge is offered for a shape, and asks for its edge")
+{
+    Document doc;
+    const PanelId empty = doc.add(Panel{.name = "empty"});
+    const PanelId panel = doc.add(Panel{.name = "piece"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 30_cm, .height = 20_cm});
+    const auto offeredFor = [&](PanelId p) {
+        for (const Offered& offer : offersFor(doc, p))
+            if (offer.offer == Offer::SetLength) return true;
+        return false;
+    };
+    EXPECT((offeredFor(panel) && !offeredFor(empty)), "a panel with a shape is offered it, an empty one is not");
+
+    const Added added = addOffered(doc, panel, Offer::SetLength);
+    EXPECT((std::holds_alternative<SetLength>(doc.get(added.operation)) && added.toChoose.has_value()), "it is added, and its edge is to be chosen next");
+    doc.set(added.operation, *added.toChoose, Reference(rect.top()));
+    const Result result = evaluate(doc);
+    EXPECT((result.ok() && std::get<SetLength>(doc.get(added.operation)).edge == rect.top()), "once the edge is chosen it works");
+    EXPECT_NEAR((result[panel].length(rect.top())), (20.0), "the top gets the 20 cm the added length starts at");
 }

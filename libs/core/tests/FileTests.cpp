@@ -97,3 +97,31 @@ TEST_CASE("a parameter's unit is saved, and a length needs none")
     wrong.replace(wrong.find("unit angle"), 10, "unit furlong");
     EXPECT((std::holds_alternative<FileError>(fromText(wrong))), "an unknown unit is a problem in words, not a guess");
 }
+
+TEST_CASE("a set length survives saving and opening, with what it keeps")
+{
+    Document doc;
+    const Param waist = doc.add(Parameter{.name = "waist", .value = 70_cm});
+    const PanelId panel = doc.add(Panel{.name = "trousers"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> top = doc.add(panel, SetLength{.edge = rect.top(), .length = waist / 2, .keeping = SetLength::Keeping::End});
+
+    const std::string text = toText(doc);
+    const std::variant<Document, FileError> read = fromText(text);
+    REQUIRE(std::holds_alternative<Document>(read));
+    const Document& again = std::get<Document>(read);
+    EXPECT((toText(again) == text), "it writes the same text again");
+    EXPECT((again.get(top).edge == rect.top() && again.get(top).keeping == SetLength::Keeping::End), "the edge and what it keeps are back");
+    EXPECT((!asNumber(again.get(top).length) && formatExpr(again.get(top).length, again) == formatExpr(doc.get(top).length, doc)), "and so is the formula");
+    EXPECT_NEAR((evaluate(again)[panel].length(rect.top())), (35.0), "which still sets the length");
+
+    // What a file can say about "keeping" is only what the program knows.
+    std::string wrong = text;
+    const std::size_t line = wrong.find("SetLength");
+    REQUIRE(line != std::string::npos);
+    std::size_t last = wrong.find('\n', line);
+    REQUIRE(last != std::string::npos);
+    if (last > 0 && wrong[last - 1] == '\r') --last;
+    wrong[last - 1] = '7';
+    EXPECT((std::holds_alternative<FileError>(fromText(wrong))), "a way of keeping the program does not know is refused");
+}

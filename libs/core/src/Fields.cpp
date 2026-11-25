@@ -73,6 +73,10 @@ template <class Visit> std::string_view describe(Scale& op, Visit visit) {
     visit("Scale y", op.y, Limits::moreThan(0.0), Unit::Fraction);
     return "Scale";
 }
+template <class Visit> std::string_view describe(SetLength& op, Visit visit) {
+    visit("Length", op.length, Limits::moreThan(0.0), Unit::Length);
+    return "Set length";
+}
 
 // One overload per operation type again: each reference it holds, in the
 // order the window shows them. `visit(label, reference)` is called per slot.
@@ -93,6 +97,7 @@ template <class Visit> void describeReferences(Mirror& op, Visit visit) { visit(
 template <class Visit> void describeReferences(AdjustPoint& op, Visit visit) { visit("Corner", op.corner); }
 template <class Visit> void describeReferences(AddPoint& op, Visit visit) { visit("Edge", op.at.edge); }
 template <class Visit> void describeReferences(Scale&, Visit) {}
+template <class Visit> void describeReferences(SetLength& op, Visit visit) { visit("Edge", op.edge); }
 
 // What each operation type calls the edges and corners it creates, in the
 // order of its Edge and Corner enums.
@@ -204,10 +209,15 @@ ReferenceChange setReferenceAt(OpData& operation, std::size_t index, const Refer
     return outcome;
 }
 
+std::string edgeName(const EdgeRef& edge, const Document& doc) {
+    if (!doc.contains(edge.op)) return {};
+    return viaWords(edge.via, doc) + std::string(edgeRoleName(doc.get(edge.op), edge.role));
+}
+
 std::string nameOf(const Reference& reference, const Document& doc) {
     if (const EdgeRef* edge = std::get_if<EdgeRef>(&reference)) {
         if (!doc.contains(edge->op)) return missing(edge->op);
-        return viaWords(edge->via, doc) + std::string(edgeRoleName(doc.get(edge->op), edge->role)) + " of " + numbered(edge->op, doc);
+        return edgeName(*edge, doc) + " of " + numbered(edge->op, doc);
     }
     if (const CornerRef* corner = std::get_if<CornerRef>(&reference)) {
         if (!doc.contains(corner->op)) return missing(corner->op);

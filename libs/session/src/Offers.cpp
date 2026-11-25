@@ -9,7 +9,7 @@ namespace clothcad::session {
 
 namespace {
 
-constexpr std::array<Offered, 13> everything{{
+constexpr std::array<Offered, 14> everything{{
     {Offer::Rectangle, "Rectangle", "a width and a height", true},
     {Offer::Circle, "Circle", "a radius; a sweep below 360 makes a slice", true},
     {Offer::RingSector, "Ring sector", "for a circle skirt: inner length, sweep, depth", true},
@@ -23,6 +23,7 @@ constexpr std::array<Offered, 13> everything{{
     {Offer::AdjustPoint, "Adjust point", "move one corner", false},
     {Offer::AddPoint, "Add point", "a new corner on an edge (easier with the Point tool)", false},
     {Offer::Scale, "Scale", "bigger or smaller along x and y (easier with the scale gizmo, R)", false},
+    {Offer::SetLength, "Set length", "give one edge its own length, such as a trousers' waist and ankle", false},
 }};
 
 // What each starts as.
@@ -52,6 +53,7 @@ OpData startOf(const Document& doc, PanelId panel, Offer offer) {
     case Offer::AdjustPoint: return AdjustPoint{.corner = {}, .dx = 0_cm, .dy = 0_cm};
     case Offer::AddPoint: return AddPoint{.at = {{}, 0.5}};
     case Offer::Scale: return Scale{.x = 1.0, .y = 1.0};
+    case Offer::SetLength: return SetLength{.edge = {}, .length = 20_cm};
     }
     return Rect{.width = 20_cm, .height = 20_cm};
 }

@@ -457,32 +457,54 @@ private:
             error(op, "the corner to adjust does not exist; an earlier operation may have removed it");
             return;
         }
-        const uint32_t index = static_cast<uint32_t>(vertex - pattern.vertices.begin());
-        for (const Edge& e : pattern.edges)
-            if (e.arc && (e.start == index || e.end == index) && (e.start == e.end || std::abs(e.arc->sweep) > 360.0 - 1e-6)) {
-                error(op, "the corner belongs to a whole turn of a circle, which has no ends to move; change its radius instead");
-                return;
-            }
         const double* dx = &value[0];
         const double* dy = &value[1];
-        vertex->position.x += *dx;
-        vertex->position.y += *dy;
-        // A free curve's handle at this corner travels with it.
-        for (Edge& e : pattern.edges) {
-            if (!e.cubic) continue;
-            if (e.start == index) e.cubic->control1 = {e.cubic->control1.x + *dx, e.cubic->control1.y + *dy};
-            if (e.end == index) e.cubic->control2 = {e.cubic->control2.x + *dx, e.cubic->control2.y + *dy};
+        Pattern changed = pattern;
+        const outline::Problem problem = outline::moveCorners(changed, std::vector<outline::CornerMove>{{static_cast<std::size_t>(vertex - pattern.vertices.begin()), {*dx, *dy}}});
+        if (problem) error(op, *problem);
+        else pattern = std::move(changed);
+    }
+
+    void apply(const SetLength& set, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
+        if (!modifies(first, "a length", op, pattern)) return;
+        const auto found = std::find_if(pattern.edges.begin(), pattern.edges.end(),
+                                        [&](const Edge& e) { return e.name == set.edge; });
+        if (found == pattern.edges.end()) {
+            error(op, "the edge to give a length does not exist; an earlier operation may have removed it");
+            return;
         }
-        // An arc keeps turning through the same angle, between the new ends.
-        for (Edge& e : pattern.edges) {
-            if (!e.arc || (e.start != index && e.end != index)) continue;
-            const std::optional<Arc> arc = outline::arcFromSweep(pattern.vertices[e.start].position, pattern.vertices[e.end].position, e.arc->sweep);
-            if (!arc) {
-                error(op, "the corner cannot move there: the curved edge would have no length");
-                return;
-            }
-            e.arc = arc;
+        const Edge& edge = *found;
+        if (edge.seam) {
+            error(op, "this edge is the closing slit of a whole ring, which is not an edge of the cloth and has no length");
+            return;
         }
+        if (edge.cubic) {
+            error(op, "a free curve cannot be given a length: shape it with its handles, or set the length of an edge next to it");
+            return;
+        }
+        const std::optional<double> chord = outline::chordFor(edge, value[0]);
+        if (!chord) {
+            error(op, "a whole turn of a circle has no ends to move; change its radius instead");
+            return;
+        }
+        const Vec2 start = pattern.vertices[edge.start].position, end = pattern.vertices[edge.end].position;
+        const double now = std::hypot(end.x - start.x, end.y - start.y);
+        if (now < 1e-7) {
+            error(op, "the edge has no length to stretch: its two corners are in the same place");
+            return;
+        }
+        // The corners slide along the line between them. Start and end follow the outline.
+        const Vec2 along{(end.x - start.x) / now, (end.y - start.y) / now};
+        const double growth = *chord - now;
+        const double startShare = set.keeping == SetLength::Keeping::Start ? 0.0 : set.keeping == SetLength::Keeping::End ? 1.0 : 0.5;
+        const double endShare = 1.0 - startShare;
+        Pattern changed = pattern;
+        const outline::Problem problem = outline::moveCorners(changed, std::vector<outline::CornerMove>{
+            {edge.start, {-along.x * growth * startShare, -along.y * growth * startShare}},
+            {edge.end, {along.x * growth * endShare, along.y * growth * endShare}},
+        });
+        if (problem) error(op, *problem);
+        else pattern = std::move(changed);
     }
 
     void apply(const AddPoint& point, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {

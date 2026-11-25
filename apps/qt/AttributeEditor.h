@@ -91,8 +91,9 @@ signals:
     void referenceClicked(clothcad::OpId layer, clothcad::ReferenceId reference);
     // A panel a layer uses (an instance's source) was chosen from the list.
     void panelReferenceChosen(clothcad::OpId layer, clothcad::ReferenceId reference, clothcad::PanelId panel);
-    // The open layer's choices: which side a cut keeps, a mirror applied last, an instance mirrored.
+    // The open layer's choices: which side a cut keeps, which end a length keeps, a mirror applied last, an instance mirrored.
     void cutSideChosen(clothcad::OpId layer, clothcad::Cut::Side side);
+    void lengthKeepingChosen(clothcad::OpId layer, clothcad::SetLength::Keeping keeping);
     void mirrorLastChanged(clothcad::OpId layer, bool last);
     void instanceMirroredChanged(clothcad::OpId layer, bool mirrored);
     void seamReversed(clothcad::SeamId seam, bool reversed);

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "clothcad/core/Pattern.h"
 
@@ -37,6 +38,24 @@ std::optional<Arc> arcFromBulge(Vec2 a, Vec2 b, double bulge);
 // counter-clockwise). Empty when a and b coincide or the sweep is not a
 // proper arc (zero, or a whole turn).
 std::optional<Arc> arcFromSweep(Vec2 a, Vec2 b, double sweep);
+
+// A corner (its index in pattern.vertices) and how far to move it.
+struct CornerMove {
+    std::size_t vertex = 0;
+    Vec2 by;
+};
+
+// Moves corners together, and keeps the curves on them in shape: a free
+// curve's handle travels with its corner, an arc turns through the same angle
+// between its moved ends. Fails for a corner of a whole turn of a circle, and
+// where a curved edge would be left with no length.
+Problem moveCorners(Pattern& pattern, const std::vector<CornerMove>& moves);
+
+// How long the straight line between an edge's ends must be for the edge to
+// be `length` long: the same for a straight edge, shorter for an arc, which
+// keeps its angle. Empty for a free curve, which has no such line, and for an
+// edge that is a whole turn.
+std::optional<double> chordFor(const Edge& edge, double length);
 
 // The first point where a ray leaving `origin` meets the outline again.
 std::optional<Vec2> firstHit(const Pattern& pattern, Vec2 origin, double angleDegrees);

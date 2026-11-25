@@ -90,6 +90,20 @@ private:
     // What was typed into a field that measures `unit`; empty, with the field marked, if it does not read.
     std::optional<Expr> read(const QString& text, Unit unit, ValueField* field);
     void refresh();
+    // A length typed on the table, as it is typed: shown at once, in one undo step with whatever the
+    // gesture that opened it did, so that Escape takes all of it back and Enter keeps it.
+    void previewLength(OpId layer, FieldId id, const QString& text);
+    void cancelLength();
+    // What the bar says is going to happen to the ends of the edge.
+    QString lengthStatus(const session::Outcome::LengthField& what) const;
+    std::optional<std::uint64_t> lengthEditFrom_;  // the history state before the gesture that opened the bar
+    bool lengthChanged_ = false;                   // the document has been changed since then
+    bool gesturing_ = false;                       // a gesture is being handled: the bar may be reopened on something else
+    session::ChangeRules lengthRules(PanelId panel) const;  // how a length typed on the table is changed
+    void closeLengthIfGone();                      // the bar's length was undone or removed: nothing to type into
+    QString lengthText_;                           // the text that is applied now
+    // What was typed for a field of a layer, in the Attribute Editor (`field` shows a refusal) or on the table.
+    void typed(OpId layer, FieldId id, const QString& text, ValueField* field);
     void say(const QString& words, bool problem = false);
     void setViewLayout(ViewLayout layout);
     void buildMenus();

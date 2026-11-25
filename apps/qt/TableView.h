@@ -10,7 +10,8 @@
 // empty table selects the panels it touches (Shift or Ctrl adds them), or, if
 // one panel is selected and the box touches only that one, its corners. Drag
 // one of several selected panels, or their gizmo, and they all move or turn. A
-// double-click on an edge types its length. Move (W), Rotate (E) and Scale
+// double-click on an edge, or a click with the Length tool, opens a box on
+// its length label to type it (Enter keeps it, Esc leaves it). Move (W), Rotate (E) and Scale
 // (R) do the same and show their gizmo on the selected panel
 // (session/TableGizmo): its arrows move it, its ring turns it about its
 // middle, its handles scale it.
@@ -36,6 +37,7 @@ class QPainter;
 #include <string>
 #include <vector>
 
+#include "LengthCard.h"
 #include "Shelf.h"
 #include "clothcad/core/Document.h"
 #include "clothcad/core/Drawing.h"
@@ -80,6 +82,25 @@ public:
     const std::vector<std::pair<QRectF, EdgeRef>>& lengthLabels() const { return lengthLabels_; }
     const std::vector<std::pair<Vec2, Vec2>>& seamLinks() const { return seamLinks_; }
     void cancel();  // forgets a drag in progress
+    // Opens a bar by an edge's length label with `text` in it, to type the length (see LengthCard).
+    // Every edit is reported (lengthEdited), so that the window can show the result as it is typed; the
+    // table shows the outline as it was beside it, dashed, and how far the ends moved. Enter or apply
+    // reports lengthCommitted; Escape or a click elsewhere, lengthCancelled. For an edge's own length
+    // the table also draws three anchors on the edge: a click on one says which stays put.
+    void typeLength(const session::Outcome::LengthField& what, const QString& text);
+    QLineEdit* lengthEditor() const { return card_ && card_->isVisible() ? card_->field() : nullptr; }
+    LengthCard* lengthCard() const { return card_; }
+    QString anchorWord(SetLength::Keeping keeping) const;
+    // Where that anchor is on the screen, and so where it is clicked; the origin when none is shown.
+    QPointF anchorPosition(SetLength::Keeping keeping) const;
+    // The length being typed, while the bar is open; the window closes the bar when what it is for is gone.
+    const std::optional<session::Outcome::LengthField>& lengthBeingTyped() const { return typing_; }
+    void closeLength();
+    // Shows which end is kept as the document has it: the click on an anchor does not change what is
+    // shown by itself, since the change may be refused.
+    void showKeeping(SetLength::Keeping keeping);
+    // What is wrong with what is typed, under the field; empty clears it.
+    void showLengthProblem(const QString& problem) { card_->showProblem(problem); }
 
     // Table point <-> widget pixel, for tests and gestures.
     QPointF toScreen(Vec2 tablePoint) const;
@@ -99,6 +120,10 @@ signals:
     void hinted(const QString& next);  // what to do next, in a tool of two clicks
     void referencePicked(const clothcad::Reference& reference);
     void choosingDropped();  // Esc while choosing
+    void lengthEdited(clothcad::OpId operation, clothcad::FieldId field, const QString& text);
+    void lengthCommitted(clothcad::OpId operation, clothcad::FieldId field, const QString& text);
+    void lengthCancelled();
+    void keepingChosen(clothcad::OpId operation, clothcad::SetLength::Keeping keeping);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -204,6 +229,23 @@ private:
     std::vector<std::pair<Vec2, Vec2>> seamLinks_;
     // Where the length labels were painted, for a double-click on one.
     mutable std::vector<std::pair<QRectF, EdgeRef>> lengthLabels_;
+    LengthCard* card_ = nullptr;
+    std::optional<session::Outcome::LengthField> typing_;  // the length being typed, while the bar is open
+    Pattern ghost_;                                        // the panel as it was when the bar opened
+    // The three places on the edge being typed where an end can be kept, and where to click on them
+    // (on the edge, or in a row beside it when the edge is short on the screen).
+    struct Anchors {
+        QPointF at[3];      // on the edge: the end that comes first on the screen, the middle, the other
+        QPointF target[3];  // where each is drawn and clicked
+        SetLength::Keeping keeps[3];
+        QString word[3];    // "Left", "Midpoint", "Right" (or Top, Bottom for an edge that runs up)
+        bool beside = false;
+        QPointF outward;    // away from the panel, as a unit step on the screen
+    };
+    std::optional<Anchors> anchors() const;
+    std::optional<SetLength::Keeping> anchorAt(QPointF screen) const;
+    void paintLengthEdit(QPainter& p);
+    void placeEditor();  // by the label of the edge being typed, once the labels have places
     std::optional<PanelId> selected_;
     std::vector<CornerRef> corners_;
     std::vector<PanelId> others_;  // selected with `selected_`: drawn as selected

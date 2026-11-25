@@ -82,6 +82,10 @@ class Document;
 // Says so when nothing is chosen yet or the target has been removed.
 std::string nameOf(const Reference& reference, const Document& doc);
 
+// What an edge is called without saying which operation made it: "top edge", "mirrored top edge".
+// Empty when the operation that made it was removed.
+std::string edgeName(const EdgeRef& edge, const Document& doc);
+
 // An edge whose length is one of the operation's fields: a rectangle's top
 // edge and its Width. A view uses this to show what drives an edge.
 struct Dimension {
