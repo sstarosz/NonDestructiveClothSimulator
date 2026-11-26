@@ -64,8 +64,8 @@ Arrangement mirrored(const Arrangement& arrangement);
 
 // A whole draped panel carried through space, as when its arrangement is
 // changed while it hangs: turned about where its anchor stood, then taken to
-// where the anchor stands now. Its drape is kept; its wrap, which only says
-// how a panel starts, is not followed.
+// where the anchor stands now. Its drape is kept. A motion cannot bend, so a
+// new wrap is not part of it: Cloth::continued sees to that.
 //
 //   const sim::Motion motion{.before = was, .after = now};
 //   Vec3 there = motion(here);

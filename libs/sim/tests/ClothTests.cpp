@@ -204,6 +204,41 @@ TEST_CASE("cloth stays draped when the pattern changes")
     EXPECT((std::abs(sideways.x) < 1e-12 && std::abs(sideways.z + 1.0) < 1e-12), "and turned a quarter about the vertical");
 }
 
+TEST_CASE("a change of wrap bends the cloth as it bends the panel, keeping how far it hangs from it")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    doc.add(panel, Rect{.width = 40_cm, .height = 30_cm});
+    doc.arrange(panel, Arrangement{.placed = true, .x = 0, .y = 120, .z = 20, .turn = 20, .wrap = 60});
+    const ClothMesh mesh = meshOf(doc, evaluate(doc), {.particleDistance = 2_cm});
+    const Placement flat = arranged(doc, mesh);
+    const Cloth fresh(mesh, flat);
+
+    // Bent more, and carried elsewhere in the same change.
+    const Arrangement was = doc.get(panel).arrangement;
+    Arrangement now = was;
+    now.wrap = 180.0;
+    now.y += 15.0;
+    now.turn += 70.0;
+    doc.arrange(panel, now);
+    const Placement bent = arranged(doc, mesh);
+    const std::vector<Moved> moved{Moved{panel, Motion{.before = was, .after = now}}};
+
+    const Cloth unhung = Cloth::continued(mesh, bent, fresh, mesh, moved);
+    double off = 0.0;
+    for (std::size_t i = 0; i < mesh.panels[0].points.size(); ++i) off = std::max(off, length(unhung.positions()[0][i] - bent[0][i]));
+    EXPECT((off < 1e-9), "cloth that hangs nowhere else than its panel is just where the new arrangement puts it");
+
+    // Cloth that hangs 3 cm below where its panel is arranged still does, turned with the panel.
+    Placement hanging = flat;
+    for (Vec3& at : hanging[0]) at = at + Vec3{2, -3, 0};
+    const Cloth draped = Cloth::continued(mesh, bent, Cloth(mesh, hanging), mesh, moved);
+    const Vec3 turnedWith = moved[0].motion.turned({2, -3, 0});
+    off = 0.0;
+    for (std::size_t i = 0; i < mesh.panels[0].points.size(); ++i) off = std::max(off, length(draped.positions()[0][i] - (bent[0][i] + turnedWith)));
+    EXPECT((off < 1e-9), "its drape is kept on the new curve");
+}
+
 TEST_CASE("a held particle is led by the hand and the cloth follows it")
 {
     Document doc;

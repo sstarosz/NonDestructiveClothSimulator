@@ -132,7 +132,14 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         table_->cancel();
         refresh();
     });
-    connect(shelf_->simulate(), &QAction::toggled, this, [this](bool on) { session_.simulate(on); });
+    connect(shelf_->simulate(), &QAction::toggled, this, [this](bool on) {
+        session_.simulate(on);
+        // What a drag on the cloth does changes with Play and Pause.
+        const QString playing = "Playing: drag the cloth in 3D to pull it.";
+        if (on) say(playing);
+        else if (session_.clothShown()) say("Paused: in 3D, Move (W) moves the selected panel, drape and all; Pull (H) pulls the cloth.");
+        else if (helpLine() == playing) say({});  // reset, or another garment: no cloth to drag
+    });
     connect(shelf_->reset(), &QAction::triggered, this, [this] {
         session_.resetCloth();
         shelf_->simulate()->setChecked(false);

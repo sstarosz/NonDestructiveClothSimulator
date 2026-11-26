@@ -61,7 +61,9 @@ public:
     // flat coordinates measured from its anchor); cloth that is new, because a panel grew or was just
     // added, continues from the nearest cloth there was, or starts where it
     // is arranged. Panels listed in `moved` were carried through space: their
-    // cloth goes with them, drape and all. Seams draw closed again from
+    // cloth goes with them, drape and all. One whose wrap changed is bent too:
+    // each particle goes where `arrangedNow` puts its spot, as far from it (and
+    // turned with it) as it hung from the old arrangement. Seams draw closed again from
     // wherever their two sides now are. Pins and a hold are not carried over.
     static Cloth continued(const ClothMesh& mesh, const Placement& arrangedNow, const Cloth& before, const ClothMesh& beforeMesh,
                            const std::vector<Moved>& moved = {});

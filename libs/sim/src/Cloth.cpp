@@ -8,6 +8,8 @@
 #include <map>
 #include <utility>
 
+#include "Arranging.h"
+
 namespace clothcad::sim {
 
 namespace {
@@ -320,15 +322,24 @@ Cloth Cloth::continued(const ClothMesh& mesh, const Placement& arrangedNow, cons
         // Spots are matched relative to the anchor, which moves with the
         // panel's sewn edges: a longer skirt keeps its waist and grows at the hem.
         const Vec2 shift{was.anchor.x - panel.anchor.x, was.anchor.y - panel.anchor.y};
+        // A new wrap bends the panel itself, which no motion through space does:
+        // each particle goes where the new arrangement puts its spot, plus how
+        // far it hung from where the old arrangement put it.
+        std::vector<Vec3> arrangedBefore;
+        if (motion != moved.end() && motion->motion.before.wrap != motion->motion.after.wrap) arrangedBefore = arrangedPanel(motion->motion.before, was);
         for (std::size_t i = 0; i < panel.points.size(); ++i) {
             const Locator::Found found = locator.find({panel.points[i].x + shift.x, panel.points[i].y + shift.y});
             const auto& corners = was.triangles[found.triangle];
             start[p][i] = wasAt[corners[0]] * found.weight[0] + wasAt[corners[1]] * found.weight[1] + wasAt[corners[2]] * found.weight[2];
             speed[p][i] = wasSpeed[corners[0]] * found.weight[0] + wasSpeed[corners[1]] * found.weight[1] + wasSpeed[corners[2]] * found.weight[2];
-            if (motion != moved.end()) {
+            if (motion == moved.end()) continue;
+            if (arrangedBefore.empty()) {
                 start[p][i] = motion->motion(start[p][i]);
-                speed[p][i] = motion->motion.turned(speed[p][i]);
+            } else {
+                const Vec3 stood = arrangedBefore[corners[0]] * found.weight[0] + arrangedBefore[corners[1]] * found.weight[1] + arrangedBefore[corners[2]] * found.weight[2];
+                start[p][i] = arrangedNow[p][i] + motion->motion.turned(start[p][i] - stood);
             }
+            speed[p][i] = motion->motion.turned(speed[p][i]);
         }
     }
     Cloth cloth(mesh, start, before.fabric_);

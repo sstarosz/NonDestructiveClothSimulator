@@ -39,7 +39,7 @@ const ToolInfo toolInfo[] = {
     {Tool::Cut, Icon::Cut, theme::text, "Cut", "X", "Click the side to cut away."},
     {Tool::Split, Icon::Split, theme::text, "Split", "", "Click an internal line."},
     {Tool::Sew, Icon::Sew, theme::seam, "Sew", "S", "Click two edges."},
-    {Tool::Pull, Icon::Pull, theme::text, "Pull", "H", "Drag the cloth."},
+    {Tool::Pull, Icon::Pull, theme::text, "Pull", "H", "Drag the cloth in 3D, playing or paused."},
 };
 
 const ToolInfo& infoOf(Tool tool) {

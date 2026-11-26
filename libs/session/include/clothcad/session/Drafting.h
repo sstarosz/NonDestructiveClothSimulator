@@ -100,9 +100,11 @@ struct RotatePanel {
 //     overwritten, and an Instance has no lengths of its own).
 // A Scale layer set by a formula refuses the drag and says where to change it.
 // Whichever way, the middle of the panel's box stays where it was on the table
-// (the panel's place moves to keep it there). If it is one of several selected
-// panels, they are all scaled by as much, evenly (x and y the same), about the
-// middle of the group: each panel's middle moves away from it by as much.
+// (the panel's place moves to keep it there) and in space (its anchor moves by
+// as much as that middle moved in the panel's own coordinates). If it is one of
+// several selected panels, they are all scaled by as much, evenly (x and y the
+// same): on the table about the middle of the group, each panel's middle moving
+// away from it by as much; in space each about its own place.
 struct ScalePanel {
     PanelId panel;
     double x, y;
@@ -347,6 +349,8 @@ private:
         std::optional<OpId> shape;  // the starting operation whose lengths are scaled instead of a layer
         double baseA = 1.0, baseB = 1.0;  // the layer's x and y, or the shape's two lengths, when the drag began
         Vec2 middle;                // the middle of its box on the table when the drag began
+        Vec2 ownMiddle;             // the same in the panel's own coordinates
+        std::optional<Vec2> anchor;  // the anchor it was placed in space by then, if one was said
     };
     struct Scaling {
         std::vector<ScalePart> parts;

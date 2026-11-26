@@ -375,9 +375,10 @@ Outcome Drafting::on(Editor& editor, const RotatePanel& g) {
 std::expected<Drafting::ScalePart, std::string> Drafting::scalePartOf(const Editor& editor, PanelId panel) const {
     const Document& doc = editor.document();
     const Panel& placed = doc.get(panel);
-    ScalePart part{.panel = panel};
+    ScalePart part{.panel = panel, .anchor = placed.arrangement.anchor};
     if (const std::optional<Bounds> box = bounds(editor.shapes()[panel])) {
-        const Vec2 own = turned(Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0}, placed.angle);
+        part.ownMiddle = {(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0};
+        const Vec2 own = turned(part.ownMiddle, placed.angle);
         part.middle = {placed.x + own.x, placed.y + own.y};
     }
     const std::string name = "the panel " + placed.name;
@@ -500,20 +501,29 @@ Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
         scaling_->stepOpen = true;
         // A shape grows about its origin and a layer about its box's middle; what the panel's box now is tells where
         // the place has to be so that its middle goes where the scaling says: the group's middle stays, and each
-        // panel's middle moves away from it by as much (a single panel's own middle stays).
+        // panel's middle moves away from it by as much (a single panel's own middle stays). In space each panel's
+        // middle stays: its anchor moves in the panel's own coordinates as far as that middle did.
         std::vector<std::pair<PanelId, Vec2>> places;
+        std::vector<std::pair<PanelId, Arrangement>> anchors;
         for (const ScalePart& part : scaling_->parts) {
             const std::optional<Bounds> box = bounds(editor.shapes()[part.panel]);
             if (!box) continue;
             const Panel& placed = editor.document().get(part.panel);
-            const Vec2 own = turned(Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0}, placed.angle);
+            const Vec2 middle{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0};
+            const Vec2 own = turned(middle, placed.angle);
             const Vec2 want{scaling_->pivot.x + g.x * (part.middle.x - scaling_->pivot.x), scaling_->pivot.y + g.x * (part.middle.y - scaling_->pivot.y)};
             const Vec2 at{want.x - own.x, want.y - own.y};
             if (std::abs(at.x - placed.x) > 1e-9 || std::abs(at.y - placed.y) > 1e-9) places.push_back({part.panel, at});
+            // With no anchor said, the middle of the box is the anchor and follows by itself.
+            if (!part.anchor) continue;
+            Arrangement arranged = placed.arrangement;
+            arranged.anchor = Vec2{part.anchor->x + (middle.x - part.ownMiddle.x), part.anchor->y + (middle.y - part.ownMiddle.y)};
+            if (!(arranged == placed.arrangement)) anchors.push_back({part.panel, arranged});
         }
-        if (!places.empty())
+        if (!places.empty() || !anchors.empty())
             apply(editor, [&](Document& d) {
                 for (const auto& [panel, at] : places) d.place(panel, at.x, at.y);
+                for (const auto& [panel, arranged] : anchors) d.arrange(panel, arranged);
             }, placing(false), outcome);
     }
     if (g.phase == DragPhase::End) scaling_.reset();

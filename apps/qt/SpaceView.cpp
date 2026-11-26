@@ -58,6 +58,17 @@ QString hintFor(render::GizmoHandle handle, session::GizmoMode mode) {
     return {};
 }
 
+// What a drag on draped cloth does, for the help line.
+QString hintFor(session::ClothDrag drag, bool playing) {
+    switch (drag) {
+    case session::ClothDrag::Pull: return playing ? "Drag to pull the cloth." : "Drag to pull the cloth. It runs while you hold it.";
+    case session::ClothDrag::Carry: return "The cloth is paused: drag to move the panel, drape and all. Ctrl: whole centimetres.";
+    case session::ClothDrag::Nothing:
+        return "The cloth is paused: choose Move (W) to move the selected panel, or Pull (H) to pull the cloth.";
+    }
+    return {};
+}
+
 } // namespace
 
 // ---- Drawing straight into a window ----------------------------------------
@@ -130,6 +141,7 @@ public:
     explicit SpacePicture(SpaceView& view, QWidget* parent) : QWidget(parent), view_(view) {
         setMouseTracking(true);  // the gizmo's handles light up under the mouse
         setFocusPolicy(Qt::ClickFocus);
+        setObjectName("spacePicture");  // for tests, which send it real mouse events
     }
     void draw() {
         const qreal scale = devicePixelRatioF();
@@ -236,7 +248,9 @@ void SpaceView::show(const session::Session& session, session::Tool tool, render
         redraw();
     }
     // The scene is kept even where nothing can be drawn: a click is picked in it.
+    tool_ = tool;
     draped_ = session.clothShown();
+    playing_ = session.simulating();
     options.pixel = pixelScale();
     const Shown now{session.sceneVersion(), options};
     if (shown_ == now) return;
@@ -317,16 +331,17 @@ void SpaceView::press(QPointF at, Qt::MouseButton button, Qt::KeyboardModifiers 
     if (keys & Qt::AltModifier) hand_ = button == Qt::LeftButton ? Hand::Orbit : button == Qt::MiddleButton ? Hand::Pan : button == Qt::RightButton ? Hand::Dolly : Hand::None;
     else if (button == Qt::MiddleButton) hand_ = Hand::Pan;  // the middle button pans without Alt too
     else if (button == Qt::LeftButton) {
-        // The gizmo first, then the cloth under the mouse: pulled when draped,
-        // carried when it is the selected panel; anything else is a click.
+        // The gizmo first, then the cloth under the mouse: pulled or carried
+        // (session::clothDrag); anything else is a click.
         hand_ = Hand::Pick;
         const std::optional<render::Gizmo> shown = gizmo();
         const std::optional<render::GizmoHandle> handle = shown ? render::handleAt(*shown, camera_, pictureSize(), inPicture(at)) : std::nullopt;
         if (handle && selected_) {
             carrying_ = Carrying{.panel = *selected_, .gizmo = *shown, .handle = *handle, .byGizmo = true, .by = {}, .turn = {}, .scale = {}};
         } else if (const std::optional<render::ClothHit> hit = render::clothAt(scene_, camera_, pictureSize(), inPicture(at))) {
-            if (draped_) pulling_ = Pulling{*hit, hit->at};
-            else if (hit->panel == selected_ && mode_ == session::GizmoMode::Move)
+            const session::ClothDrag drag = session::clothDrag(tool_, draped_, playing_, hit->panel == selected_);
+            if (drag == session::ClothDrag::Pull) pulling_ = Pulling{*hit, hit->at};
+            else if (drag == session::ClothDrag::Carry)
                 carrying_ = Carrying{.panel = hit->panel,
                                      .gizmo = {.mode = session::GizmoMode::Move, .centre = hit->at, .pixel = pixelScale()},
                                      .handle = render::GizmoHandle::Middle,
@@ -334,6 +349,7 @@ void SpaceView::press(QPointF at, Qt::MouseButton button, Qt::KeyboardModifiers 
                                      .by = {},
                                      .turn = {},
                                      .scale = {}};
+            if (draped_) emit hinted(hintFor(drag, playing_));
         }
     }
     handAt_ = at;
