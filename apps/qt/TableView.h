@@ -126,6 +126,8 @@ signals:
     void lengthCommitted(clothcad::OpId operation, clothcad::FieldId field, const QString& text);
     void lengthCancelled();
     void keepingChosen(clothcad::OpId operation, clothcad::SetLength::Keeping keeping);
+    // The table painted itself, which took that long (View > Frame times).
+    void painted(double milliseconds);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

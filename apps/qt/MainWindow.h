@@ -15,12 +15,14 @@
 //   window.openSample(5);
 //   window.show();
 
+#include <QElapsedTimer>
 #include <QMainWindow>
 #include <optional>
 
 #include "Outliner.h"
 #include "Shelf.h"
 #include "clothcad/session/Drafting.h"
+#include "clothcad/session/FrameTimes.h"
 #include "clothcad/session/Session.h"
 
 class QDockWidget;
@@ -129,8 +131,14 @@ private:
     SpaceView* space_;
     QSplitter* views_;
     QLabel* help_;
-    QLabel* frameTime_;
+    QLabel* pointerAt_;  // where the pointer is on the table
     QTimer* timer_;
+    // View > Frame times: what the frames take in this window, on this screen.
+    session::FrameTimes frameTimes_;
+    QLabel* frameTimesLine_;
+    QElapsedTimer clock_;  // since the window was made: when each picture was shown
+    std::optional<double> frameTimesShownAt_;
+    void showFrameTimes();  // the line in the status bar, four times a second while it is shown
     std::vector<QDockWidget*> docks_;
 
     session::Drafting drafting_;  // the tool, the selection, and the drags in progress

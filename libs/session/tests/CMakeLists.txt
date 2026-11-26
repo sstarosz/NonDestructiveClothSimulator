@@ -2,6 +2,7 @@
 clothcad_unit_tests(session SOURCES
     DraftingTests.cpp
     EditorTests.cpp
+    FrameTimesTests.cpp
     LengthsTests.cpp
     LocksTests.cpp
     OffersTests.cpp
