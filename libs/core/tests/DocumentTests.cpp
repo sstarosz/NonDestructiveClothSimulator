@@ -1,6 +1,7 @@
 // Unit tests of Document.cpp: the document's verbs and reading.
 
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 #include <variant>
 #include <vector>
@@ -235,4 +236,18 @@ TEST_CASE("only an instance is sewn as its source")
     legs.doc.remove(back);
     EXPECT_THROWS([&] { legs.doc.sewAsSource(back); }, std::out_of_range, "an unknown panel");
     EXPECT_THROWS([&] { (void)legs.doc.instanceOf(back); }, std::out_of_range, "an unknown panel to read");
+}
+
+TEST_CASE("the avatar is part of the document: a copy shares it, and putting on another leaves the copy's")
+{
+    Document doc;
+    EXPECT((!doc.avatar()), "a new document has no body");
+    const auto first = std::make_shared<const Avatar>(Avatar{.name = "first.obj", .points = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}, .triangles = {{0, 1, 2}}});
+    doc.setAvatar(first);
+    const Document before = doc;
+    EXPECT((before.avatar() == first), "the copy has the same one, not a copy of its points");
+    doc.setAvatar(std::make_shared<const Avatar>(Avatar{.name = "second.obj", .points = {}, .triangles = {}}));
+    EXPECT((before.avatar() == first && doc.avatar()->name == "second.obj"), "as undo needs it");
+    doc.setAvatar(nullptr);
+    EXPECT((!doc.avatar()), "and it can be taken off");
 }

@@ -1,5 +1,7 @@
 #include "clothcad/sim/Body.h"
 
+#include "clothcad/core/File.h"
+
 #include <algorithm>
 #include <cmath>
 #include <exception>
@@ -124,13 +126,29 @@ LoadedSurface readObj(std::string_view text) {
 }
 
 LoadedSurface loadObj(const std::string& path) {
-    std::ifstream file(path);
+    std::ifstream file(filePath(path));
     if (!file) return {.surface = {}, .problem = "could not open \"" + path + "\""};
     std::ostringstream text;
     text << file.rdbuf();
     LoadedSurface loaded = readObj(text.str());
     if (!loaded.problem.empty()) loaded.problem = "\"" + path + "\": " + loaded.problem;
     return loaded;
+}
+
+// ---- The avatar of a document ----------------------------------------------
+
+Avatar avatarOf(const Surface& surface, std::string name) {
+    Avatar avatar{.name = std::move(name), .points = {}, .triangles = surface.triangles};
+    avatar.points.reserve(surface.points.size());
+    for (const Vec3& p : surface.points) avatar.points.push_back({p.x, p.y, p.z});
+    return avatar;
+}
+
+Surface surfaceOf(const Avatar& avatar) {
+    Surface surface{.points = {}, .triangles = avatar.triangles};
+    surface.points.reserve(avatar.points.size());
+    for (const Point3& p : avatar.points) surface.points.push_back({p.x, p.y, p.z});
+    return surface;
 }
 
 namespace {

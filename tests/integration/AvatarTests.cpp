@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -41,7 +42,8 @@ void frames(session::Session& session, int count) {
 void onTheAvatar(session::Session& session) {
     LoadedSurface loaded = loadObj(project::avatarPath());
     REQUIRE(loaded.problem.empty());
-    session.useAvatar(std::move(loaded.surface), project::avatarPath());
+    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(avatarOf(loaded.surface, "avatarV1.obj"))); },
+                                    {.touches = session::Touches::PlacementOnly}));
     for (int i = 0; i < 1000 && !session.bodyReady(); ++i) {
         session.update();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));

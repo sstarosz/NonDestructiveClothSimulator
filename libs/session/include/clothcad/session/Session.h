@@ -5,7 +5,6 @@
 // hands it what the user did. The window and the tests both use it.
 //
 //   Session session(std::move(doc));
-//   session.useAvatar(sim::loadObj(path).surface, path);
 //   session.editor().change(...);       // every change of the document
 //   session.simulate(true);
 //   ...each frame:
@@ -23,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "clothcad/core/File.h"
 #include "clothcad/session/Editor.h"
 #include "clothcad/session/Simulation.h"
 #include "clothcad/sim/Body.h"
@@ -38,8 +38,21 @@ public:
     Editor& editor() { return editor_; }
     const Editor& editor() const { return editor_; }
     const Document& document() const { return editor_.document(); }
-    // Another document, with no history and no cloth: opening a file.
-    void open(Document document);
+    // Another document, with no history: opening a file. The scene is as
+    // `state` leaves it: its drape hangs again, paused. It starts saved.
+    void open(Document document, SceneState state = {});
+
+    // ---- Saving ----
+    // How the scene is now, for a file: what is hidden and frozen, the body's
+    // looks and the cloth as it hangs. None of it is an undo step.
+    SceneState state() const;
+    // Whether the document or that scene differs from what was last saved:
+    // a change that is undone, or a panel hidden and shown again, is none.
+    bool unsaved() const;
+    // The document and the scene as they are now have been written to a file.
+    void markSaved();
+    // No file holds them: a recovered copy.
+    void markUnsaved() { editor_.markUnsaved(); }
 
     // ---- The mesh and the arrangement ----
     // The pattern as triangles, each panel as fine as its own particle
@@ -53,21 +66,26 @@ public:
     const sim::Placement& arranged() const { return arranged_; }
 
     // ---- The body ----
-    // An avatar's surface as the body (cm, y up, on the floor, facing +z), as
-    // sim::loadObj reads it from `path`; the session reads no files itself.
-    // The surface is there at once; working out how to collide with it takes
-    // a moment and happens in the background. Until there is one there is no
-    // body: the cloth falls to the floor.
-    void useAvatar(sim::Surface surface, std::string path);
-    bool bodyReady() const { return !preparing_.valid(); }
-    const std::string& avatarPath() const { return avatarPath_; }  // where it was read from; empty: no body
+    // The body is the document's avatar (Document::setAvatar); the session reads
+    // no files. Its surface is there as soon as the session has seen it: at once
+    // for a document that is opened, at the next update() after a change.
+    // Working out how to collide with it takes a moment and happens in the
+    // background; until then, and with no avatar, there is nothing to collide
+    // with and the cloth falls to the floor. Another body ends the cloth; undo
+    // and redo bring back the drape that hung on the body they come back to.
+    bool bodyReady() const { return !preparing_.valid() && bodyOf_ == document().avatar(); }
     const sim::Surface& bodySurface() const { return bodySurface_; }
     // Whether the cloth meets the body. A hidden body is out of the simulation.
-    void setBodyPresent(bool present) { bodyPresent_ = present; }
+    void setBodyPresent(bool present);
+    bool bodyPresent() const { return bodyPresent_; }
+    // Drawn so that cloth inside it shows; the simulation is the same.
+    void setBodySeeThrough(bool seeThrough);
+    bool bodySeeThrough() const { return bodySeeThrough_; }
 
     // ---- Panels hidden and deactivated, seams hidden ----
-    // None of this changes the document, is an undo step or saved, or starts a
-    // drape again. It is forgotten for a panel or seam that is gone.
+    // None of this changes the document, is an undo step or starts a drape
+    // again; it is saved with the file (state()). It is forgotten for a panel or
+    // seam that is gone.
     // A hidden panel is not drawn in 3D; it takes part in the cloth as before.
     void setPanelShown(PanelId panel, bool shown);
     bool panelShown(PanelId panel) const;
@@ -130,6 +148,10 @@ private:
     };
     std::vector<Placed> placedNow() const;
     sim::Body bodyInSimulation() const { return bodyPresent_ ? body_ : sim::Body{}; }
+    void followAvatar();
+    void keepDrape();
+    void hang(const SavedDrape& drape);
+    bool clothAsSaved() const;
     bool remesh(bool now);
     bool takeMeshIfMade(bool wait);
     bool fits(const sim::ClothMesh& mesh) const;
@@ -149,11 +171,13 @@ private:
     Meshing meshing_;
     Threading threading_;
 
+    std::shared_ptr<const Avatar> bodyOf_;  // the avatar the body is of
+    bool bodyReplaced_ = false;             // another body came since the state of the history last looked at
     sim::Body body_;
     sim::Surface bodySurface_;
-    std::string avatarPath_;
     std::future<sim::Body> preparing_;
     bool bodyPresent_ = true;
+    bool bodySeeThrough_ = false;
     struct BodyInUse {
         bool present = true;
         const sim::DistanceField* scanned = nullptr;
@@ -188,6 +212,18 @@ private:
     std::uint64_t shownStep_ = 0;
 
     std::uint64_t sceneVersion_ = 1;
+
+    // The scene as it was last saved, to tell whether it has changed since.
+    struct Saved {
+        std::vector<PanelId> frozen, hidden;
+        std::vector<SeamId> hiddenSeams;
+        bool bodyPresent = true, bodySeeThrough = false;
+        bool cloth = false;  // whether there was cloth
+        double time = 0.0;
+        sim::Placement positions;
+    };
+    Saved saved_;
+    bool clothMoved_ = false;  // the cloth differs from the saved one: worked out when news of it comes
 };
 
 } // namespace clothcad::session

@@ -21,6 +21,12 @@ sim::Surface figure() {
     return sim::surfaceOf(body);
 }
 
+// Puts a body made in memory into the session's document, as loading an avatar does.
+void putOn(session::Session& session, const sim::Surface& body) {
+    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(sim::avatarOf(body, "figure.obj"))); },
+                                    {.touches = session::Touches::PlacementOnly}));
+}
+
 struct TwoPanels {
     Document doc;
     PanelId front, copy;
@@ -40,7 +46,7 @@ TEST_CASE("the scene has the body, every panel and the floor")
 {
     TwoPanels start;
     session::Session session(start.doc, session::Threading::OneStepPerAdvance);
-    session.useAvatar(figure(), "figure.obj");
+    putOn(session, figure());
     session.update();
     OrbitCamera camera;
     const Scene scene = sceneOf(session, camera, 1.5, {.selected = start.front});
@@ -62,7 +68,7 @@ TEST_CASE("a see-through body lets light through, its nearest side alone; the cl
 {
     TwoPanels start;
     session::Session session(start.doc, session::Threading::OneStepPerAdvance);
-    session.useAvatar(figure(), "figure.obj");
+    putOn(session, figure());
     session.update();
     OrbitCamera camera;
     const Scene solid = sceneOf(session, camera, 1.5, {});
@@ -79,7 +85,7 @@ TEST_CASE("every panel has a darker, cooler back; the body has none")
 {
     TwoPanels start;
     session::Session session(start.doc, session::Threading::OneStepPerAdvance);
-    session.useAvatar(figure(), "figure.obj");
+    putOn(session, figure());
     session.update();
     OrbitCamera camera;
     const auto coolerAndDarker = [](const Surface& s) {
@@ -384,7 +390,7 @@ TEST_CASE("the extent holds the body and the cloth")
     const auto cloth = extentOf(session);
     REQUIRE(cloth);
     EXPECT((cloth->first.y > 1.0 && cloth->first.z <= -30.0 && cloth->second.z >= 30.0), "with no body, only the cloth: it does not reach the floor");
-    session.useAvatar(figure(), "figure.obj");
+    putOn(session, figure());
     session.update();
     const auto box = extentOf(session);
     REQUIRE(box);

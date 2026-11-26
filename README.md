@@ -54,9 +54,10 @@ the body follows too.
   arranging it by hand. This is its first place only: moving the source later
   leaves it where it is.
 - **3D**: panels arranged around a body (each sample opens on the avatar in
-  `assets/`; Body > Avatar from OBJ… loads another),
-  meshed and simulated: gravity, seams drawing closed,
-  cloth against body, floor and cloth.
+  `assets/`; Body > Avatar from OBJ… puts another into the pattern, as one
+  undo step), meshed and simulated: gravity, seams drawing closed, cloth
+  against body, floor and cloth. Another avatar starts the cloth again; undo
+  and redo go back to the avatar before, with the cloth that hung on it.
 - **Front and back**: a panel's front is the side the table shows, drawn in
   the panel's colour; its back is a darker, cooler shade of it (grey cloth,
   the amber selection and violet instances alike). A panel that has not been
@@ -71,7 +72,8 @@ the body follows too.
   which hides it in the 3D view only (it is still simulated), and a button that
   deactivates it, as in Marvelous Designer: it stays where it is, seen through,
   nothing touches it and its seams hold nothing, until it is activated again.
-  Neither changes the pattern.
+  Neither changes the pattern or is an undo step; both are saved with the file,
+  so a part of a garment simulated and then deactivated stays as it was.
 - **Smooth across seams**: where a seam has closed, the cloth on both sides is
   shaded as one piece.
 - **See-through body**: View > See-through body, or the button beside the eye
@@ -132,7 +134,30 @@ the body follows too.
   Ctrl as well, the free one is put on the grid.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
-- **Files**: save and open (`.clothcad`, plain text), undo.
+- **Files**: save and open (`.clothcad`, plain text), undo. One file holds
+  the whole scene, so it opens the same on another computer: the pattern, where
+  its panels stand, the avatar itself (its points and triangles, not a path to
+  the OBJ file), and the scene as you left it: the draped cloth, particle by
+  particle, the panels deactivated, the panels and seams hidden, and the body
+  hidden or see-through. An opened file stands still, as it was saved; Play
+  carries on from there. A new pattern, or a file saved without an avatar,
+  takes the body that is shown. With the shipped avatar a file is about 650 kB,
+  about 950 kB with the trousers draped. Names of files and folders may use any
+  letters. Files saved by 0.1 open in every later version.
+- **Unsaved work is not lost by accident**: the title shows "*" while the
+  file differs from what you see, and closing the window, New, Open and a
+  sample ask first (Save, Don't Save, Cancel). Whatever the file holds counts,
+  the cloth too: playing or pulling it shows "*". Undone, or put back, counts
+  as saved. Hiding, deactivating and the body's looks are not undo steps. Not
+  in the file, so no "*": the selection, the tool, the cameras and which views
+  are shown. Save first takes what is typed in a field, and writes the new file
+  beside the old one before it takes its place.
+- **After a crash**: while there are unsaved changes a recovery copy is
+  written about every 30 seconds (on Windows in
+  `%LOCALAPPDATA%\Cloth CAD\recovery`); your file changes only when you save.
+  If the program stopped before the work was saved, the next start offers the
+  copy: Open (Save then writes it to the pattern's own file), Delete, or Not
+  Now, which asks again at the next start.
 - **The window** is laid out as Maya is: a row of actions under the menu
   (undo, redo, play and pause, reset, cloth mesh), a shelf of tools to make
   things (Draft, Sew, Simulate), a toolbox at the left edge (Select, Move,
@@ -327,7 +352,7 @@ How it is kept fast:
 | --- | --- | --- |
 | `libs/core/` | The document (parameters, panels, operations, seams), formulas, evaluation to 2D outlines, files | nothing |
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
-| `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use | `core`, `sim` |
+| `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use; the recovery copy of unsaved work (`Autosave`) | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
 | `examples/` | Seven small garments as programs, the sixth a T-shirt body, the seventh trousers | `core` |
@@ -380,7 +405,7 @@ holds and hands it what the user did.
   the cloth: draped cloth hides what it covers. Only the body's nearest side
   shows (not the torso behind an arm). A deactivated panel and the body are
   tinted as if the body were in front, whichever is. Like hiding the body, it
-  is not saved in the file and is not an undo step.
+  is saved in the file and is not an undo step.
 - A panel grows away from its sewn edges that kept their length. If every
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.
@@ -437,15 +462,27 @@ holds and hands it what the user did.
   from the shelf.
 - A point added on a sewn edge splits it: the seam then sews only the part
   before the point, and the part after it must be sewn on its own.
-- The body is always an avatar read from an OBJ file. Without the avatar
-  file beside the program there is no body, and the cloth falls to the floor.
+- The body is always an avatar read from an OBJ file. A pattern keeps its
+  points and triangles, not its materials or textures, and does not follow
+  later changes of the OBJ file: load it again. The samples read the avatar
+  beside the program; without it a sample opens on the body that is shown,
+  and with no body the cloth falls to the floor. Working out how to collide
+  with another avatar takes under a second, after loading it and after undo.
   The avatar that comes with the program was generated by AI, and its mesh
   is uneven.
+- The saved cloth is the one drape that is shown. The drapes kept for undo are
+  not saved, nor is the undo history; an opened cloth is at rest. If a later
+  version meshes a panel differently, its cloth is carried over, as after a
+  change of the pattern, and may move a little.
+- Because the cloth is part of the file, a running simulation always shows
+  "*", also when it has come to rest.
+- A recovery copy can be up to half a minute old. It is offered when the
+  program starts, one at a time. A power cut at the very moment of a save may
+  still lose that file: the program does not wait for the disk to have it.
 - The avatar's armpits pinch a top without sleeves (sample 6) at its
   underarm points: a few edges there stretch up to about 30 %.
-- Which panels and seams are hidden or deactivated is not saved in the file
-  and is not an undo step; a panel or seam deleted and brought back by undo is
-  shown and active.
+- Hiding or deactivating is not an undo step; a panel or seam deleted and
+  brought back by undo is shown and active.
   A panel activated again where cloth has moved into it is pushed apart from it
   at once, which can jolt.
 - Cloth does not resist folding across a seam as it does inside a panel, and a

@@ -40,6 +40,9 @@ public:
 
     // A new cloth, starting where it is arranged.
     void start(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, sim::Body body);
+    // A new cloth that is one draped before, as restore() puts it back: where
+    // there is no cloth to put it back into.
+    void resume(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement positions, double time, bool sewing, sim::Body body);
     // The pattern changed, or panels were carried through space: the cloth is
     // carried over to the new mesh and stays draped; the panels in `moved` go
     // where they were carried, drape and all.
@@ -68,6 +71,7 @@ public:
 
     struct News {
         std::uint64_t version = 0;                  // goes up with every piece of news
+        std::uint64_t cloth = 0;                    // goes up with every start() and stop()
         std::shared_ptr<const sim::ClothMesh> mesh;  // what the positions are positions of; empty when there is no cloth
         sim::Placement positions;
         double time = 0.0;                          // seconds of cloth time so far
@@ -76,7 +80,8 @@ public:
         double stepMilliseconds = 0.0;              // how long the latest step took to work out
     };
     // Copies the latest news into `into` if it is newer than what `into`
-    // holds; returns whether it did.
+    // holds; returns whether it did. News of a cloth from before the latest
+    // start() or stop(), still on its way, is never handed out.
     bool fetch(News& into);
 
 private:
@@ -89,6 +94,7 @@ private:
 
     const Threading threading_;
     bool exists_ = false;
+    std::uint64_t asked_ = 0;  // which cloth was asked for last: counted by start() and stop()
 
     // The cloth's own things: touched only by whoever runs the cloth.
     std::optional<sim::Cloth> cloth_;
@@ -102,6 +108,7 @@ private:
     std::optional<Held> held_;
     bool failed_ = false;
     double stepMilliseconds_ = 0.0;
+    std::uint64_t made_ = 0;  // which of the asked cloths this is
 
     // Shared between the two threads, under the lock.
     std::mutex lock_;

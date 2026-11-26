@@ -4,6 +4,7 @@
 find_package(Threads REQUIRED)
 clothcad_library(session
     SOURCES
+        src/Autosave.cpp
         src/Drafting.cpp
         src/Editor.cpp
         src/FrameTimes.cpp

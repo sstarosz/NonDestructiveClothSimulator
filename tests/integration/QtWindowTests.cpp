@@ -9,10 +9,13 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDockWidget>
+#include <QFile>
+#include <QFileDialog>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScreen>
@@ -20,6 +23,7 @@
 #include <QShortcut>
 #include <QStatusBar>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QScrollBar>
 #include <QToolBar>
 #include <QToolButton>
@@ -2065,7 +2069,7 @@ TEST_CASE("View > See-through body and the button on the body's row draw the bod
     action->trigger();
     w.window.open(Document{}, "new");
     w.window.tick();
-    EXPECT((w.window.bodySeeThrough() && body().colour.alpha < 1.0f), "it is how the window looks, not part of a document: another one keeps it");
+    EXPECT((!w.window.bodySeeThrough() && !action->isChecked() && body().colour.alpha == 1.0f), "it is saved with a pattern: a new one shows the body solid");
 }
 
 TEST_CASE("a seam's eye hides its lines in 3D, and the eye on Seams hides them all; the selection stays", "[qt]")
@@ -3032,7 +3036,8 @@ TEST_CASE("every sample saves and opens unchanged; a file that cannot be read sa
 TEST_CASE("each sample opens on its avatar, found from any folder; one that cannot be read leaves the body", "[qt]")
 {
     Window w;
-    EXPECT((w.window.session().avatarPath().ends_with("avatarV1.obj")), "the T-shirt is draped on the project's avatar");
+    const auto avatarName = [&] { return w.doc().avatar() ? w.doc().avatar()->name : std::string(); };
+    EXPECT((avatarName() == "avatarV1.obj"), "the T-shirt is draped on the project's avatar");
     EXPECT((w.window.session().bodySurface().triangles.size() > 1000), "its surface is there");
     EXPECT((w.window.session().bodyReady()), "and ready to collide with soon after");
     EXPECT((w.window.outliner()->bodyShown() == "avatarV1.obj"), "the Outliner names it");
@@ -3042,13 +3047,516 @@ TEST_CASE("each sample opens on its avatar, found from any folder; one that cann
     for (std::size_t i = 0; i < session::samples().size(); ++i) {
         w.window.openSample(i);
         const char* avatar = session::samples()[i].avatar;
-        EXPECT((avatar != nullptr && w.window.session().avatarPath().ends_with(avatar)), std::string(session::samples()[i].name) + " opens on its avatar");
+        EXPECT((avatar != nullptr && avatarName() == avatar), std::string(session::samples()[i].name) + " opens on its avatar");
+        EXPECT((!w.window.isWindowModified()), "and is saved as it opens, avatar and all");
     }
     QDir::setCurrent(started);
 
-    const std::string before = w.window.session().avatarPath();
+    const std::shared_ptr<const Avatar> before = w.doc().avatar();
     EXPECT((!w.window.loadAvatar("no/such/avatar.obj") && !w.window.helpLine().isEmpty()), "a missing avatar file is refused, with why");
-    EXPECT((w.window.session().avatarPath() == before), "and the body stays");
+    EXPECT((w.doc().avatar() == before && !w.window.isWindowModified()), "and the body stays");
+}
+
+// ---- Unsaved changes ----
+
+namespace {
+
+// Answers the window's questions as they come, as a person would: clicks `with`
+// in a message box, and closes a file dialog without choosing a file.
+class Answering {
+public:
+    explicit Answering(QMessageBox::StandardButton with) {
+        QObject::connect(&timer_, &QTimer::timeout, [this, with] {
+            QWidget* modal = QApplication::activeModalWidget();
+            if (auto* box = qobject_cast<QMessageBox*>(modal)) {
+                questions.push_back(box->text());
+                if (QAbstractButton* button = box->button(with)) button->click();
+                else box->reject();  // a box without that button: the test sees what did not happen
+            } else if (auto* files = qobject_cast<QFileDialog*>(modal)) {
+                ++fileDialogs;
+                files->reject();
+            }
+        });
+        timer_.start(0);
+    }
+    QStringList questions;
+    int fileDialogs = 0;
+
+private:
+    QTimer timer_;
+};
+
+void choose(Window& w, const char* menuItem) {
+    auto* action = w.window.findChild<QAction*>(menuItem);
+    REQUIRE(action != nullptr);
+    action->trigger();
+}
+
+void setChest(Window& w, const QString& to) { type(w.window.parameters()->field(w.parameter("chest")), to); }
+
+} // namespace
+
+TEST_CASE("a changed pattern shows '*' and is asked about before New, Open, a sample and closing; Cancel keeps all of it", "[qt]")
+{
+    Window w;
+    EXPECT((!w.window.isWindowModified() && w.window.windowTitle().startsWith("6. T-shirt body[*]")), "a sample just opened is saved");
+
+    setChest(w, "100 cm");
+    EXPECT(w.window.isWindowModified(), "a change shows the '*'");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((!w.window.isWindowModified()), "undone, there is nothing to save");
+    w.window.shelf()->redo()->trigger();
+    EXPECT(w.window.isWindowModified(), "redone, there is");
+
+    const std::string changed = toText(w.doc());
+    for (const char* item : {"fileNew", "fileOpen", "fileSample0"}) {
+        Answering answer(QMessageBox::Cancel);
+        choose(w, item);
+        EXPECT((answer.questions.size() == 1 && answer.questions.front().startsWith("Save the changes to 6. T-shirt body before")), std::string(item) + " asks first");
+        EXPECT((answer.fileDialogs == 0 && toText(w.doc()) == changed && w.window.isWindowModified()), std::string(item) + " cancelled changes nothing");
+    }
+    {
+        Answering answer(QMessageBox::Cancel);
+        EXPECT((!w.window.close()), "closing is cancelled");
+        EXPECT((answer.questions.size() == 1 && w.window.isVisible() && toText(w.doc()) == changed), "and the window stays with its pattern");
+    }
+    {
+        // Save, in a pattern that has no file yet, asks for one; that cancelled, everything is kept.
+        Answering answer(QMessageBox::Save);
+        choose(w, "fileNew");
+        EXPECT((answer.questions.size() == 1 && answer.fileDialogs == 1), "Save asks where");
+        EXPECT((toText(w.doc()) == changed && w.window.isWindowModified()), "and with no file chosen nothing is left behind");
+    }
+    {
+        Answering answer(QMessageBox::Discard);
+        choose(w, "fileSample0");
+        EXPECT((answer.questions.size() == 1 && w.window.windowTitle().startsWith(session::samples()[0].name)), "Don't Save opens the sample");
+        EXPECT((!w.window.isWindowModified()), "which is saved");
+    }
+    {
+        Answering answer(QMessageBox::Cancel);
+        choose(w, "fileNew");
+        EXPECT((answer.questions.empty() && w.doc().panels().empty() && w.window.windowTitle().startsWith("untitled[*]")),
+               "with nothing unsaved, New asks nothing");
+        EXPECT((!w.window.isWindowModified()), "and an empty pattern is saved");
+        EXPECT((w.window.close() && answer.questions.empty()), "nor does closing it");
+    }
+}
+
+TEST_CASE("saved as a file, the pattern takes its name and loses the '*'; Save in the question writes it before going on", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-saving-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString path = folder.filePath("mine.clothcad");
+    setChest(w, "100 cm");
+    REQUIRE(w.window.saveAs(path));
+    EXPECT((!w.window.isWindowModified() && w.window.windowTitle().startsWith("mine[*]")), "saved, and named after its file");
+
+    setChest(w, "104 cm");
+    EXPECT(w.window.isWindowModified(), "changed again");
+    {
+        Answering answer(QMessageBox::Cancel);
+        choose(w, "fileSave");
+        EXPECT((!w.window.isWindowModified() && answer.fileDialogs == 0 && answer.questions.empty()), "Save writes to the same file without asking");
+    }
+    setChest(w, "108 cm");
+    {
+        Answering answer(QMessageBox::Save);
+        choose(w, "fileNew");
+        EXPECT((answer.questions.size() == 1 && answer.fileDialogs == 0 && w.doc().panels().empty()), "saved to its file, then the new pattern");
+    }
+    REQUIRE(w.window.openFile(path));
+    w.window.tick();
+    EXPECT((w.window.parameters()->field(w.parameter("chest"))->text() == "108 cm"), "what was saved is in the file");
+    EXPECT((!w.window.isWindowModified() && w.window.windowTitle().startsWith("mine[*]")), "and a file just opened is saved");
+
+    // A file that cannot be written keeps the '*', and the pattern.
+    setChest(w, "110 cm");
+    EXPECT((!w.window.saveAs(folder.filePath("no such folder/x.clothcad")) && w.window.isWindowModified()), "not saved, still unsaved");
+    Answering answer(QMessageBox::Discard);
+    EXPECT((w.window.close() && !w.window.isVisible()), "Don't Save closes");
+    QCoreApplication::processEvents();
+    EXPECT((answer.questions.size() == 1), "asked once");
+}
+
+// ---- The avatar in the document ----
+
+namespace {
+
+// A cube 20 cm across standing on the floor, as an OBJ file in `folder`.
+QString cubeFile(const QTemporaryDir& folder) {
+    const QString path = folder.filePath("cube.obj");
+    QFile file(path);
+    REQUIRE(file.open(QIODevice::WriteOnly));
+    file.write("v -10 0 -10\nv 10 0 -10\nv 10 20 -10\nv -10 20 -10\nv -10 0 10\nv 10 0 10\nv 10 20 10\nv -10 20 10\n"
+               "f 5 6 7 8\nf 2 1 4 3\nf 6 2 3 7\nf 1 5 8 4\nf 8 7 3 4\nf 1 2 6 5\n");
+    return path;
+}
+
+} // namespace
+
+TEST_CASE("another avatar is an undo step; Ctrl+Z brings back the one before, and the drape on it", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-avatars-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString cube = cubeFile(folder);
+    const std::size_t points = w.window.session().bodySurface().points.size();
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 20; ++i) w.window.tick();
+    const double time = w.window.session().cloth().time;
+
+    REQUIRE(w.window.loadAvatar(cube));
+    EXPECT((!w.window.shelf()->simulate()->isChecked()), "Play is up: on another body the cloth starts again");
+    w.waitForTheBody();
+    EXPECT((w.window.session().bodySurface().points.size() == 8 && w.window.outliner()->bodyShown() == "cube.obj"), "the cube is the body");
+    EXPECT((!w.window.session().clothShown() && w.window.isWindowModified()), "the pattern has changed");
+
+    REQUIRE(w.window.loadAvatar(cube));
+    w.window.shelf()->undo()->trigger();
+    w.waitForTheBody();
+    EXPECT((w.window.session().bodySurface().points.size() == points && w.window.outliner()->bodyShown() == "avatarV1.obj"),
+           "one undo goes back, the cube loaded twice being one step");
+    EXPECT((w.window.session().clothShown() && w.window.session().cloth().time == time), "with the drape that hung on that body");
+    EXPECT((w.window.isWindowModified()), "which was never saved");
+    REQUIRE(w.window.saveAs(folder.filePath("draped.clothcad")));
+    REQUIRE(w.window.loadAvatar(cube));
+    w.waitForTheBody();
+    w.window.shelf()->undo()->trigger();
+    w.waitForTheBody();
+    EXPECT((!w.window.isWindowModified()), "saved, then changed and undone, the pattern and its drape are the saved ones");
+
+    // Undone while the cloth plays, it stands still: Play is up.
+    w.window.shelf()->redo()->trigger();
+    w.waitForTheBody();
+    w.window.shelf()->simulate()->setChecked(true);
+    w.window.tick();
+    w.window.shelf()->undo()->trigger();
+    w.window.tick();
+    EXPECT((!w.window.shelf()->simulate()->isChecked() && !w.window.session().simulating()), "Play is up after an undo of the avatar");
+}
+
+TEST_CASE("the file holds the avatar: it opens on its body wherever it is, with the OBJ file gone", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-onefile-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString cube = cubeFile(folder);
+    const QString onCube = folder.filePath("on a cube.clothcad"), onAvatar = folder.filePath("on the avatar.clothcad");
+    REQUIRE(w.window.saveAs(onAvatar));
+    const Avatar project = *w.doc().avatar();
+    REQUIRE(w.window.loadAvatar(cube));
+    REQUIRE(w.window.saveAs(onCube));
+    REQUIRE(QFile::remove(cube));
+
+    REQUIRE(w.window.openFile(onAvatar));
+    w.waitForTheBody();
+    EXPECT((w.doc().avatar() && *w.doc().avatar() == project), "the project's avatar, every point of it, out of the file");
+    EXPECT((w.window.session().bodySurface().triangles.size() == project.triangles.size()), "and it is the body");
+    REQUIRE(w.window.openFile(onCube));
+    w.waitForTheBody();
+    EXPECT((w.window.session().bodySurface().points.size() == 8 && w.window.outliner()->bodyShown() == "cube.obj"),
+           "the other opens on the cube, whose OBJ file is gone");
+    EXPECT((!w.window.isWindowModified()), "and is saved as it opens");
+
+    // A new pattern, and a file from before avatars were saved, take the body that is shown.
+    const std::shared_ptr<const Avatar> shown = w.doc().avatar();
+    choose(w, "fileNew");
+    EXPECT((w.doc().avatar() == shown && !w.window.isWindowModified()), "New keeps the body");
+    Document old;
+    old.add(old.add(Panel{.name = "old"}), Rect{.width = 10_cm, .height = 10_cm});
+    const QString older = folder.filePath("older.clothcad");
+    REQUIRE(save(old, older.toStdString()).empty());
+    REQUIRE(w.window.openFile(older));
+    EXPECT((w.doc().avatar() == shown && !w.window.isWindowModified()), "so does a file that names none, and it opens saved");
+}
+
+TEST_CASE("the '*' follows what the file holds: looking leaves it saved; the body's looks, hiding, freezing and the cloth do not", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    const session::Session& session = w.window.session();
+    w.window.select(front);
+    w.window.shelf()->action(Tool::Move)->trigger();
+    w.window.shelf()->mesh()->setChecked(true);
+    w.window.shelf()->layout(ViewLayout::SpaceOnly)->trigger();
+    w.window.tick();
+    EXPECT((!w.window.isWindowModified()), "selecting, tools, the mesh and the views are not in the file");
+
+    w.window.showBodySeeThrough(true);
+    EXPECT(w.window.isWindowModified(), "the body see-through is");
+    w.window.showBodySeeThrough(false);
+    EXPECT((!w.window.isWindowModified()), "and solid again it is as saved");
+    w.window.showBody(false);
+    EXPECT(w.window.isWindowModified(), "so is a hidden body");
+    w.window.showBody(true);
+    emit w.window.outliner()->panelShownChanged(front, false);
+    EXPECT(w.window.isWindowModified(), "a hidden panel");
+    emit w.window.outliner()->panelShownChanged(front, true);
+    emit w.window.outliner()->panelActiveChanged(front, false);
+    EXPECT(w.window.isWindowModified(), "a frozen one");
+    emit w.window.outliner()->panelActiveChanged(front, true);
+    const SeamId seam = w.doc().seams().front();
+    emit w.window.outliner()->seamShownChanged(seam, false);
+    EXPECT(w.window.isWindowModified(), "a hidden seam");
+    emit w.window.outliner()->seamShownChanged(seam, true);
+    EXPECT((!w.window.isWindowModified()), "each put back, nothing has changed");
+
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 5; ++i) w.window.tick();
+    w.window.shelf()->simulate()->setChecked(false);
+    w.window.tick();
+    EXPECT((session.clothShown() && w.window.isWindowModified()), "cloth that has fallen is a change");
+    {
+        Answering answer(QMessageBox::Cancel);
+        EXPECT((!w.window.close() && answer.questions.size() == 1), "asked about before it is lost");
+    }
+    w.window.shelf()->reset()->trigger();
+    w.window.tick();
+    EXPECT((!w.window.isWindowModified()), "reset, the garment is as saved");
+
+    emit w.window.space()->gestured(session::MoveInSpace{front, {5.0, 0.0, 0.0}, session::DragPhase::Begin});
+    emit w.window.space()->gestured(session::MoveInSpace{front, {5.0, 0.0, 0.0}, session::DragPhase::End});
+    w.window.tick();
+    EXPECT(w.window.isWindowModified(), "where a panel stands is part of the pattern");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((!w.window.isWindowModified()), "and undone it is as saved");
+}
+
+TEST_CASE("a file opens as it was left: the drape, what is frozen and hidden, and the body's looks", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-left-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString path = folder.filePath("left.clothcad");
+    const session::Session& session = w.window.session();
+    const PanelId front = w.panel("front"), back = w.panel("back");
+    const SeamId seam = w.doc().seams().front();
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 90; ++i) w.window.tick();
+    emit w.window.outliner()->panelActiveChanged(back, false);  // frozen as it hangs
+    for (int i = 0; i < 5; ++i) w.window.tick();
+    w.window.shelf()->simulate()->setChecked(false);
+    emit w.window.outliner()->panelShownChanged(front, false);
+    emit w.window.outliner()->seamShownChanged(seam, false);
+    w.window.showBodySeeThrough(true);
+    w.window.tick();
+    const sim::Placement hung = session.cloth().positions;
+    const double time = session.cloth().time;
+    REQUIRE(w.window.saveAs(path));
+    w.window.tick();
+    EXPECT((!w.window.isWindowModified()), "all of it is saved");
+
+    w.window.openSample(6);
+    w.window.tick();
+    EXPECT((!session.clothShown() && !session.bodySeeThrough() && session.hiddenPanels().empty() && !w.window.isWindowModified()),
+           "another pattern shows nothing of it");
+    const auto asLeft = [&] {
+        EXPECT((session.clothShown() && !session.simulating() && !w.window.shelf()->simulate()->isChecked()), "the cloth is there, standing still");
+        REQUIRE((session.clothShown() && session.cloth().positions.size() == hung.size()));
+        double off = 0.0;
+        for (std::size_t p = 0; p < hung.size(); ++p) {
+            REQUIRE(session.cloth().positions[p].size() == hung[p].size());
+            for (std::size_t i = 0; i < hung[p].size(); ++i) off = std::max(off, sim::length(session.cloth().positions[p][i] - hung[p][i]));
+        }
+        EXPECT((off == 0.0 && session.cloth().time == time), "every particle where it was left");
+        EXPECT((!session.panelActive(back) && !session.panelShown(front) && !session.seamShown(seam)), "frozen and hidden as left");
+        EXPECT((session.bodySeeThrough() && w.window.findChild<QAction*>("seeThroughBody")->isChecked()), "the body see-through, and the menu says so");
+        EXPECT((!w.window.isWindowModified()), "and it is saved");
+    };
+    REQUIRE(w.window.openFile(path));
+    asLeft();
+    w.waitForTheBody();
+    for (int i = 0; i < 5; ++i) w.window.tick();
+    asLeft();
+    // Played on, it carries on from there; the frozen panel stays.
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 10; ++i) w.window.tick();
+    std::size_t frozen = 0;
+    while (!(session.cloth().mesh->panels[frozen].panel == back)) ++frozen;
+    double most = 0.0;
+    for (std::size_t i = 0; i < hung[frozen].size(); ++i) most = std::max(most, sim::length(session.cloth().positions[frozen][i] - hung[frozen][i]));
+    EXPECT((session.cloth().time > time && most == 0.0 && w.window.isWindowModified()), "it runs on from there, but for the frozen panel");
+}
+
+TEST_CASE("what is typed in a field is saved, without Enter; what cannot be taken stops the save", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-typed-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString path = folder.filePath("typed.clothcad");
+    REQUIRE(w.window.saveAs(path));
+    w.window.activateWindow();
+    QCoreApplication::processEvents();
+    // Typed by keys into the chest's field, and left there.
+    const auto typeAndStay = [&](const QString& text) {
+        QLineEdit* field = w.window.parameters()->field(w.parameter("chest"));
+        field->setFocus();
+        field->selectAll();
+        for (const QChar c : text) {
+            QKeyEvent key(QEvent::KeyPress, 0, Qt::NoModifier, QString(c));
+            QApplication::sendEvent(field, &key);
+        }
+        REQUIRE((QApplication::focusWidget() == field && field->text() == text));
+    };
+    const auto inFile = [&] {
+        std::variant<SavedScene, FileError> read = clothcad::open(path.toStdString());
+        REQUIRE(std::holds_alternative<SavedScene>(read));
+        const Document& doc = std::get<SavedScene>(read).document;
+        return asNumber(doc.get(doc.parameters().front()).value);
+    };
+    REQUIRE(w.doc().get(w.doc().parameters().front()).name == "chest");
+
+    typeAndStay("104");
+    EXPECT(inFile() == 96.0, "typed, not yet taken");
+    choose(w, "fileSave");
+    EXPECT((inFile() == 104.0 && !w.window.isWindowModified()), "Save takes it first");
+
+    typeAndStay("-5");
+    choose(w, "fileSave");
+    EXPECT((inFile() == 104.0 && w.window.helpLine().startsWith("Not changed")), "what is refused stops the save, with why");
+
+    typeAndStay("108");
+    Answering answer(QMessageBox::Cancel);
+    EXPECT((!w.window.close() && answer.questions.size() == 1), "closing takes it too, and so asks about it");
+    EXPECT((asNumber(w.doc().get(w.parameter("chest")).value) == 108.0), "the pattern has it");
+}
+
+TEST_CASE("names with any letters are saved and opened as they are; a save that fails leaves the old file", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-names-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString letters = QString::fromUtf8("zażółć 衣");
+    REQUIRE(QDir(folder.path()).mkdir(letters));
+    const QString path = folder.filePath(letters + "/" + letters + ".clothcad");
+    const QString cube = folder.filePath(letters + "/" + letters + ".obj");
+    REQUIRE(QFile::copy(cubeFile(folder), cube));
+
+    REQUIRE(w.window.loadAvatar(cube));
+    w.waitForTheBody();
+    EXPECT((w.window.outliner()->bodyShown() == letters + ".obj"), "the avatar is read, and named as its file is");
+    REQUIRE(w.window.saveAs(path));
+    EXPECT((QFile::exists(path) && QDir(folder.filePath(letters)).entryList(QDir::Files).size() == 2), "a file of exactly that name, and nothing else");
+    w.window.openSample(0);
+    REQUIRE(w.window.openFile(path));
+    w.waitForTheBody();
+    EXPECT((w.window.windowTitle().startsWith(letters) && w.window.outliner()->bodyShown() == letters + ".obj"), "and it opens");
+
+    const auto bytes = [&] {
+        QFile file(path);
+        REQUIRE(file.open(QIODevice::ReadOnly));
+        return file.readAll();
+    };
+    const QByteArray old = bytes();
+    w.window.openSample(5);
+    REQUIRE(QDir(folder.filePath(letters)).mkdir(letters + ".clothcad.saving"));  // in the way of the new file
+    EXPECT((!w.window.saveAs(path) && w.window.helpLine().contains("could not")), "the save fails, and says so");
+    EXPECT((bytes() == old), "the old file is as it was");
+    REQUIRE(QDir(folder.filePath(letters)).rmdir(letters + ".clothcad.saving"));
+    EXPECT((w.window.saveAs(path) && bytes() != old), "out of the way, it is written");
+    EXPECT((QDir(folder.filePath(letters)).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).size() == 2), "with nothing left beside it");
+}
+
+// ---- Recovery copies ----
+
+TEST_CASE("unsaved work is copied, and what a run that stopped left is offered at the next start", "[qt]")
+{
+    application();
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-recovery-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString recovery = folder.filePath("recovery"), mine = folder.filePath("mine.clothcad");
+    const auto runs = [&] { return QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(); };
+    const auto copies = [&] {
+        int found = 0;
+        for (const QString& run : QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) found += QFile::exists(recovery + "/" + run + "/pattern.clothcad");
+        return found;
+    };
+    // A run that changes the saved pattern and stops without being closed.
+    const auto stopUnsaved = [&](const QString& chest) {
+        Window w;
+        Answering nothing(QMessageBox::Cancel);
+        w.window.keepRecoveryIn(recovery, 0.0);
+        REQUIRE(w.window.saveAs(mine));
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+        EXPECT((copies() == 0), "saved work needs no copy");
+        setChest(w, chest);
+        w.window.shelf()->simulate()->setChecked(true);
+        for (int i = 0; i < 3; ++i) w.window.tick();
+        w.window.shelf()->simulate()->setChecked(false);
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+        EXPECT((copies() == 1), "unsaved work is copied");
+    };
+
+    stopUnsaved("104 cm");
+    EXPECT((copies() == 1), "the copy stays when the program stops");
+    {
+        Window w;
+        Answering later(QMessageBox::Cancel);
+        w.window.keepRecoveryIn(recovery, 0.0);
+        EXPECT((later.questions.size() == 1 && later.questions.front().contains("mine")), "the next start offers it, by name");
+        EXPECT((w.window.windowTitle().startsWith("6. T-shirt body") && !w.window.isWindowModified()), "Not Now leaves the window as it was");
+        EXPECT((w.window.close() && copies() == 1), "and keeps the copy for the start after");
+    }
+    {
+        Window w;
+        Answering recover(QMessageBox::Open);
+        w.window.keepRecoveryIn(recovery, 0.0);
+        EXPECT((recover.questions.size() == 1 && w.window.windowTitle().startsWith("mine[*]")), "opened, under its name");
+        EXPECT((w.window.isWindowModified() && asNumber(w.doc().get(w.parameter("chest")).value) == 104.0), "with the work that was not saved");
+        EXPECT((w.window.session().clothShown() && w.window.session().cloth().time > 0.0), "cloth and all");
+        EXPECT((copies() == 1 && runs() == 1), "the copy is this run's now");
+        choose(w, "fileSave");
+        w.window.tick();
+        EXPECT((recover.fileDialogs == 0 && !w.window.isWindowModified() && copies() == 0), "Save writes it to its own file, and the copy goes");
+        EXPECT((w.window.close() && runs() == 0), "a closed run leaves nothing");
+    }
+    std::variant<SavedScene, FileError> saved = clothcad::open(mine.toStdString());
+    REQUIRE(std::holds_alternative<SavedScene>(saved));
+    EXPECT((std::get<SavedScene>(saved).state.drape.has_value()), "the recovered work is in the file");
+
+    stopUnsaved("108 cm");
+    {
+        Window w;
+        Answering drop(QMessageBox::Discard);
+        w.window.keepRecoveryIn(recovery, 0.0);
+        EXPECT((drop.questions.size() == 1 && copies() == 0 && asNumber(w.doc().get(w.parameter("chest")).value) == 96.0), "Delete throws it away");
+
+        // While a run is going its copy is its own.
+        setChest(w, "100 cm");
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+        REQUIRE(copies() == 1);
+        Window other;
+        other.window.keepRecoveryIn(recovery, 0.0);
+        EXPECT((drop.questions.size() == 1), "another window is not offered the copy of one that is running");
+
+        // Undone back to what is saved, there is nothing to copy.
+        w.window.shelf()->undo()->trigger();
+        w.window.tick();
+        EXPECT((copies() == 0), "and undone, the copy goes");
+        setChest(w, "100 cm");
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+        REQUIRE(copies() == 1);
+        EXPECT((w.window.close() && copies() == 0), "closed with Don't Save, it is thrown away");
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+        EXPECT((copies() == 0), "and not written again");
+    }
+    {
+        Window w;
+        w.window.keepRecoveryIn(recovery, 3600.0);
+        setChest(w, "100 cm");
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+        EXPECT((copies() == 0), "no copy before one is due");
+    }
 }
 
 TEST_CASE("every sample meshes; random clicks, drags and keys on both views and the shelf find no crash", "[qt]")

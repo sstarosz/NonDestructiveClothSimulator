@@ -273,6 +273,10 @@ void Document::move(OpId operation, std::size_t index) {
     unknown("operation");
 }
 
+// ---- The avatar -------------------------------------------------------------
+
+void Document::setAvatar(std::shared_ptr<const Avatar> avatar) { avatar_ = std::move(avatar); }
+
 // ---- Reading ----------------------------------------------------------------
 
 std::vector<Param> Document::parameters() const {
