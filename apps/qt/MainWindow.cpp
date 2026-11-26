@@ -15,6 +15,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QScreen>
 #include <QShortcut>
 #include <QSplitter>
@@ -495,6 +496,13 @@ void MainWindow::buildMenus() {
         const QString path = QFileDialog::getSaveFileName(this, "Save as", title_ + ".clothcad", "Patterns (*.clothcad)");
         if (!path.isEmpty()) saveAs(path);
     });
+    exportAction_ = item(file, "Export OBJ…", QKeySequence("Ctrl+E"), this, [this] {
+        if (!takeWhatIsTyped()) return;
+        const QString path = QFileDialog::getSaveFileName(this, "Export OBJ", title_ + ".obj", "Wavefront OBJ (*.obj)");
+        if (!path.isEmpty()) exportObj(path);
+    });
+    exportAction_->setObjectName("fileExportObj");
+    file->addSeparator();
     QMenu* samples = file->addMenu("Samples");
     for (std::size_t i = 0; i < session::samples().size(); ++i)
         item(samples, session::samples()[i].name, {}, this, [this, i] {
@@ -595,6 +603,26 @@ bool MainWindow::saveAs(const QString& path) {
     showTitle(QFileInfo(path).completeBaseName());
     showUnsaved();
     say("Saved.");
+    return true;
+}
+
+bool MainWindow::exportObj(const QString& path) {
+    const std::expected<sim::Obj, std::string> obj = session_.obj();
+    if (!obj) {
+        say(QString::fromStdString(obj.error()), true);
+        return false;
+    }
+    // Written beside the file and then put in its place: one that fails leaves the old file.
+    QSaveFile file(path);
+    const auto size = static_cast<qint64>(obj->text.size());
+    if (!file.open(QIODevice::WriteOnly) || file.write(obj->text.data(), size) != size || !file.commit()) {
+        say(QString("Could not write %1 (%2). Choose another place and export again.").arg(QDir::toNativeSeparators(path), file.errorString()), true);
+        return false;
+    }
+    QString words = QString("Exported %1 %2 to %3.").arg(obj->panels).arg(obj->panels == 1 ? "panel" : "panels", QDir::toNativeSeparators(path));
+    if (obj->leftOut > 0) words += QString(" Left out: %1 hidden.").arg(obj->leftOut);
+    if (obj->unmeshed > 0) words += QString(" Left out: %1 with no cloth; put its shape right and export again.").arg(obj->unmeshed);
+    say(words);
     return true;
 }
 
@@ -935,6 +963,7 @@ void MainWindow::refresh() {
     std::optional<SeamId>& seam = drafting_.selection.seam;
     if (seam && !doc.contains(*seam)) seam.reset();
     outliner_->show(doc, shapes, selected, bodyNow(), seam);
+    exportAction_->setEnabled(session_.hasGarment());
     for (QAction* onPanel : {shelf_->instance(), shelf_->mirroredInstance(), shelf_->bake(), shelf_->placeFromTable()}) onPanel->setEnabled(selected.has_value());
     const std::vector<PanelId> chosen = drafting_.selection.panels();
     shelf_->sewAsSource()->setEnabled(std::any_of(chosen.begin(), chosen.end(), [&](PanelId panel) { return doc.contains(panel) && doc.instanceOf(panel); }));

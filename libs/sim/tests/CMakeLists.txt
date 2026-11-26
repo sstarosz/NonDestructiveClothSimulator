@@ -2,6 +2,8 @@
 clothcad_unit_tests(sim SOURCES
     BodyTests.cpp
     ClothTests.cpp
+    ExportTests.cpp
     LayoutTests.cpp
     MeshTests.cpp
+    NormalsTests.cpp
 )

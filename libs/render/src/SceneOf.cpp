@@ -2,7 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
-#include <numeric>
+
+#include "clothcad/sim/Normals.h"
 
 namespace clothcad::render {
 
@@ -24,82 +25,8 @@ constexpr float threadAlpha = 0.75f;                             // many lie clo
 constexpr float seamLift = 0.5f;                             // cm
 constexpr float inactiveAlpha = 0.3f;  // a deactivated panel is seen through
 constexpr float seeThroughBodyAlpha = 0.35f;
-// cm: a stitch this short has brought its two sides together, and they are shaded as one.
-constexpr double joinedWithin = 0.5;
 
 Point normalOf(sim::Vec3 sum) { return pointOf(sim::length(sum) > 0.0 ? sim::normalized(sum) : sim::Vec3{0.0, 1.0, 0.0}); }
-
-// For every panel's particles, the faces around each added up, weighted by
-// their area. Particles a closed stitch pairs share theirs, so that cloth is
-// shaded across a seam as it is inside a panel; where three seams meet, all of
-// them do. Across a reversed seam the other panel's front faces the other way,
-// so its share is taken, and given back, turned round. A particle keeps its own
-// where the shared one would face away from it (cloth folded flat at a seam).
-// A hidden panel has its share too: its neighbours look the same without it.
-std::vector<std::vector<sim::Vec3>> clothNormals(const sim::ClothMesh& mesh, const sim::Placement& positions) {
-    std::vector<std::vector<sim::Vec3>> sums(mesh.panels.size());
-    std::vector<std::uint32_t> first(mesh.panels.size() + 1, 0);  // where each panel's particles start among all
-    for (std::size_t i = 0; i < mesh.panels.size(); ++i) {
-        const sim::PanelMesh& panel = mesh.panels[i];
-        const bool placed = i < positions.size() && positions[i].size() == panel.points.size();
-        first[i + 1] = first[i] + (placed ? static_cast<std::uint32_t>(panel.points.size()) : 0);
-        if (!placed) continue;
-        sums[i].resize(panel.points.size());
-        for (const auto& t : panel.triangles) {
-            const sim::Vec3 face = sim::cross(positions[i][t[1]] - positions[i][t[0]], positions[i][t[2]] - positions[i][t[0]]);  // its length is twice the area
-            for (const std::uint32_t corner : t) sums[i][corner] = sums[i][corner] + face;
-        }
-    }
-
-    // The particles closed stitches bring together, gathered into groups: each
-    // points towards its group's first, and says whether it is turned round
-    // against the one it points to.
-    std::vector<std::uint32_t> towards(first.back());
-    std::iota(towards.begin(), towards.end(), 0u);
-    std::vector<char> turned(first.back(), 0);
-    const auto firstOfGroup = [&](std::uint32_t particle) {
-        bool flipped = false;
-        while (towards[particle] != particle) {
-            flipped = flipped != (turned[particle] != 0);
-            particle = towards[particle];
-        }
-        return std::pair{particle, flipped};
-    };
-    struct Member {
-        std::uint32_t panel, point;
-    };
-    std::vector<Member> members;
-    for (const sim::Stitch& stitch : mesh.stitches) {
-        const std::size_t a = stitch.panelA, b = stitch.panelB;
-        if (a >= sums.size() || b >= sums.size() || stitch.pointA >= sums[a].size() || stitch.pointB >= sums[b].size()) continue;
-        if (sim::length(positions[a][stitch.pointA] - positions[b][stitch.pointB]) > joinedWithin) continue;
-        const auto [groupA, flippedA] = firstOfGroup(first[a] + stitch.pointA);
-        const auto [groupB, flippedB] = firstOfGroup(first[b] + stitch.pointB);
-        if (groupA != groupB) {
-            towards[groupB] = groupA;
-            turned[groupB] = (flippedA != flippedB) != stitch.reversed;
-        }
-        members.push_back({stitch.panelA, stitch.pointA});
-        members.push_back({stitch.panelB, stitch.pointB});
-    }
-    // Each particle once, however many stitches hold it.
-    const auto order = [](const Member& m) { return std::pair{m.panel, m.point}; };
-    std::ranges::sort(members, {}, order);
-    const auto repeated = std::ranges::unique(members, {}, order);
-    members.erase(repeated.begin(), repeated.end());
-
-    std::vector<sim::Vec3> shared(first.back());
-    for (const Member& m : members) {
-        const auto [group, flipped] = firstOfGroup(first[m.panel] + m.point);
-        shared[group] = shared[group] + sums[m.panel][m.point] * (flipped ? -1.0 : 1.0);
-    }
-    for (const Member& m : members) {
-        const auto [group, flipped] = firstOfGroup(first[m.panel] + m.point);
-        const sim::Vec3 together = shared[group] * (flipped ? -1.0 : 1.0);
-        if (sim::dot(together, sums[m.panel][m.point]) > 0.0) sums[m.panel][m.point] = together;
-    }
-    return sums;
-}
 
 // A panel's back: its colour, darker and cooler, so that which way it faces
 // shows at a glance and what it is (selected, an instance) still does.
@@ -135,7 +62,7 @@ void addSeams(Scene& scene, const session::Session& session, const SceneOptions&
             const sim::Stitch& stitch = mesh.stitches[k];
             if (!placed(stitch.panelA, stitch.pointA) || !placed(stitch.panelB, stitch.pointB)) continue;
             const sim::Vec3 a = positions[stitch.panelA][stitch.pointA], b = positions[stitch.panelB][stitch.pointB];
-            closed = closed && sim::length(a - b) <= joinedWithin;
+            closed = closed && sim::length(a - b) <= sim::joinedWithin;
             if (session.panelShown(mesh.panels[stitch.panelA].panel) && session.panelShown(mesh.panels[stitch.panelB].panel))
                 threads.points.insert(threads.points.end(), {pointOf(a), pointOf(b)});
         }
@@ -216,7 +143,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     const sim::ClothMesh& mesh = session.shownMesh();
     const sim::Placement& positions = session.shownPositions();
     Lines wire{{}, {0.1f, 0.12f, 0.16f, 0.55f}};
-    const std::vector<std::vector<sim::Vec3>> normals = clothNormals(mesh, positions);
+    const std::vector<std::vector<sim::Vec3>> normals = sim::clothNormals(mesh, positions);
     for (std::size_t i = 0; i < mesh.panels.size() && i < positions.size(); ++i) {
         const sim::PanelMesh& panel = mesh.panels[i];
         if (positions[i].size() != panel.points.size() || panel.triangles.empty() || !session.panelShown(panel.panel)) continue;
@@ -237,7 +164,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
                 for (int side = 0; side < 3; ++side) wire.points.insert(wire.points.end(), {surface.points[t[side]], surface.points[t[(side + 1) % 3]]});
         }
         surface.normals.reserve(panel.points.size());
-        for (const sim::Vec3& sum : normals[i]) surface.normals.push_back(normalOf(sum));
+        for (const sim::Vec3& n : normals[i]) surface.normals.push_back(pointOf(n));
         scene.surfaces.push_back(std::move(surface));
     }
     addFloor(scene);

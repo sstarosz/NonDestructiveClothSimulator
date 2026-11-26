@@ -59,6 +59,9 @@ public:
     // into the document, as one undo step.
     bool openFile(const QString& path);
     bool saveAs(const QString& path);
+    // Writes the garment to an OBJ file (Session::obj) and says in the help
+    // line how many panels went where.
+    bool exportObj(const QString& path);
     bool loadAvatar(const QString& path);
     // From now on unsaved work is copied now and then into a folder of its own
     // under `folder`, and a copy that a run which stopped left there is
@@ -182,6 +185,7 @@ private:
     bool fieldDragTaken_ = false;  // the field being dragged has changed the document
     std::shared_ptr<const Avatar> shownAvatar_;  // the document's, as last shown
     QAction* bodyAction_ = nullptr;
+    QAction* exportAction_ = nullptr;
     QAction* seeThroughAction_ = nullptr;
     std::uint64_t problemsSaid_ = 0;  // how many times the help line has said that something cannot be
     // Recovery copies: the folder this run keeps them in, held by a lock while it runs.

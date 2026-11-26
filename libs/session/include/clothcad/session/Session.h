@@ -15,6 +15,7 @@
 // mesh is shared, so a view may keep it as long as it likes.
 
 #include <cstdint>
+#include <expected>
 #include <future>
 #include <map>
 #include <memory>
@@ -26,6 +27,7 @@
 #include "clothcad/session/Editor.h"
 #include "clothcad/session/Simulation.h"
 #include "clothcad/sim/Body.h"
+#include "clothcad/sim/Export.h"
 #include "clothcad/sim/Layout.h"
 #include "clothcad/sim/Mesh.h"
 
@@ -131,6 +133,17 @@ public:
     // Goes up whenever anything a 3D view draws has changed.
     std::uint64_t sceneVersion() const { return sceneVersion_; }
 
+    // ---- Export ----
+    // Whether the document has a panel cut from cloth, one there is something to export of.
+    bool hasGarment() const;
+    // The garment as the text of an OBJ file (sim::objOf): the cloth as it
+    // hangs, or with none the panels where they are arranged; hidden panels are
+    // left out, deactivated ones are written as they stand. It first waits for
+    // the mesh and the cloth to catch up with the document, so that what is
+    // written is the pattern as it is now, also when nothing shows it in space.
+    // The cloth is not stepped. On failure, why, and what to do.
+    std::expected<sim::Obj, std::string> obj();
+
     // Brings everything up to date with the document and picks up news from
     // the cloth; call it once a frame. With `meshWanted` false the mesh, the
     // arrangement and the cloth are left alone (nothing shows them).
@@ -155,6 +168,11 @@ private:
     bool remesh(bool now);
     bool takeMeshIfMade(bool wait);
     bool fits(const sim::ClothMesh& mesh) const;
+    // The parts of update(): the body and what is gone; the mesh, the
+    // arrangement and the cloth, waiting for the mesh if `now`; the news.
+    void followBody();
+    void followShapes(bool now);
+    std::optional<std::string> takeNews();
 
     Editor editor_;
 

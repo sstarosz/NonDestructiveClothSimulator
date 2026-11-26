@@ -217,3 +217,27 @@ TEST_CASE("a panel left out stays put in every cloth until it is taken back")
     simulation.leaveOut({});
     EXPECT(steps(20) < start[0][0].y, "taken back, it falls");
 }
+
+TEST_CASE("on its own thread, waiting for the changes gives news of what was handed over")
+{
+    Document doc;
+    const auto mesh = aSheet(doc);
+    Simulation simulation(Threading::OwnThread);
+    Simulation::News news;
+    for (int i = 0; i < 20; ++i) {
+        const auto next = std::make_shared<const sim::ClothMesh>(*mesh);
+        simulation.start(next, sim::arranged(doc, *next), sim::Body{});
+        simulation.waitForChanges();
+        REQUIRE(simulation.fetch(news));
+        REQUIRE(news.mesh == next);
+    }
+    simulation.run(true);  // while it steps, too
+    const auto last = std::make_shared<const sim::ClothMesh>(*mesh);
+    simulation.follow(last, sim::arranged(doc, *last), {});
+    simulation.waitForChanges();
+    REQUIRE(simulation.fetch(news));
+    EXPECT(news.mesh == last, "the cloth has taken the new mesh");
+
+    Simulation stepped(Threading::OneStepPerAdvance);
+    stepped.waitForChanges();  // nothing to wait for: it returns
+}

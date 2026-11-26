@@ -57,6 +57,27 @@ void waitForTheBody(Session& session) {
     REQUIRE(session.bodyReady());
 }
 
+// The particles' places an OBJ's text holds.
+std::vector<sim::Vec3> verticesOf(const std::expected<sim::Obj, std::string>& obj) {
+    REQUIRE(obj.has_value());
+    return sim::readObj(obj->text).surface.points;
+}
+
+double heightOf(const std::vector<sim::Vec3>& points) {
+    double low = 1e9, high = -1e9;
+    for (const sim::Vec3& p : points) low = std::min(low, p.y), high = std::max(high, p.y);
+    return high - low;
+}
+
+// Whether an OBJ's particles are where these are, one by one.
+bool alike(const std::vector<sim::Vec3>& written, const sim::Placement& at) {
+    std::size_t k = 0;
+    for (const auto& panel : at)
+        for (const sim::Vec3& p : panel)
+            if (k >= written.size() || sim::length(written[k++] - p) > 1e-5) return false;
+    return k == written.size();
+}
+
 } // namespace
 
 TEST_CASE("the mesh is made again only when the outlines change")
@@ -637,4 +658,102 @@ TEST_CASE("a seam is hidden and shown again, and forgotten when it is gone")
     session.setSeamShown(seam, false);
     session.open(Document{});
     EXPECT(session.hiddenSeams().empty(), "another document starts with all shown");
+}
+
+TEST_CASE("an export is the panels where they are arranged until simulated, then the cloth as it hangs")
+{
+    Skirt start;
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    EXPECT(session.hasGarment(), "there is a panel to export");
+    session.update();
+    const sim::Placement arranged = session.arranged();
+    EXPECT(alike(verticesOf(session.obj()), arranged), "flat, where it is arranged");
+
+    session.simulate(true);
+    frames(session, 40);
+    session.simulate(false);
+    session.update();
+    const sim::Placement draped = session.cloth().positions;
+    const double time = session.cloth().time;
+    const std::vector<sim::Vec3> written = verticesOf(session.obj());
+    EXPECT(alike(written, draped), "as it hangs");
+    EXPECT(!alike(written, arranged), "which is not where it started");
+    session.simulate(true);
+    verticesOf(session.obj());
+    EXPECT(session.cloth().time == time, "exporting does not step the cloth");
+}
+
+TEST_CASE("an export is of the pattern as it is now, also when nothing has shown it in space")
+{
+    for (const Threading threading : {Threading::OneStepPerAdvance, Threading::OwnThread}) {
+        Skirt start;
+        Session session(start.doc, threading);
+        session.update(false);  // the table alone: no mesh has been made
+        EXPECT_NEAR(heightOf(verticesOf(session.obj())), 40.0, "a mesh is made for it");
+        REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(55)); }));
+        session.update(false);
+        EXPECT_NEAR(heightOf(verticesOf(session.obj())), 55.0, "an edit is in it");
+        REQUIRE(session.editor().change([&](Document& doc) { doc.arrange(start.panel, Arrangement{.placed = true, .x = 70, .y = 140, .z = 40}); },
+                                        {.touches = Touches::PlacementOnly}));
+        session.update(false);
+        double middle = 0.0;
+        const std::vector<sim::Vec3> moved = verticesOf(session.obj());
+        for (const sim::Vec3& p : moved) middle += p.x / static_cast<double>(moved.size());
+        EXPECT(std::abs(middle - 70.0) < 1.0, "and so is a move in space");
+    }
+}
+
+TEST_CASE("a draped cloth catches up with the pattern before it is exported")
+{
+    for (const Threading threading : {Threading::OneStepPerAdvance, Threading::OwnThread}) {
+        Skirt start;
+        Session session(start.doc, threading);
+        session.simulate(true);
+        for (int i = 0; i < 1000 && !(session.clothShown() && session.cloth().time > 0.2); ++i) {
+            session.update();
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        REQUIRE(session.clothShown());
+        session.simulate(false);
+        session.update();
+        const std::size_t before = verticesOf(session.obj()).size();
+        REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(70)); }));
+        session.update(false);  // the 3D view is not shown
+        const std::vector<sim::Vec3> written = verticesOf(session.obj());
+        EXPECT(written.size() > before, "the longer panel has more particles");
+        EXPECT((session.cloth().mesh->panels.front().points.size() == written.size()), "those of the cloth, which has followed");
+        EXPECT(alike(written, session.cloth().positions), "where it hangs");
+    }
+}
+
+TEST_CASE("an export leaves out hidden panels, keeps deactivated ones, and says why when nothing is left")
+{
+    Skirt start;
+    const PanelId other = start.doc.add(Panel{.name = "other"});
+    start.doc.add(other, Rect{.width = 20_cm, .height = 20_cm});
+    start.doc.arrange(other, Arrangement{.placed = true, .x = 60, .y = 140, .z = 40});
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.update();
+    session.setPanelActive(other, false);
+    session.setPanelShown(start.panel, false);
+    const auto one = session.obj();
+    REQUIRE(one.has_value());
+    EXPECT((one->panels == 1 && one->leftOut == 1), "the hidden one is left out, the deactivated one is in");
+    EXPECT((one->text.find("\ng other\n") != std::string::npos && one->text.find("skirt") == std::string::npos), "by name");
+
+    session.setPanelShown(other, false);
+    const auto none = session.obj();
+    REQUIRE(!none.has_value());
+    EXPECT(none.error().find("hidden") != std::string::npos, "all hidden: it says to show one");
+
+    Session empty(Document{}, Threading::OneStepPerAdvance);
+    EXPECT(!empty.hasGarment(), "an empty table has nothing");
+    const auto nothing = empty.obj();
+    REQUIRE(!nothing.has_value());
+    EXPECT(nothing.error().find("Draw a panel") != std::string::npos, "and says what to do");
+
+    Document base;
+    const PanelId construction = base.add(Panel{.name = "base", .construction = true});
+    base.add(construction, Rect{.width = 20_cm, .height = 20_cm});
+    EXPECT(!Session(base, Threading::OneStepPerAdvance).hasGarment(), "a construction panel is not cut from cloth");
 }

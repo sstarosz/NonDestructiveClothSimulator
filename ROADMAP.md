@@ -15,7 +15,7 @@ left is the speed of the window and of the cloth, and seeing the body inside
 the cloth.
 
 Nothing has been released. There is no package to download and no licence.
-A garment cannot be taken out of the program.
+A garment can be taken out of the program as an OBJ file.
 
 ## 0.1 - the first release
 
@@ -35,7 +35,7 @@ In pull requests, in this order:
 | 5 | **Fitting the trousers.** A see-through body (View menu and the body's row); a mirrored instance of a panel at one side of the body stands in space mirrored from it, so the second leg drapes without arranging it by hand | #53, #69 | S | The last of the trousers list |
 | 6 | **Fixes from 25 November.** Scaling a rectangle in 3D keeps its middle where it is, as on the table; a change of wrap bends cloth that is already draped, keeping how it hangs; with the cloth paused, a drag in 3D moves the selected panel (Move) instead of pulling it and running the cloth, which is for a playing cloth or the Pull tool. Then, found on the way: the 3D gizmo follows the draped cloth | #94, #93, #92, #115 | M | Bugs met in ordinary work, better gone before anyone else meets them |
 | 7 | **Never lose work.** Ask before unsaved changes are lost (closing, New, Open, a sample), with "*" in the title. One file holds the whole scene and opens as it was left, on any computer: the avatar itself, the draped cloth, what is deactivated and hidden, and the body's looks. A save that fails leaves the old file, names may use any letters, and unsaved work is copied now and then and offered again after a crash. A file written by 0.1 is kept in `FileTests` and must open in every later version | #87, #26 (the avatar), #86 | S | Other people's work is at stake from now on. The file holds the avatar before its format is promised |
-| 8 | **Export OBJ.** The garment as it hangs (flat if it was not simulated), in the avatar's units so it lines up with the character, one group per panel, the pattern as UVs, normals smooth across closed seams | #85 | M | Without it the garment cannot be used anywhere else |
+| 8 | **Export OBJ.** File > Export OBJ… writes the garment as it hangs (as it is arranged if it was not simulated), in the avatar's units so it lines up with the character, one group per panel, the pattern as it lies on the table as UVs, normals smooth across closed seams. Hidden panels are left out | #85 | M | Without it the garment cannot be used anywhere else |
 | 9 | **A first user is not left stuck.** Say when a seam could not close, on its card and its lines in 3D, and what to do. Sew the way the clicks say, so that a seam is not reversed by surprise. Parameter names show their start. A copy keeps the turn of the panel it copies | #14, #11, #75, #62 | M | A seam that silently stays open is the worst first impression |
 | 10 | **The release.** The MIT licence, and the notices of what the zip ships (Qt under LGPL 3, CDT under MPL 2.0, the MSVC runtime, the avatar). Help > About and `clothcad --version`. A tag `v0.1.0` makes CI build and test, install into a folder, start the installed program once, zip it, and draft a GitHub Release; I publish it. `CHANGELOG.md`, and a README part for users: Windows 10 or 11 (x64), a graphics card with Vulkan 1.1, how to start, a first garment on the trousers sample | #84, #83, #82, #81 | M | Last, so the first zip has everything. The `LICENSE` file goes in at once, though: the code is public already, and without a licence nobody may use it |
 
@@ -100,6 +100,12 @@ first and may push steps out.
 | 19 | The shelf's Sew and Simulate tabs get what belongs to them (seam actions, fabric, Reset), or go | S | #32 |
 | 20 | Number fields drag past the screen's edge; long names end in "…"; Delete on a shape's corner opens that layer | S | #5, #35, #61 |
 | 21 | The table repaints only the part a change touched, and its last thick lines get square caps, if View > Frame times shows its painting slow on a garment (2-4 ms at 4K in 0.1) | M | #58, #59 |
+
+### Taking a garment out
+
+| # | Step | Size | Issues |
+| --- | --- | --- | --- |
+| 22 | Export options for OBJ: panels as separate objects or one, seams welded or not, and what else users of 0.1 ask for | M | |
 
 ### Cleanups, done with the step that touches the same code
 
