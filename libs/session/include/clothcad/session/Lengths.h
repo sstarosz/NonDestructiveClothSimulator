@@ -26,6 +26,7 @@ struct EdgeLength {
     EdgeRef edge;
     double length = 0.0;  // cm
     std::string formula;  // empty: not set by a formula
+    friend bool operator==(const EdgeLength&, const EdgeLength&) = default;
 };
 
 // The field that is an edge's length: a SetLength's, or a setting of the

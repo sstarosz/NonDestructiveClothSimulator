@@ -67,10 +67,13 @@ public:
     const std::vector<CornerRef>& selectedCorners() const { return drafting_.selection.corners; }
 
     // One frame: the session catches up and everything shown follows.
-    // A timer calls it sixty times a second; tests call it themselves.
+    // A timer calls it once for each picture the screen shows (every 4 ms at
+    // 240 Hz, 16 ms at 60 Hz); tests call it themselves.
     void tick();
     // Stops or starts that timer: a benchmark that counts frames runs them itself.
     void setTicking(bool running);
+    // How often that timer calls it, for tests.
+    int tickMilliseconds() const;
     // The cloth on its own thread (the default) or stepped by the frames, as tests and benchmarks need.
     void setThreading(session::Threading threading);
 
@@ -133,6 +136,7 @@ private:
     QLabel* help_;
     QLabel* pointerAt_;  // where the pointer is on the table
     QTimer* timer_;
+    void paceTicks();  // the timer follows the screen's rate
     // View > Frame times: what the frames take in this window, on this screen.
     session::FrameTimes frameTimes_;
     QLabel* frameTimesLine_;

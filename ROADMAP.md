@@ -31,7 +31,7 @@ In pull requests, in this order:
 | --- | --- | --- | --- | --- |
 | 1 | **Trousers sample, benchmarks to trust.** A seventh sample and example: front, back, a mirrored instance, waist and ankle by Set length. The benchmarks pass on an unchanged `main` on my machine, or the reason is known | #88, #57, #68 | S | Everything after it is measured and tried on the trousers |
 | 2 | **Real frame times.** A View switch that shows, in the real window, the time between shown frames, the time of `tick` and of painting, the cloth step and the particle count | #56, #28 (closes #41) | S | Decides what PRs 3 and 4 work on |
-| 3 | **Table repaint**, only if PR 2 shows the table is slow: repaint only what changed, square caps for the last thick lines | #58, #59 | M | Fixes the slow part the numbers name, not a guess |
+| 3 | **Frames at the screen's pace.** The window ticks once for every picture of its screen, not every 16 ms, and the table is painted only when what it shows changed. On the 240 Hz screen a panel carried in 3D goes from 16 ms a frame to 4 ms; the table's painting was 2-4 ms, so repainting only part of it (#58, #59) waits for 0.2 | #41 | S | PR 2's numbers named it: the work in a frame was small, the frames came too seldom |
 | 4 | **A faster cloth at 2 cm.** The trousers' step time in the benchmarks, then the cheapest gains first: a preview quality with fewer sub-steps, a default particle distance from the panel's size. The solver on several threads is 0.2 | #54 | M | The cloth's speed is felt on every garment |
 | 5 | **Fitting the trousers.** A see-through body (View menu and the body's row); a mirrored instance stands in space mirrored from its source, so the second leg drapes without arranging it by hand | #53, #69 | S | The last of the trousers list |
 | 6 | **Fixes from 25 November.** Scaling a rectangle in 3D scales it about the gizmo, as on the table; a change of wrap shows after the cloth has run; with the cloth paused, a drag in 3D moves the panel instead of pulling it and running the cloth | #94, #93, #92 | M | Bugs met in ordinary work, better gone before anyone else meets them |
@@ -100,6 +100,7 @@ first and may push steps out.
 | 18 | The window opens as it was left; one key folds the docks away | S | #37, #27 |
 | 19 | The shelf's Sew and Simulate tabs get what belongs to them (seam actions, fabric, Reset), or go | S | #32 |
 | 20 | Number fields drag past the screen's edge; long names end in "…"; Delete on a shape's corner opens that layer | S | #5, #35, #61 |
+| 21 | The table repaints only the part a change touched, and its last thick lines get square caps, if View > Frame times shows its painting slow on a garment (2-4 ms at 4K in 0.1) | M | #58, #59 |
 
 ### Cleanups, done with the step that touches the same code
 

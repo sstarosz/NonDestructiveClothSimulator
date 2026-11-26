@@ -251,6 +251,12 @@ How it is kept fast:
   when the outlines change; the 3D picture is drawn only when the camera, the
   view's size or what it shows has changed. An unchanged frame costs the same
   with or without the 3D view.
+- **The window ticks once for every picture of its screen** (every 4 ms at
+  240 Hz, 16 ms at 60 Hz; `FrameTimes::tickMilliseconds`), so a panel carried
+  in 3D is shown at the screen's next picture. On a 240 Hz screen a fixed
+  16 ms tick showed one picture in four. A tick with nothing new costs
+  0.02 ms. The cloth makes at most 60 steps a second, to keep pace with the
+  clock, so a running cloth is shown at 60 pictures a second on any screen.
 - **The cloth runs on a thread of its own** (`libs/session` `Simulation`), so the
   interface never waits for a step; it picks up where the particles are
   whenever there is news.
@@ -259,6 +265,9 @@ How it is kept fast:
   is done, always made from the newest outlines; a frame never waits for it.
 - **The 3D view is drawn by the graphics card** (`libs/render`, Vulkan), and
   its scene is made again only when what it shows has changed.
+- **The table is painted only when what it shows changed.** A panel carried
+  in space, or a change in a dock that the table does not show, does not paint
+  it again (about 3 ms of each frame at 4K).
 - **The table keeps its floor.** The background and grid are drawn once into
   a picture and copied until the view moves (`TableView::paintFloor`): at 4K
   the grid's lines cost more than everything else on the table together. The

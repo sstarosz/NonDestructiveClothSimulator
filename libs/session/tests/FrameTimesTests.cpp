@@ -60,3 +60,14 @@ TEST_CASE("the status bar's line gives every number its unit, and the cloth when
            "sewing says so");
     EXPECT((times.text(FrameTimes::Cloth{}).find("paused") != std::string::npos), "a cloth that does not run is paused");
 }
+
+TEST_CASE("the window ticks once for every picture its screen shows")
+{
+    EXPECT((FrameTimes::tickMilliseconds(60.0) == 16), "60 Hz: every 16 ms, as before");
+    EXPECT((FrameTimes::tickMilliseconds(59.94) == 16), "a screen a little under 60 Hz too");
+    EXPECT((FrameTimes::tickMilliseconds(144.0) == 6), "144 Hz: every 6 ms, not 7, so that no picture is missed");
+    EXPECT((FrameTimes::tickMilliseconds(240.0) == 4), "240 Hz: every 4 ms, so that a panel carried in 3D is not shown at a quarter of the screen's rate");
+    EXPECT((FrameTimes::tickMilliseconds(1000.0) == 2), "never faster than 2 ms");
+    EXPECT((FrameTimes::tickMilliseconds(30.0) == 16), "never slower than 16 ms: the cloth and the docks still follow at 60 a second");
+    EXPECT((FrameTimes::tickMilliseconds(0.0) == 16), "a screen that gives no rate is taken as 60 Hz");
+}

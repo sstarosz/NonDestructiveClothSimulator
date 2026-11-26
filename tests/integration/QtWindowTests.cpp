@@ -15,6 +15,7 @@
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QScreen>
 #include <QScrollArea>
 #include <QShortcut>
 #include <QStatusBar>
@@ -2995,6 +2996,46 @@ TEST_CASE("the length in the bar is typed or dragged sideways, as in the Attribu
     QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     QApplication::sendEvent(field, &escape);
     EXPECT((table->lengthEditor() == nullptr && std::abs(bottom() - 30.0) < 1e-9 && !w.window.shelf()->undo()->isEnabled()), "and Escape takes it all back");
+}
+
+TEST_CASE("carrying a panel in 3D does not paint the table again, for nothing on it moved; moving it on the table does", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    w.window.tick();
+    QCoreApplication::processEvents();  // the table painted as it is now
+    int paints = 0;
+    QObject::connect(w.window.table(), &TableView::painted, [&](double) { ++paints; });
+    const double xBefore = w.doc().get(front).arrangement.x;
+    for (int i = 1; i <= 5; ++i) {
+        emit w.window.space()->gestured(session::MoveInSpace{front, {static_cast<double>(i), 0.0, 0.0}, i == 1 ? session::DragPhase::Begin : session::DragPhase::Continue});
+        w.window.tick();
+        QCoreApplication::processEvents();
+    }
+    emit w.window.space()->gestured(session::MoveInSpace{front, {5.0, 0.0, 0.0}, session::DragPhase::End});
+    w.window.tick();
+    QCoreApplication::processEvents();
+    EXPECT_NEAR(w.doc().get(front).arrangement.x, xBefore + 5.0, "the panel was carried 5 cm in space");
+    EXPECT((paints == 0), "and the table, where nothing moved, was not painted again: at 4K that is 3 ms of every frame of the carry");
+
+    emit w.window.table()->gestured(session::MovePanel{front, 5.0, 0.0, session::DragPhase::Begin});
+    emit w.window.table()->gestured(session::MovePanel{front, 5.0, 0.0, session::DragPhase::End});
+    QCoreApplication::processEvents();
+    EXPECT((paints > 0), "a panel moved on the table is painted where it is now");
+}
+
+TEST_CASE("the window ticks once for every picture its screen shows, after it was stopped too", "[qt]")
+{
+    // Off screen the screen says 60 Hz, which was the fixed tick before: this
+    // checks that the window follows its screen; the rule for other rates is
+    // checked in FrameTimesTests, and 240 Hz on the owner's screen by hand.
+    Window w;
+    const int every = session::FrameTimes::tickMilliseconds(w.window.screen()->refreshRate());
+    EXPECT((w.window.tickMilliseconds() == every), "the timer ticks at the screen's rate");
+    w.window.setTicking(false);
+    w.window.setTicking(true);
+    EXPECT((w.window.tickMilliseconds() == every), "and again when it is started again");
 }
 
 TEST_CASE("View > Frame times shows how long the views' frames, a frame's work and the cloth's step take; it is off at first", "[qt]")
