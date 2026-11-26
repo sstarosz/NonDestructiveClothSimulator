@@ -7,7 +7,8 @@
 // along both its edges, with a thin line from each particle to the one it is
 // sewn to, where the cloth has them now. A closed seam has no lines, and both
 // its sides are shaded as one cloth, with the same normals; the selected seam
-// is lined in amber, wider, open or closed. A hidden seam has no lines. A
+// is lined in amber, wider, open or closed. One the cloth could not close
+// (sim::Cloth::openSeams) is lined in red. A hidden seam has no lines. A
 // hidden panel is left out, with its side of every seam; a deactivated one is
 // seen through. The body can be see-through too, to show cloth inside it.
 //

@@ -18,6 +18,7 @@ constexpr Colour selectedColour{1.0f, 0.75f, 0.27f};
 constexpr Colour instanceColour{0.75f, 0.62f, 0.95f};
 // The table's seam blue, deeper: it is seen against pale cloth, not the dark table.
 constexpr Colour seamColour{0.18f, 0.46f, 0.98f};
+constexpr Colour openColour{0.92f, 0.22f, 0.18f};  // the window's error red, deeper in the same way
 
 constexpr float seamWidth = 2.0f, selectedSeamWidth = 4.0f;      // a seam's edges, in pixels of the screen's own scale
 constexpr float threadWidth = 1.0f;                              // the lines from each particle to the one it is sewn to: thin, so a cross reads
@@ -36,8 +37,9 @@ Colour behind(Colour front) { return {front.red * 0.58f, front.green * 0.61f, fr
 // edges, and one from each particle to the particle it is sewn to, which shows
 // which end meets which (a twisted seam's lines cross). A closed seam has none,
 // so that the cloth is seen as it will be, unless it is the selected one, which
-// is in amber and comes last, to lie on top. A seam switched off has none
-// either, and a hidden panel's side of a seam is left out with the lines to it.
+// is in amber and comes last, to lie on top. One the cloth could not close is
+// lined in red. A seam switched off has none either, and a hidden panel's side
+// of a seam is left out with the lines to it.
 void addSeams(Scene& scene, const session::Session& session, const SceneOptions& options) {
     const Document& doc = session.document();
     const sim::ClothMesh& mesh = session.shownMesh();
@@ -54,7 +56,9 @@ void addSeams(Scene& scene, const session::Session& session, const SceneOptions&
         // A mesh a few frames old may name a seam that is gone.
         if (!doc.contains(id) || !session.seamShown(id)) continue;
         const bool chosen = options.seam == id;
-        Colour colour = chosen ? selectedColour : seamColour;
+        const std::vector<sim::OpenSeam>& open = session.cloth().open;
+        const bool leftOpen = std::any_of(open.begin(), open.end(), [&](const sim::OpenSeam& o) { return o.seam == id; });
+        Colour colour = chosen ? selectedColour : leftOpen ? openColour : seamColour;
         Lines threads{.points = {}, .colour = colour, .width = threadWidth * pixel, .lift = seamLift};
         if (!chosen) threads.colour.alpha = threadAlpha;
         bool closed = true;

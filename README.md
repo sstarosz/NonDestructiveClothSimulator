@@ -33,10 +33,15 @@ the body follows too.
   screen): a click on one says which end stays where it is, and the end
   that stays is marked on the edge.
 - **Parameters and formulas**: `waist / 4 + ease`, with limits per field;
-  an edit that would break something is refused and says why.
+  an edit that would break something is refused and says why. A name too long
+  for the Parameters dock shows its start, and whole in its tooltip.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
   back at.
 - **Seams** between named edges, which follow the edges through every edit.
+  The Sew tool (S) joins the ends nearest your two clicks: click both edges
+  near the ends that should meet. Over the second edge, dotted links show
+  which ends will meet before you click. The twist button on a seam's card
+  swaps them.
 - **Instances come sewn**: an instance (or mirrored instance) is sewn as its
   source is, in the same undo step: a seam within the source is made within
   the instance, and a seam to a neighbour is made once the neighbour has an
@@ -68,6 +73,10 @@ the body follows too.
   its lines are gone. Choosing a seam's row in the Outliner shows it in amber,
   open or closed, in 3D, and lights it on the table. The eye on a seam's row
   hides its lines; the eye on "Seams" hides or shows all of them.
+- **A seam left open**: if a seam is still open 3 seconds after its thread is
+  drawn in, its lines in 3D turn red and its card in the Attribute Editor says
+  "Left open: 4 cm apart. Move the panels closer, then Reset." Both go once it
+  closes.
 - **Hide and deactivate panels**: each panel's row in the Outliner has an eye,
   which hides it in the 3D view only (it is still simulated), and a button that
   deactivates it, as in Marvelous Designer: it stays where it is, seen through,
@@ -109,7 +118,8 @@ the body follows too.
   the selected panels, or, with corners selected, the ones added with the
   Point tool; Ctrl+C remembers the panels, Ctrl+V pastes copies with their
   middle under the pointer, each in its place in the group (a copy follows the
-  same parameters), Ctrl+D duplicates the selected panels just right of them.
+  same parameters and is turned on the table as its panel is), Ctrl+D
+  duplicates the selected panels just right of them.
   Each is one undo step. The table's origin is drawn
   with its grid: the x axis in red, the y axis in green. The keys work while
   the table (or the 3D view) has the focus, so typing in a field or in the
@@ -338,8 +348,9 @@ How it is kept fast:
 ## A first garment
 
 1. Rectangle tool: draw two panels of about 46 x 55 cm.
-2. Sew tool: click the right edge of one and the left edge of the other;
-   then the two remaining side edges.
+2. Sew tool: click the right edge of one near its bottom, then the left edge
+   of the other near its bottom; then the two remaining side edges the same
+   way.
 3. Select the first panel. In the Attribute Editor, open "In space" and set
    Position to 0, 95, 24 and Wrap to 110. For the second: Position 0, 95, -24,
    Rotation 0, 180, 0 (the middle number turns it about y), Wrap 110.
@@ -416,7 +427,8 @@ holds and hands it what the user did.
   cannot be stretched one way together (the help line says so). The 3D view
   and the Outliner show the shown panel only. The instance buttons and "Sew as
   source" work on all the selected panels. A paste or Ctrl+D does not copy
-  seams, and a copy or an instance of a turned panel is not turned.
+  seams, nor a panel's place and wrap in space. An instance of a turned panel
+  is not turned.
 - An instance's seams are copied when it is made, or by "Sew as source"; they
   do not follow later changes: a seam removed, reversed or moved on the source
   stays as it was on the instances. A plain and a mirrored instance are never
@@ -442,8 +454,11 @@ holds and hands it what the user did.
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.
 - While seams are pulled shut the cloth slides on the body without friction.
-  Seams that cannot close (the pieces do not fit, or cloth is caught on an
-  arm) are given up 3 seconds after the thread is drawn in, and stay open.
+  A stitch pulls its two ends together firmly, so where pieces do not fit the
+  cloth usually stretches, even into the body, and the seam closes: no seam is
+  then reported as open. Only a seam still open when the cloth gives up (3
+  seconds after the thread is drawn in) is reported; one that opens later is
+  not. A change of the pattern or a move in space draws the seams in again.
 - Where three or more panel corners are sewn into one point (a band's side
   seam meeting a skirt), the stitches there pull against each other and that
   corner stays up to about 0.8 cm open. Pulling such a corner shut at once

@@ -11,6 +11,7 @@
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
+#include <QFocusEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLayout>
@@ -2592,14 +2593,136 @@ TEST_CASE("the ends of a seam's edges that meet are linked; reversing the seam c
     TableView* table = w.table();
     const PanelId plain = w.panel("plain"), driven = w.panel("driven");
     choose(w, Tool::Sew);
-    click(table, table->toScreen(between(w.corner(plain, -1, 1), w.corner(plain, 1, 1), 0.5)));
-    click(table, table->toScreen(between(w.corner(driven, -1, 1), w.corner(driven, 1, 1), 0.5)));
+    // The two top edges, each clicked toward the other end of the table: not reversed.
+    click(table, table->toScreen(between(w.corner(plain, -1, 1), w.corner(plain, 1, 1), 0.3)));
+    click(table, table->toScreen(between(w.corner(driven, -1, 1), w.corner(driven, 1, 1), 0.7)));
     REQUIRE(w.doc().seams().size() == 1);
+    REQUIRE(!w.doc().get(w.doc().seams().front()).reversed);
     REQUIRE(table->seamLinks().size() == 2);
     const Vec2 wentTo = table->seamLinks()[0].second;
     emit w.window.attributes()->seamReversed(w.doc().seams().front(), true);
     REQUIRE(table->seamLinks().size() == 2);
     EXPECT((!(table->seamLinks()[0].second == wentTo)), "reversed, each end goes to the other end");
+}
+
+TEST_CASE("a seam the cloth could not close says so on its card, until the cloth is reset", "[qt]")
+{
+    Window w;
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> frontRect = doc.add(front, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId back = doc.add(Panel{.name = "back", .x = 30});
+    const OpRef<Rect> backRect = doc.add(back, Rect{.width = 20_cm, .height = 30_cm});
+    doc.arrange(front, Arrangement{.placed = true, .x = 0, .y = 30, .z = 5});
+    doc.arrange(back, Arrangement{.placed = true, .x = 0, .y = 30, .z = -5, .turn = 180});
+    const SeamId seam = doc.add(Seam{.a = {front, frontRect.right()}, .b = {back, backRect.left()}});
+    w.window.open(std::move(doc), "open seam");
+    w.window.select(front);
+    w.window.tick();
+    EXPECT((w.window.attributes()->openShown(seam).isEmpty()), "with no cloth the card says nothing of it");
+
+    const session::Session& session = w.window.session();
+    w.window.shelf()->simulate()->setChecked(true);
+    w.window.tick();
+    REQUIRE(session.clothShown());
+    // One stitched point pulled under the floor and held there, where the one sewn to it cannot follow.
+    const sim::Stitch stitch = session.cloth().mesh->stitches.front();
+    emit w.window.space()->clothPulled(session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}, session::DragPhase::Begin);
+    for (int i = 0; i < 600; ++i) w.window.tick();
+    const QString said = w.window.attributes()->openShown(seam);
+    EXPECT((said.startsWith("Left open: ") && said.endsWith(" cm apart. Move the panels closer, then Reset.")), said.toStdString());
+
+    w.window.select(back);
+    EXPECT((w.window.attributes()->openShown(seam) == said), "the other panel's card of the same seam says it too, at once");
+    w.window.shelf()->reset()->trigger();
+    w.window.tick();
+    EXPECT((w.window.attributes()->openShown(seam).isEmpty()), "after Reset there is nothing to say");
+}
+
+TEST_CASE("a T-shirt side seam is sewn by two clicks near the hem, without a twist; the links show it before the second", "[qt]")
+{
+    Window w;  // the T-shirt body
+    TableView* table = w.window.table();
+    const PanelId front = w.panel("front"), back = w.panel("back");
+    // The sample's first seam is a side seam; it is taken away, to be sewn by hand.
+    Document doc = w.doc();
+    const SeamId sample = doc.seams().front();
+    const Seam side = doc.get(sample);
+    REQUIRE((side.a.panel == front && side.b.panel == back && !side.reversed));
+    doc.remove(sample);
+    doc.place(back, doc.get(front).x + 90.0, doc.get(front).y);  // clear of the front
+    w.window.open(std::move(doc), "to sew");
+    w.window.tick();
+    table->fit();
+    // A place on a sewn edge, on the table: `up` of the way from its lower end.
+    const auto onEdge = [&](const SeamSide& which, double up) {
+        const Pattern& shape = w.window.session().editor().shapes()[which.panel];
+        const Edge& edge = shape.edge(which.edge);
+        Vec2 low = shape.vertices[edge.start].position, high = shape.vertices[edge.end].position;
+        if (low.y > high.y) std::swap(low, high);
+        const Panel& placed = w.doc().get(which.panel);
+        return Vec2{placed.x + low.x + (high.x - low.x) * up, placed.y + low.y + (high.y - low.y) * up};
+    };
+    const auto near = [](Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y) < 1e-6; };
+    // Whether the links join the two lower ends, and the two upper.
+    const auto lowToLow = [&](const std::vector<std::pair<Vec2, Vec2>>& links) {
+        if (links.size() != 2) return false;
+        return std::any_of(links.begin(), links.end(), [&](const auto& link) { return near(link.first, onEdge(side.a, 0)) && near(link.second, onEdge(side.b, 0)); }) &&
+               std::any_of(links.begin(), links.end(), [&](const auto& link) { return near(link.first, onEdge(side.a, 1)) && near(link.second, onEdge(side.b, 1)); });
+    };
+
+    w.window.shelf()->action(Tool::Sew)->trigger();
+    click(table, table->toScreen(onEdge(side.a, 0.15)));
+    EXPECT((table->previewLinks().empty()), "over no second edge there are no links to show");
+    send(table, QEvent::MouseMove, table->toScreen(onEdge(side.b, 0.85)), Qt::NoButton, Qt::NoButton, {});
+    EXPECT((table->previewLinks().size() == 2 && !lowToLow(table->previewLinks())), "near the other's upper end, the links cross");
+    send(table, QEvent::MouseMove, table->toScreen(onEdge(side.b, 0.15)), Qt::NoButton, Qt::NoButton, {});
+    EXPECT(lowToLow(table->previewLinks()), "near its hem, hem goes to hem");
+    table->grab();  // painted with the preview
+    click(table, table->toScreen(onEdge(side.b, 0.15)));
+    REQUIRE(w.doc().seams().size() == 4);
+    const Seam sewn = w.doc().get(w.doc().seams().back());
+    EXPECT((sewn.a == side.a && sewn.b == side.b && !sewn.reversed), "sewn as the sample has it: no twist");
+    EXPECT((table->previewLinks().empty()), "sewn, the preview is gone");
+
+    w.window.shelf()->undo()->trigger();
+    w.window.shelf()->action(Tool::Sew)->trigger();
+    click(table, table->toScreen(onEdge(side.a, 0.15)));
+    click(table, table->toScreen(onEdge(side.b, 0.85)));
+    REQUIRE(w.doc().seams().size() == 4);
+    EXPECT((w.doc().get(w.doc().seams().back()).reversed), "clicked near opposite ends, those ends meet: twisted, as asked");
+}
+
+TEST_CASE("a parameter's name that does not fit shows its start, and whole in its tooltip", "[qt]")
+{
+    Window w;
+    w.window.resize(900, 700);  // narrow docks
+    const Param armhole = w.parameter("armhole_depth");
+    QLineEdit* name = w.window.parameters()->nameField(armhole);
+    REQUIRE(name != nullptr);
+    name->setFixedWidth(40);  // too narrow for the name, whatever the font
+    // At the start: the cursor is before the first letter, and the box is scrolled so that it is in sight at the left.
+    const auto atStart = [&] {
+        name->grab();  // painted, so that it is scrolled as it will be seen
+        return name->cursorPosition() == 0 && name->inputMethodQuery(Qt::ImCursorRectangle).toRectF().left() < name->width() / 3.0;
+    };
+    EXPECT((atStart()), "the start of the name is shown");
+    EXPECT((name->toolTip().startsWith("armhole_depth")), "and the whole name is in the tooltip");
+
+    name->end(false);  // typing at its end scrolls it
+    // Then left. Off screen no window has the focus, so the box is told as Qt would tell it.
+    QFocusEvent left(QEvent::FocusOut, Qt::MouseFocusReason);
+    QApplication::sendEvent(name, &left);
+    EXPECT((atStart()), "left, it shows its start again");
+
+    name->setFocus();
+    name->selectAll();
+    name->insert("a_much_longer_name_for_the_depth");  // as typed: the box knows it was changed
+    emit name->editingFinished();
+    name->clearFocus();
+    REQUIRE(w.doc().get(armhole).name == "a_much_longer_name_for_the_depth");
+    EXPECT((w.window.parameters()->nameField(armhole)->toolTip().startsWith("a_much_longer_name_for_the_depth")), "renamed, the tooltip follows");
+    EXPECT((atStart()), "and the new name shows its start");
 }
 
 TEST_CASE("a panel is placed in space again where the table has it", "[qt]")

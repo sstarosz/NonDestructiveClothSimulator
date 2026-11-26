@@ -242,6 +242,7 @@ void Session::resetCloth() {
     simulation_->stop();
     cloth_.mesh.reset();  // a cloth started next must not be taken for this one
     cloth_.positions.clear();
+    cloth_.open.clear();
     simulating_ = false;
     clothMoved_ = false;
     clothPlaced_.clear();

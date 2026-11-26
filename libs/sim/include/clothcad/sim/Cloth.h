@@ -42,6 +42,13 @@ struct Fabric {
     bool collidesWithItself = true;  // whether cloth is kept from passing through cloth
 };
 
+// A seam the cloth gave up on and that is open still.
+struct OpenSeam {
+    SeamId seam;
+    double widest = 0.0;  // its longest stitch: how far apart it stayed, in cm
+    friend bool operator==(const OpenSeam&, const OpenSeam&) = default;
+};
+
 class Cloth {
 public:
     // `start` runs parallel to mesh.panels, as sim::arranged() gives it.
@@ -101,6 +108,12 @@ public:
     // stitch has closed, or a few seconds after its thread was drawn in if
     // one cannot close (the pieces do not fit).
     bool sewing() const { return !seamsClosed_; }
+    // The seams that could not close: those wider than joinedWithin when
+    // sewing gave up on them, each listed for as long as it stays that wide
+    // (it can close later: its threads keep pulling). Empty while sewing.
+    // Seams are drawn in, and listed, anew by continued() and when a panel is
+    // taken back into the cloth.
+    const std::vector<OpenSeam>& openSeams() const { return open_; }
     // False if any position has stopped being a number.
     bool sound() const;
 
@@ -113,6 +126,7 @@ private:
     struct Thread {
         uint32_t a, b;
         double left;  // how much thread is still to be drawn in
+        SeamId seam;
         bool holds = true;  // false while a panel it sews is left out
     };
 
@@ -159,6 +173,9 @@ private:
     bool seamsClosed_ = false;
     double drawnInAt_ = -1.0;  // when the last thread was drawn in; below zero while some still are
     void checkTheSeams();
+    std::vector<OpenSeam> open_;
+    void listOpenSeams();     // when sewing ends: those that are open now
+    void measureOpenSeams();  // the listed ones again; those that have closed leave the list
 };
 
 } // namespace clothcad::sim

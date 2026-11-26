@@ -259,6 +259,12 @@ Pattern placedOnTable(const Pattern& own, double angle, Vec2 place) {
     return pattern;
 }
 
+// Which ends of two sewn edges meet, each edge as points from its start to its
+// end: the start of one goes to the end of the other, unless it is reversed.
+std::array<std::pair<Vec2, Vec2>, 2> linksBetween(const std::vector<Vec2>& a, const std::vector<Vec2>& b, bool reversed) {
+    return {std::pair{a.front(), reversed ? b.front() : b.back()}, std::pair{a.back(), reversed ? b.back() : b.front()}};
+}
+
 } // namespace
 
 void TableView::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners, Tool tool,
@@ -311,7 +317,6 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         }
         drawn_.push_back(std::move(d));
     }
-    // Each seam: the start of one edge goes to the end of the other, unless it is reversed.
     seamLinks_.clear();
     litLinks_.reset();
     for (const SeamResult& sewn : shapes.seams) {
@@ -324,8 +329,7 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         const std::vector<Vec2> lineB = edgePoints(b->pattern, b->pattern.edge(seam.b.edge));
         if (lineA.size() < 2 || lineB.size() < 2) continue;
         if (seam_ == sewn.seam) litLinks_ = seamLinks_.size();
-        seamLinks_.push_back({lineA.front(), seam.reversed ? lineB.front() : lineB.back()});
-        seamLinks_.push_back({lineA.back(), seam.reversed ? lineB.back() : lineB.front()});
+        for (const auto& link : linksBetween(lineA, lineB, seam.reversed)) seamLinks_.push_back(link);
     }
     if (!fitted_ && !drawn_.empty()) fit();
     if (seam_ != seamBefore || selected_ != selectedBefore || corners_ != cornersBefore || others_ != othersBefore || !(groupPivot_ == groupPivotBefore) ||
@@ -1005,11 +1009,14 @@ std::optional<TableView::Offer> TableView::offerAt(QPointF screen) const {
             for (const Edge& edge : d.pattern.edges) {
                 if (edge.seam) continue;                                         // a ring's closing slit is not an edge of the cloth
                 if (tool_ == Tool::Mirror && (edge.arc || edge.cubic)) continue;  // a mirror needs a straight edge
-                if (sewFrom_ && sewFrom_->panel == d.panel && sewFrom_->edge == edge.name) continue;
+                if (sewFrom_ && sewFrom_->side.panel == d.panel && sewFrom_->side.edge == edge.name) continue;
                 if (const double off = distanceToEdge(d, edge); off < nearest) {
                     nearest = off;
                     best = Offer{.panel = d.panel, .edge = edge.name};
-                    if (tool_ == Tool::Sew) best->note = QString::fromStdString(formatValue(d.pattern.length(edge.name), Unit::Length));
+                    if (tool_ == Tool::Sew) {
+                        best->note = QString::fromStdString(formatValue(d.pattern.length(edge.name), Unit::Length));
+                        best->along = fractionAlong(d.pattern, edge, at);
+                    }
                 }
             }
         return best;
@@ -1087,12 +1094,12 @@ void TableView::pressWithTool(QPointF screen, bool snapping) {
             if (tool_ == Tool::Length) emit gestured(session::EditLength{side.panel, side.edge, true});
             if (tool_ == Tool::Mirror) emit gestured(session::MirrorAcross{side.panel, side.edge});
             if (tool_ == Tool::Sew && !sewFrom_) {
-                sewFrom_ = side;
-                emit hinted("Now click the edge to sew it to. Esc cancels.");
+                sewFrom_ = SewStart{side, offer->along};
+                emit hinted("Now click the edge to sew it to, near the end that meets. Esc cancels.");
             } else if (tool_ == Tool::Sew) {
-                const SeamSide first = *sewFrom_;
+                const SewStart first = *sewFrom_;
                 sewFrom_.reset();
-                emit gestured(session::SewEdges{first, side});
+                emit gestured(session::SewEdges{first.side, side, first.along, offer->along});
             }
         } else if (offer->point) {
             if (tool_ == Tool::Point) emit gestured(session::AddPointOn{offer->panel, *offer->point});
@@ -1167,6 +1174,16 @@ void TableView::paintGizmo(QPainter& p) const {
     p.restore();
 }
 
+std::vector<std::pair<Vec2, Vec2>> TableView::previewLinks() const {
+    if (tool_ != Tool::Sew || !sewFrom_ || !offer_ || !offer_->edge) return {};
+    const Drawn* a = drawnOf(sewFrom_->side.panel);
+    const Drawn* b = drawnOf(offer_->panel);
+    if (!a || !b || !a->pattern.contains(sewFrom_->side.edge) || !b->pattern.contains(*offer_->edge)) return {};
+    const auto links = linksBetween(edgePoints(a->pattern, a->pattern.edge(sewFrom_->side.edge)), edgePoints(b->pattern, b->pattern.edge(*offer_->edge)),
+                                    session::sewsReversed(sewFrom_->along, offer_->along));
+    return {links.begin(), links.end()};
+}
+
 void TableView::paintTool(QPainter& p) const {
     const QColor offered(255, 226, 150);
     const auto polyline = [&](const Drawn& d, const EdgeRef& edge) {
@@ -1190,12 +1207,17 @@ void TableView::paintTool(QPainter& p) const {
         }
     }
     if (sewFrom_)
-        if (const Drawn* d = drawnOf(sewFrom_->panel)) {
-            const QPolygonF first = polyline(*d, sewFrom_->edge);
+        if (const Drawn* d = drawnOf(sewFrom_->side.panel)) {
+            const QPolygonF first = polyline(*d, sewFrom_->side.edge);
             p.setPen(QPen(theme::seam, 6, Qt::SolidLine, Qt::RoundCap));
             p.drawPolyline(first);
-            p.setPen(QPen(theme::seam, 1.5, Qt::DashLine));
-            if (!first.isEmpty()) p.drawLine(first[first.size() / 2], pointer_);
+            // Over a second edge, dimmed links show which ends would meet; else a line follows the pointer.
+            const std::vector<std::pair<Vec2, Vec2>> would = previewLinks();
+            QColor dim = theme::seam;
+            dim.setAlpha(110);
+            p.setPen(QPen(would.empty() ? theme::seam : dim, 1.5, Qt::DashLine));
+            for (const auto& [from, to] : would) p.drawLine(toScreen(from), toScreen(to));
+            if (would.empty() && !first.isEmpty()) p.drawLine(first[first.size() / 2], pointer_);
         }
     if (lineFrom_)
         if (drawnOf(lineFrom_->panel)) {

@@ -175,6 +175,38 @@ TEST_CASE("an open seam is lined along both edges; a closed one has no lines unl
     EXPECT(seams({}).empty(), "a seam taken away has no line");
 }
 
+TEST_CASE("a seam the cloth could not close is lined in red; selected it stays amber")
+{
+    Document doc;
+    const PanelId left = doc.add(Panel{.name = "left"});
+    const OpRef<Rect> leftRect = doc.add(left, Rect{.width = 20_cm, .height = 30_cm});
+    doc.arrange(left, Arrangement{.placed = true, .x = -20, .y = 30, .z = 0});
+    const PanelId right = doc.add(Panel{.name = "right"});
+    const OpRef<Rect> rightRect = doc.add(right, Rect{.width = 20_cm, .height = 30_cm});
+    doc.arrange(right, Arrangement{.placed = true, .x = 20, .y = 30, .z = 0});
+    const SeamId seam = doc.add(Seam{.a = {left, leftRect.right()}, .b = {right, rightRect.left()}});
+    session::Session session(doc, session::Threading::OneStepPerAdvance);
+    session.simulate(true);
+    session.update();
+    // One stitched point held under the floor, where the one sewn to it cannot follow.
+    const sim::Stitch stitch = session.cloth().mesh->stitches.front();
+    session.grab(session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0});
+    for (int i = 0; i < 600; ++i) session.update();
+    REQUIRE(!session.cloth().open.empty());
+    OrbitCamera camera;
+    const auto seamLines = [&](const SceneOptions& options) {
+        std::vector<Lines> found;
+        for (const Lines& lines : sceneOf(session, camera, 1.5, options).lines)
+            if (lines.lift > 0.0f) found.push_back(lines);
+        return found;
+    };
+    const std::vector<Lines> open = seamLines({});
+    REQUIRE(!open.empty());
+    for (const Lines& lines : open) EXPECT((lines.colour.red > 0.8f && lines.colour.green < 0.35f && lines.colour.blue < 0.3f), "its edges and its threads, in red");
+    for (const Lines& lines : seamLines({.seam = seam}))
+        EXPECT((lines.colour.red == 1.0f && lines.colour.green > 0.6f), "selected, in amber as any seam");
+}
+
 TEST_CASE("a hidden panel is not drawn while the cloth still runs; a deactivated one is seen through")
 {
     TwoPanels start;
