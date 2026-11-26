@@ -31,6 +31,7 @@
 #include "TableView.h"
 #include "Theme.h"
 #include "ValueField.h"
+#include "Version.h"
 #include "clothcad/core/Drawing.h"
 #include "clothcad/core/File.h"
 #include "clothcad/core/Text.h"
@@ -555,6 +556,15 @@ void MainWindow::buildMenus() {
 
     QMenu* windows = menuBar()->addMenu("Windows");
     for (QDockWidget* dock : docks_) windows->addAction(dock->toggleViewAction());
+
+    QMenu* help = menuBar()->addMenu("Help");
+    item(help, "About Cloth CAD", {}, this, [this] {
+        auto* about = new QMessageBox(QMessageBox::NoIcon, "About Cloth CAD", aboutText(), QMessageBox::Ok, this);
+        about->setObjectName("about");
+        about->setAttribute(Qt::WA_DeleteOnClose);
+        about->setTextInteractionFlags(Qt::TextSelectableByMouse);  // so that a report can copy the version
+        about->open();
+    })->setObjectName("helpAbout");
 }
 
 void MainWindow::open(Document document, const QString& title, SceneState state) {

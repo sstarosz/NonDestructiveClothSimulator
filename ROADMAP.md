@@ -14,8 +14,10 @@ trousers can be made. Of the list from making trousers (#41 to #54), what is
 left is the speed of the window and of the cloth, and seeing the body inside
 the cloth.
 
-Nothing has been released. There is no package to download and no licence.
-A garment can be taken out of the program as an OBJ file.
+Nothing has been released yet. The code is under the MIT licence, a garment
+can be taken out of the program as an OBJ file, and a version tag makes a
+draft release with a zip to download. What is left for 0.1 is listed under
+"Also before the tag" below.
 
 ## 0.1 - the first release
 
@@ -38,6 +40,21 @@ In pull requests, in this order:
 | 8 | **Export OBJ.** File > Export OBJ… writes the garment as it hangs (as it is arranged if it was not simulated), in the avatar's units so it lines up with the character, one group per panel, the pattern as it lies on the table as UVs, normals smooth across closed seams. Hidden panels are left out | #85 | M | Without it the garment cannot be used anywhere else |
 | 9 | **A first user is not left stuck.** Say when a seam could not close, on its card and its lines in 3D, and what to do. Sew the way the clicks say, so that a seam is not reversed by surprise. Parameter names show their start. A copy keeps the turn of the panel it copies. Found on the way: on pieces that do not fit, the cloth mostly stretches and the seam closes, so telling the user of a misfit needs more than the open seam (#129, in 0.2) | #14, #11, #75, #62 | M | A seam that silently stays open is the worst first impression |
 | 10 | **The release.** The MIT licence, and the notices of what the zip ships (Qt under LGPL 3, CDT under MPL 2.0, the MSVC runtime, the avatar). Help > About and `clothcad --version`. A tag `v0.1.0` makes CI build and test, install into a folder, start the installed program once, zip it, and draft a GitHub Release; I publish it. `CHANGELOG.md`, and a README part for users: Windows 10 or 11 (x64), a graphics card with Vulkan 1.1, how to start, a first garment on the trousers sample | #84, #83, #82, #81 | M | Last, so the first zip has everything. The `LICENSE` file goes in at once, though: the code is public already, and without a licence nobody may use it |
+
+**Also before the tag**, found or put off while PRs 1-10 were made:
+
+- Avatar import options: the file's unit, scale and axes, kept in the
+  pattern, so that an avatar in metres is not read as centimetres. It adds to
+  the file's format, so it goes in before the format is promised (#121).
+- The window benchmark passes on an unchanged `main` (#116), and its row for
+  a running cloth no longer depends on how long Windows sleeps (#109).
+- A round of hardening and housekeeping: bad input and unexpected errors do
+  not lose work or end the program. What it holds is still to be agreed.
+- The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
+  another PC (#82).
+- Last, the release's own pull request, when all of the above is done: the
+  changelog and the README's part for users read again and brought up to date
+  (#81), and 0.1 marked done here.
 
 **Before the tag**, checked by hand on the 4K display:
 

@@ -4068,3 +4068,40 @@ TEST_CASE("Export OBJ writes the pattern as it is, also with only the table show
     choose(w, "fileSample0");
     EXPECT(w.window.findChild<QAction*>("fileExportObj")->isEnabled(), "a garment has");
 }
+
+TEST_CASE("Help > About names the version, the commit and the licences", "[qt]")
+{
+    Window w;
+    auto* item = w.window.findChild<QAction*>("helpAbout");
+    REQUIRE(item != nullptr);
+    item->trigger();
+    auto* about = w.window.findChild<QMessageBox*>("about");
+    REQUIRE(about != nullptr);
+    EXPECT(about->isVisible(), "it is shown, and the window goes on");
+    const QString text = about->text();
+    EXPECT(text.startsWith("Cloth CAD " CLOTHCAD_PROJECT_VERSION " ("), "the version CMakeLists.txt names, and the commit");
+    EXPECT((text.contains("MIT") && text.contains("LGPL 3") && text.contains("THIRD-PARTY.md")), "the licences, and where the rest is said");
+    about->close();
+}
+
+// The README's walk through "A first garment": what it tells a new user to do must work.
+TEST_CASE("the README's first garment: the trousers drape, take a wider waist, and export", "[qt]")
+{
+    Window w;
+    choose(w, "fileSample6");
+    w.waitForTheBody();
+    const session::Session& session = w.window.session();
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 400; ++i) w.window.tick();
+    EXPECT((session.clothShown() && !session.cloth().sewing && session.cloth().open.empty()), "every seam closes");
+
+    type(w.window.parameters()->field(w.parameter("waist")), "80");
+    for (int i = 0; i < 400; ++i) w.window.tick();
+    EXPECT(w.window.parameters()->field(w.parameter("waist"))->text() == "80 cm", "a waist of 80 cm is taken");
+    EXPECT((session.editor().shapes().errors.empty() && session.cloth().open.empty()), "and the trousers still close");
+
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-readme-XXXXXX");
+    REQUIRE(folder.isValid());
+    EXPECT(w.window.exportObj(folder.filePath("trousers.obj")), "and it is exported");
+}
+

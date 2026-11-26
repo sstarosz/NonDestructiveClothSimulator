@@ -1,0 +1,68 @@
+# A release from a tag: v0.1.0, or a try of it such as v0.1.0-rc1. The tag
+# must be the version in CMakeLists.txt and CHANGELOG.md must have that
+# version's section. It is built and tested as every pull request is (ci.yml),
+# installed into a folder, the installed program is started once, and the
+# folder is zipped into a draft GitHub Release. A draft is seen only by those
+# who may write to the repository, until it is published by hand.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  notes:
+    name: The tag and its notes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tag
+        name: Check the tag and take the notes from CHANGELOG.md
+        run: cmake "-DTAG=$GITHUB_REF_NAME" -DNOTES=notes.md "-DOUTPUTS=$GITHUB_OUTPUT" -P cmake/ReleaseNotes.cmake
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
+          if-no-files-found: error
+
+  build:
+    needs: notes
+    uses: ./.github/workflows/ci.yml
+    with:
+      package: ClothCad-${{ needs.notes.outputs.version }}-windows-x64
+      version: ${{ needs.notes.outputs.version }}
+
+  draft:
+    name: Draft the release
+    needs: [notes, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Only this job may write, and it runs nothing from the repository.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+
+      - name: Make the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.notes.outputs.prerelease }}
+        run: |
+          flags=(--draft --verify-tag --title "Cloth CAD ${GITHUB_REF_NAME#v}" --notes-file notes.md)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" ClothCad-*.zip --repo "$GITHUB_REPOSITORY" "${flags[@]}"
