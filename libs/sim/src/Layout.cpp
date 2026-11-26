@@ -174,6 +174,16 @@ Arrangement turnedAbout(const Arrangement& arrangement, Vec3 axis, double degree
     return now;
 }
 
+Arrangement turnedAbout(const Arrangement& arrangement, Vec3 axis, double degrees, Vec3 through) {
+    Arrangement now = turnedAbout(arrangement, axis, degrees);
+    const Vec3 fromIt = Vec3{arrangement.x, arrangement.y, arrangement.z} - through;
+    const Vec3 anchor = through + Motion{.before = arrangement, .after = now}.turned(fromIt);
+    now.x = anchor.x;
+    now.y = anchor.y;
+    now.z = anchor.z;
+    return now;
+}
+
 Vec3 Motion::turned(Vec3 direction) const { return rotated(unrotated(direction, before), after); }
 
 Vec3 Motion::operator()(Vec3 point) const {

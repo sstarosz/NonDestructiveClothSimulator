@@ -17,7 +17,8 @@
 //      own z is drawn grey: a panel is flat, it has no thickness to scale.
 //
 // It stands at the point the panel's arrangement places (its x, y and z in
-// space), is drawn in front of everything in flat colours, without light and
+// space), or, while there is cloth, on the panel's cloth at the spot that
+// point has in the flat pattern. It is turned as the panel is arranged, is drawn in front of everything in flat colours, without light and
 // shade, and is the same size on the screen at any distance.
 //
 //   const std::optional<render::Gizmo> gizmo = render::gizmoOf(session, panel, session::GizmoMode::Rotate, devicePixelRatio);
@@ -59,8 +60,8 @@ struct Gizmo {
     double pixel = 1.0;
 };
 
-// The gizmo of a panel: where its arrangement places it, turned as it is.
-// Empty when the panel has no cloth mesh to show.
+// The gizmo of a panel: where its arrangement places it (on its cloth, when
+// there is some), turned as it is arranged. Empty when the panel has no cloth mesh to show.
 std::optional<Gizmo> gizmoOf(const session::Session& session, PanelId panel, session::GizmoMode mode, double pixel);
 
 // The handle drawn at a place in the picture, if any: the middle first, then

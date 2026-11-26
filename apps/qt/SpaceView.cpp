@@ -313,6 +313,10 @@ std::optional<render::Gizmo> SpaceView::gizmo() const {
     render::Gizmo shown = *gizmo_;
     shown.mode = *mode_;
     shown.pixel = pixelScale();
+    // A handle that is held goes only where the hand has taken it, however the
+    // cloth under it moves meanwhile.
+    if (carrying_ && carrying_->byGizmo)
+        shown.centre = shown.mode == session::GizmoMode::Move ? carrying_->gizmo.centre + carrying_->by : carrying_->gizmo.centre;
     return shown;
 }
 
@@ -402,7 +406,7 @@ void SpaceView::moveTo(QPointF at, Qt::MouseButtons held, Qt::KeyboardModifiers 
                 if (const std::optional<render::Turn> turn = render::turnBy(carrying_->gizmo, carrying_->handle, camera_, pictureSize(), from, to, snapping ? 15.0 : 0.1)) {
                     carrying_->turn = *turn;
                     carryingStarted_ = true;
-                    emit gestured(session::TurnInSpace{carrying_->panel, turn->axis, turn->degrees, phase});
+                    emit gestured(session::TurnInSpace{carrying_->panel, turn->axis, turn->degrees, phase, carrying_->gizmo.centre});
                 }
                 break;
             case session::GizmoMode::Scale:
@@ -426,7 +430,9 @@ void SpaceView::release() {
             const session::DragPhase end = session::DragPhase::End;
             switch (carrying_->gizmo.mode) {
             case session::GizmoMode::Move: emit gestured(session::MoveInSpace{carrying_->panel, carrying_->by, end}); break;
-            case session::GizmoMode::Rotate: emit gestured(session::TurnInSpace{carrying_->panel, carrying_->turn.axis, carrying_->turn.degrees, end}); break;
+            case session::GizmoMode::Rotate:
+                emit gestured(session::TurnInSpace{carrying_->panel, carrying_->turn.axis, carrying_->turn.degrees, end, carrying_->gizmo.centre});
+                break;
             case session::GizmoMode::Scale: emit gestured(session::ScalePanel{carrying_->panel, carrying_->scale.x, carrying_->scale.y, end}); break;
             }
         }

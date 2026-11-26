@@ -92,6 +92,8 @@ the body follows too.
   the square between them or the middle; its z is grey, since a panel has no
   thickness. In 3D they are drawn in flat colours, in front of everything.
   Ctrl: whole centimetres, steps of 15°, steps of 10 %.
+  Once there is cloth, the 3D gizmo stands on the selected panel's cloth and
+  follows it; turning is about where it stands.
   Moving and turning only place a panel; scaling changes its shape. A panel
   that starts with a rectangle, a circle or a ring of plain numbers is scaled
   by those numbers, with no layer added; if a formula sets a length, or the
@@ -404,9 +406,9 @@ holds and hands it what the user did.
 - Undo and redo bring back the drape of the last 64 states.
 - The move and rotate gizmos work along the axes of space (or of the table),
   not the panel's own; only the scale gizmo follows the panel's own axes.
-  In 3D the gizmo stands at the panel's anchor, which can be away from where
-  draped cloth hangs: it does not follow cloth that falls, whatever the tool.
-  Drag the panel itself with Move while the cloth is paused. The scale gizmo's z handle does nothing; seen from the
+  On draped cloth the 3D gizmo stands at one spot of the panel (its anchor's,
+  which on a ring or a cut panel may be near an edge), and the scale gizmo's
+  handles keep the directions the panel is arranged in, not the drape's. The scale gizmo's z handle does nothing; seen from the
   front it points at the eye and is too short to show.
 - Set length moves the two corners of an edge along the edge until it has
   the length; the edges beside it slant. It keeps both ends moving evenly, or

@@ -1631,6 +1631,92 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
     EXPECT((!w.window.helpLine().contains("Playing")), "after Reset the help line no longer says that it plays");
 }
 
+TEST_CASE("the 3D gizmo follows cloth that has fallen; moving and turning work about where it stands", "[qt]")
+{
+    Window w;
+    SpaceView& space = *w.window.space();
+    const session::Session& session = w.window.session();
+    const PanelId front = frontPanel(w).first;
+    w.window.select(front);
+    w.window.shelf()->action(Tool::Move)->trigger();
+    w.window.showBody(false);  // so that the cloth falls
+    w.window.tick();
+    REQUIRE(space.gizmo().has_value());
+    const sim::Vec3 first = space.gizmo()->centre;
+
+    // How far the nearest particle of the panel is from a point.
+    const auto fromCloth = [&](sim::Vec3 at) {
+        double least = 1e9;
+        for (std::size_t p = 0; p < session.shownMesh().panels.size(); ++p)
+            if (session.shownMesh().panels[p].panel == front)
+                for (const sim::Vec3& particle : session.shownPositions()[p]) least = std::min(least, sim::length(particle - at));
+        return least;
+    };
+    const auto onGizmo = [&](sim::Vec3 point) { return *render::pictureOf(space.camera(), space.pictureSize(), point); };
+
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 90; ++i) w.window.tick();  // past the seams being drawn shut, and falling
+
+    // Playing: a handle that is held does not run away with the falling cloth.
+    const sim::Vec3 falling = space.gizmo()->centre;
+    EXPECT((falling.y < first.y - 5.0 && fromCloth(falling) < 1e-9), "while the cloth falls the gizmo falls with it");
+    const QPointF middle = onView(space, onGizmo(falling));
+    space.press(middle, Qt::LeftButton, {});
+    for (int i = 0; i < 5; ++i) w.window.tick();
+    EXPECT((sim::length(space.gizmo()->centre - falling) < 1e-9), "held, it stays where it was taken hold of");
+    space.release();
+    w.window.tick();
+    w.window.shelf()->simulate()->setChecked(false);
+    w.window.tick();
+
+    const sim::Vec3 fallen = space.gizmo()->centre;
+    EXPECT((fromCloth(fallen) < 1e-9), "paused, the gizmo is on the panel's cloth");
+    w.window.shelf()->action(Tool::Rotate)->trigger();
+    w.window.tick();
+    EXPECT((sim::length(space.gizmo()->centre - fallen) < 1e-9), "and so after a change of tool");
+
+    // The x arrow carries panel, drape and gizmo.
+    w.window.shelf()->action(Tool::Move)->trigger();
+    w.window.tick();
+    const render::PicturePoint at = onGizmo(fallen), tip = onGizmo(fallen + sim::Vec3{1.0, 0.0, 0.0});
+    const double dx = tip.x - at.x, dy = tip.y - at.y, length = std::hypot(dx, dy), pixel = space.gizmo()->pixel;
+    const auto out = [&](double pixels) { return onView(space, {at.x + dx / length * pixels * pixel, at.y + dy / length * pixels * pixel}); };
+    const Arrangement before = w.doc().get(front).arrangement;
+    space.press(out(40.0), Qt::LeftButton, {});
+    for (int step = 1; step <= 5; ++step) {
+        space.moveTo(out(40.0 + 20.0 * step), Qt::LeftButton, {});
+        w.window.tick();
+    }
+    const double moved = w.doc().get(front).arrangement.x - before.x;
+    EXPECT((moved > 1.0 && sim::length(space.gizmo()->centre - (fallen + sim::Vec3{moved, 0.0, 0.0})) < 1e-6), "the gizmo goes with the hand");
+    space.release();
+    w.window.tick();
+    const sim::Vec3 carried = space.gizmo()->centre;
+    EXPECT((sim::length(carried - (fallen + sim::Vec3{moved, 0.0, 0.0})) < 1e-6 && fromCloth(carried) < 1e-6), "and is still on the cloth when let go");
+
+    // A turn is about the gizmo: the cloth under it stays where it is.
+    w.window.shelf()->action(Tool::Rotate)->trigger();
+    w.window.tick();
+    const render::PicturePoint centre = onGizmo(carried);
+    const auto onRing = [&](double degrees) {
+        const double radians = degrees * std::numbers::pi / 180.0;
+        return onView(space, {centre.x + render::gizmoViewRingPixels * pixel * std::cos(radians), centre.y - render::gizmoViewRingPixels * pixel * std::sin(radians)});
+    };
+    const sim::Placement drape = session.cloth().positions;
+    space.press(onRing(0.0), Qt::LeftButton, {});
+    for (int step = 1; step <= 6; ++step) {
+        space.moveTo(onRing(-15.0 * step), Qt::LeftButton, Qt::ControlModifier);
+        w.window.tick();
+    }
+    space.release();
+    w.window.tick();
+    double turned = 0.0;
+    for (std::size_t p = 0; p < drape.size(); ++p)
+        for (std::size_t i = 0; i < drape[p].size(); ++i) turned = std::max(turned, sim::length(session.cloth().positions[p][i] - drape[p][i]));
+    EXPECT((turned > 5.0), "the panel's drape turned");
+    EXPECT((fromCloth(carried) < 1e-6 && sim::length(space.gizmo()->centre - carried) < 1e-6), "about the gizmo, which stays on its spot of the cloth");
+}
+
 namespace {
 
 // A skirt cut at an angle along a line: three layers, the cut using the line.
