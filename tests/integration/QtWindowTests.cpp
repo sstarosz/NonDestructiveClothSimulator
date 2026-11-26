@@ -1491,12 +1491,10 @@ TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is p
     EXPECT((w.doc().get(front).arrangement.x != before.x), "with Move, dragging the selected panel carries it");
     EXPECT((w.window.selected() == front), "and it stays selected");
 
-    // Drape it, then drag the cloth: the cloth is held, the document stays.
+    // Drape it, then drag the playing cloth: the cloth is held, the document stays.
     w.window.shelf()->simulate()->setChecked(true);
     for (int i = 0; i < 5; ++i) w.window.tick();
     REQUIRE(w.window.session().clothShown());
-    w.window.shelf()->simulate()->setChecked(false);
-    w.window.tick();
     const std::uint64_t version = w.window.session().editor().version();
     // Off the middle again, so that the press is on the cloth and not on the gizmo.
     const render::PicturePoint nowMiddle = frontPanel(w).second;
@@ -1507,6 +1505,125 @@ TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is p
     w.window.tick();
     EXPECT((!w.window.session().pulling()), "let go, it is not");
     EXPECT((w.window.session().editor().version() == version), "pulling the cloth changes nothing in the document");
+}
+
+TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled while it plays, or with the Pull tool", "[qt]")
+{
+    Window w;
+    SpaceView& space = *w.window.space();
+    const PanelId front = frontPanel(w).first;
+    w.window.select(front);
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 5; ++i) w.window.tick();
+    w.window.shelf()->simulate()->setChecked(false);
+    w.window.tick();
+    const session::Session& session = w.window.session();
+    REQUIRE((session.clothShown() && !session.simulating()));
+    EXPECT((w.window.helpLine().contains("Paused") && w.window.helpLine().contains("(H)")), "pausing says what a drag does now");
+
+    // Real mouse events on the surface the picture is drawn on.
+    QWidget* surface = space.findChild<QWidget*>("spacePicture");
+    REQUIRE(surface != nullptr);
+    bool held = false;  // whether the cloth was held at some point of the last drag
+    const auto drag = [&] {
+        // Off the middle, so that the press is on the cloth and not on a gizmo.
+        const render::PicturePoint middle = frontPanel(w).second;
+        const double scale = space.inPicture({1, 1}).x;
+        const QPointF from = onView(space, {middle.x - 30.0 * scale, middle.y + 30.0 * scale});
+        held = false;
+        send(surface, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton, {});
+        for (int step = 1; step <= 5; ++step) {
+            send(surface, QEvent::MouseMove, from + QPointF(8.0 * step, -4.0 * step), Qt::NoButton, Qt::LeftButton, {});
+            w.window.tick();
+            held = held || session.pulling();
+        }
+        send(surface, QEvent::MouseButtonRelease, from + QPointF(40.0, -20.0), Qt::LeftButton, Qt::NoButton, {});
+        w.window.tick();
+    };
+    const auto moved = [&](const sim::Placement& was) {
+        double most = 0.0;
+        for (std::size_t p = 0; p < was.size(); ++p)
+            for (std::size_t i = 0; i < was[p].size(); ++i) most = std::max(most, sim::length(session.cloth().positions[p][i] - was[p][i]));
+        return most;
+    };
+
+    // Select (Q): the drag changes nothing.
+    sim::Placement positions = session.cloth().positions;
+    double time = session.cloth().time;
+    std::uint64_t version = session.editor().version();
+    drag();
+    EXPECT((!held && !session.simulating() && session.cloth().time == time), "with Select the paused cloth is not held and stays paused");
+    EXPECT((moved(positions) == 0.0 && session.editor().version() == version), "and nothing moved");
+    EXPECT((w.window.selected() == front), "the panel stays selected");
+    EXPECT((w.window.helpLine().contains("paused")), "and the help line says why");
+
+    // Move (W): the selected panel is carried, drape and all.
+    w.window.shelf()->action(Tool::Move)->trigger();
+    w.window.tick();
+    const Arrangement before = w.doc().get(front).arrangement;
+    drag();
+    const Arrangement after = w.doc().get(front).arrangement;
+    EXPECT((!held && !session.simulating() && session.cloth().time == time), "with Move the cloth stays paused too");
+    EXPECT((after.x > before.x + 1.0 && after.y > before.y), "and the panel moved in space as it was dragged, right and up");
+    EXPECT((moved(positions) > 1.0), "its drape went with it");
+    w.window.shelf()->undo()->trigger();
+    w.window.tick();
+    EXPECT((w.doc().get(front).arrangement == before && moved(positions) < 1e-9), "one undo puts panel and drape back");
+
+    // Pull (H): the paused cloth is pulled, and runs while it is held.
+    w.window.shelf()->action(Tool::Pull)->trigger();
+    w.window.tick();
+    version = session.editor().version();
+    time = session.cloth().time;
+    drag();
+    EXPECT((held && session.cloth().time > time && moved(positions) > 1.0), "with Pull the cloth is held and runs");
+    EXPECT((!session.pulling() && !session.simulating() && session.editor().version() == version), "let go, it is paused again and the document is as it was");
+
+    // Playing: a drag pulls the cloth, whatever the tool.
+    for (const Tool tool : {Tool::Select, Tool::Move}) {
+        w.window.shelf()->action(tool)->trigger();
+        w.window.shelf()->simulate()->setChecked(true);
+        w.window.tick();
+        EXPECT((w.window.helpLine().contains("pull")), "playing says that a drag pulls");
+        version = session.editor().version();
+        drag();
+        EXPECT((held && session.editor().version() == version), "while the cloth plays a drag pulls it");
+        w.window.shelf()->simulate()->setChecked(false);
+        w.window.tick();
+    }
+
+    // The back panel, behind the body, with the front one out of the way: reached only through a see-through body.
+    const PanelId back = w.panel("back");
+    Outliner& outliner = *w.window.outliner();
+    REQUIRE(outliner.panelsShown().front() == front);
+    const QTreeWidgetItem* row = outliner.topLevelItem(1)->child(0);
+    const QPointF eye(outliner.columnViewportPosition(Outliner::eyeColumn) + outliner.columnWidth(Outliner::eyeColumn) / 2.0, outliner.visualItemRect(row).center().y());
+    send(outliner.viewport(), QEvent::MouseButtonPress, eye, Qt::LeftButton, Qt::LeftButton, {});
+    send(outliner.viewport(), QEvent::MouseButtonRelease, eye, Qt::LeftButton, Qt::NoButton, {});
+    REQUIRE(!session.panelShown(front));
+    w.window.select(back);
+    w.window.shelf()->action(Tool::Move)->trigger();
+    w.window.tick();
+    const Arrangement backBefore = w.doc().get(back).arrangement;
+    drag();
+    EXPECT((w.doc().get(back).arrangement == backBefore), "a solid body is in the way of a drag");
+    w.window.showBodySeeThrough(true);
+    w.window.select(back);
+    w.window.tick();
+    time = session.cloth().time;
+    drag();
+    EXPECT((w.doc().get(back).arrangement.x > backBefore.x + 1.0 && !held && session.cloth().time == time), "through a see-through body Move carries the paused panel behind it");
+    w.window.shelf()->undo()->trigger();
+    w.window.shelf()->action(Tool::Pull)->trigger();
+    w.window.tick();
+    drag();
+    EXPECT((held && session.cloth().time > time), "and Pull pulls it");
+
+    w.window.shelf()->simulate()->setChecked(true);
+    w.window.tick();
+    w.window.shelf()->reset()->trigger();
+    w.window.tick();
+    EXPECT((!w.window.helpLine().contains("Playing")), "after Reset the help line no longer says that it plays");
 }
 
 namespace {

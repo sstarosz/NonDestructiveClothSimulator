@@ -4,6 +4,7 @@
 #include <cmath>
 #include <utility>
 
+#include "Arranging.h"
 #include "clothcad/core/Drawing.h"
 
 namespace clothcad::sim {
@@ -180,36 +181,37 @@ Vec3 Motion::operator()(Vec3 point) const {
     return turned(point - from) + to;
 }
 
+std::vector<Vec3> arrangedPanel(const Arrangement& in, const PanelMesh& mesh) {
+    const Box box = boxOf(mesh);
+    const Vec2 centre = mesh.anchor;
+    const double width = box.high.x - box.low.x;
+    const double wrap = radians(in.wrap);
+    const double bendRadius = std::abs(wrap) > 1e-6 && width > 1e-9 ? width / wrap : 0.0;
+    const double cr = std::cos(radians(in.roll)), sr = std::sin(radians(in.roll));
+    const double ct = std::cos(radians(in.tilt)), st = std::sin(radians(in.tilt));
+    const double cy = std::cos(radians(in.turn)), sy = std::sin(radians(in.turn));
+
+    std::vector<Vec3> positions;
+    positions.reserve(mesh.points.size());
+    for (const Vec2& point : mesh.points) {
+        // Flat, about the panel's anchor; then bent around an upright axis behind it.
+        Vec3 p{point.x - centre.x, point.y - centre.y, 0.0};
+        if (bendRadius != 0.0) {
+            const double angle = p.x / bendRadius;
+            p = {bendRadius * std::sin(angle), p.y, bendRadius * (std::cos(angle) - 1.0)};
+        }
+        p = {p.x * cr - p.y * sr, p.x * sr + p.y * cr, p.z};  // roll, in its own plane
+        p = {p.x, p.y * ct - p.z * st, p.y * st + p.z * ct};  // tilt, about its horizontal axis
+        p = {p.x * cy + p.z * sy, p.y, -p.x * sy + p.z * cy}; // turn, about the vertical
+        positions.push_back({p.x + in.x, p.y + in.y, p.z + in.z});
+    }
+    return positions;
+}
+
 Placement arranged(const Document& doc, const ClothMesh& cloth) {
     Placement placement;
     placement.reserve(cloth.panels.size());
-    for (const PanelMesh& mesh : cloth.panels) {
-        const Arrangement in = arrangementOf(doc, mesh);
-        const Box box = boxOf(mesh);
-        const Vec2 centre = mesh.anchor;
-        const double width = box.high.x - box.low.x;
-        const double wrap = radians(in.wrap);
-        const double bendRadius = std::abs(wrap) > 1e-6 && width > 1e-9 ? width / wrap : 0.0;
-        const double cr = std::cos(radians(in.roll)), sr = std::sin(radians(in.roll));
-        const double ct = std::cos(radians(in.tilt)), st = std::sin(radians(in.tilt));
-        const double cy = std::cos(radians(in.turn)), sy = std::sin(radians(in.turn));
-
-        std::vector<Vec3> positions;
-        positions.reserve(mesh.points.size());
-        for (const Vec2& point : mesh.points) {
-            // Flat, about the panel's anchor; then bent around an upright axis behind it.
-            Vec3 p{point.x - centre.x, point.y - centre.y, 0.0};
-            if (bendRadius != 0.0) {
-                const double angle = p.x / bendRadius;
-                p = {bendRadius * std::sin(angle), p.y, bendRadius * (std::cos(angle) - 1.0)};
-            }
-            p = {p.x * cr - p.y * sr, p.x * sr + p.y * cr, p.z};  // roll, in its own plane
-            p = {p.x, p.y * ct - p.z * st, p.y * st + p.z * ct};  // tilt, about its horizontal axis
-            p = {p.x * cy + p.z * sy, p.y, -p.x * sy + p.z * cy}; // turn, about the vertical
-            positions.push_back({p.x + in.x, p.y + in.y, p.z + in.z});
-        }
-        placement.push_back(std::move(positions));
-    }
+    for (const PanelMesh& mesh : cloth.panels) placement.push_back(arrangedPanel(arrangementOf(doc, mesh), mesh));
     return placement;
 }
 

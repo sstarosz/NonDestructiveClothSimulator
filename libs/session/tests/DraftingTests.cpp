@@ -348,6 +348,56 @@ TEST_CASE("a shape that a formula sets, or an instance, is scaled by a Scale lay
     EXPECT((asNumber(last<Scale>(circleEditor.document(), circle).x) == 1.5), "but it is scaled evenly");
 }
 
+TEST_CASE("a rectangle of plain numbers is scaled about the middle of its box in space, as one with a Scale layer is")
+{
+    // The same rectangle twice: of plain numbers, and with a formula (so that it is scaled by a layer).
+    // With the anchor in the middle, away from it (as a seam may leave it), and with none said.
+    for (const std::optional<Vec2> anchor : {std::optional<Vec2>(Vec2{10, 5}), std::optional<Vec2>(Vec2{4, 9}), std::optional<Vec2>()}) {
+        Document doc;
+        const Param wide = doc.add(Parameter{.name = "wide", .value = 20.0, .unit = Unit::Length});
+        const PanelId plain = doc.add(Panel{.name = "plain"});
+        doc.add(plain, Rect{.width = 20_cm, .height = 10_cm});
+        const PanelId driven = doc.add(Panel{.name = "driven", .x = 40});
+        doc.add(driven, Rect{.width = wide, .height = 10_cm});
+        for (PanelId panel : {plain, driven})
+            doc.arrange(panel, Arrangement{.placed = true, .x = 5, .y = 100, .z = 20, .turn = 30, .tilt = 10, .roll = 20, .anchor = anchor});
+        Editor editor(doc);
+        Drafting drafting;
+        // The middle of a flat panel's particles in space.
+        const auto middleInSpace = [&](PanelId panel) {
+            const sim::ClothMesh mesh = sim::meshOf(editor.document(), editor.shapes());
+            const sim::Placement placed = sim::arranged(editor.document(), mesh);
+            for (std::size_t p = 0; p < mesh.panels.size(); ++p) {
+                if (!(mesh.panels[p].panel == panel)) continue;
+                sim::Vec3 low{1e9, 1e9, 1e9}, high{-1e9, -1e9, -1e9};
+                for (const sim::Vec3& at : placed[p]) {
+                    low = {std::min(low.x, at.x), std::min(low.y, at.y), std::min(low.z, at.z)};
+                    high = {std::max(high.x, at.x), std::max(high.y, at.y), std::max(high.z, at.z)};
+                }
+                return (low + high) * 0.5;
+            }
+            return sim::Vec3{1e9, 0, 0};
+        };
+        for (PanelId panel : {plain, driven}) {
+            const sim::Vec3 before = middleInSpace(panel);
+            const Arrangement was = editor.document().get(panel).arrangement;
+            drafting.handle(editor, ScalePanel{panel, 1.0, 1.0, DragPhase::Begin});
+            drafting.handle(editor, ScalePanel{panel, 1.5, 1.2, DragPhase::Continue});
+            drafting.handle(editor, ScalePanel{panel, 2.0, 2.0, DragPhase::End});
+            EXPECT((sim::length(middleInSpace(panel) - before) < 1e-6), "the middle of the panel stays at the same point in space");
+            const Arrangement now = editor.document().get(panel).arrangement;
+            EXPECT((now.x == was.x && now.y == was.y && now.z == was.z && now.turn == was.turn), "its place in space is not what moved");
+            EXPECT((editor.undo() && editor.document().get(panel).arrangement == was), "one undo gives the anchor back with the shape");
+            // Out and back again within one drag: exactly as it was.
+            drafting.handle(editor, ScalePanel{panel, 1.0, 1.0, DragPhase::Begin});
+            drafting.handle(editor, ScalePanel{panel, 1.7, 1.7, DragPhase::Continue});
+            drafting.handle(editor, ScalePanel{panel, 1.0, 1.0, DragPhase::End});
+            EXPECT((editor.document().get(panel).arrangement == was), "a drag back to where it began leaves the arrangement exactly as it was");
+        }
+        EXPECT((count<Scale>(editor.document(), plain) == 0), "no layer was added to the plain one");
+    }
+}
+
 TEST_CASE("a switched-off Scale is not the one the gizmo changes")
 {
     Document doc;

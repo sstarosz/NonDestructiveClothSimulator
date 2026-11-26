@@ -9,10 +9,11 @@
 // panel shows that gizmo (render/Gizmo): arrows and squares move it, rings
 // turn it, handles scale it; Ctrl moves in whole centimetres, turns in steps
 // of 15° and scales in steps of 10 %. With Move, dragging the selected panel
-// itself carries it too. Select (Q) shows no gizmo and only selects. Once the
-// cloth is draped, dragging the cloth pulls it by the particle under the
-// mouse, as in Marvelous Designer, whatever the tool. The view only reports
-// these, as session gestures; the main window hands them to session::Drafting.
+// itself carries it too. Select (Q) shows no gizmo and only selects. While the
+// cloth plays, dragging it pulls it by the particle under the mouse, as in
+// Marvelous Designer, whatever the tool; paused, only the Pull tool (H) does,
+// and Move carries the selected panel, drape and all (session::clothDrag). The
+// view only reports these; the main window hands them to session::Drafting.
 //
 // Where the system lets Vulkan draw into a window, the picture goes straight
 // to the screen. Where it does not (the off-screen platform the tests use),
@@ -120,7 +121,10 @@ private:
     render::Scene scene_;  // without its camera, which is put in when it is drawn
     std::optional<std::pair<sim::Vec3, sim::Vec3>> extent_;
     std::optional<PanelId> selected_;          // the panel the gizmo moves
-    bool draped_ = false;                      // the cloth is simulated: dragging it pulls it
+    // What a drag on cloth does depends on these (session::clothDrag).
+    session::Tool tool_ = session::Tool::Select;
+    bool draped_ = false;                      // the cloth is simulated
+    bool playing_ = false;                     // and it runs
     std::optional<render::Gizmo> gizmo_;       // its gizmo where it stands, turned as it is
     std::optional<session::GizmoMode> mode_;   // which gizmo it shows; none: Select
     bool framed_ = false;

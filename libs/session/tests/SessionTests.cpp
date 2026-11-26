@@ -291,6 +291,35 @@ TEST_CASE("undo and redo bring the drape back")
            "and the cloth runs on from there");
 }
 
+TEST_CASE("a draped panel's change of wrap is applied: it bends where it hangs, and nothing starts again")
+{
+    Skirt start;
+    const PanelId other = start.doc.add(Panel{.name = "other"});
+    start.doc.add(other, Rect{.width = 10_cm, .height = 10_cm});
+    start.doc.arrange(other, Arrangement{.placed = true, .x = 60, .y = 140, .z = 40});
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.simulate(true);
+    frames(session, 20);
+    session.simulate(false);
+    session.update();
+    const sim::Placement draped = session.cloth().positions;
+    const double time = session.cloth().time;
+    const sim::Placement flat = sim::arranged(session.document(), *session.mesh());
+
+    Arrangement wrapped = session.document().get(start.panel).arrangement;
+    wrapped.wrap = 120.0;
+    REQUIRE(session.editor().change([&](Document& doc) { doc.arrange(start.panel, wrapped); }, {.touches = Touches::PlacementOnly}));
+    session.update();
+    const sim::Placement bent = sim::arranged(session.document(), *session.mesh());
+    REQUIRE((draped.size() == 2u && bent.size() == 2u && session.cloth().positions.size() == 2u));
+    // Where the new wrap puts each spot, plus how far it hung from where the old arrangement put it.
+    sim::Placement expected = draped;
+    for (std::size_t i = 0; i < expected[0].size(); ++i) expected[0][i] = bent[0][i] + (draped[0][i] - flat[0][i]);
+    EXPECT((apart(bent, flat) > 5.0), "the wrap bends the panel a good way");
+    EXPECT((apart(session.cloth().positions, expected) < 1e-6), "the draped panel is bent by as much; the other is where it was");
+    EXPECT((session.cloth().time == time), "and the cloth did not start again");
+}
+
 TEST_CASE("a panel is hidden without leaving the cloth; deactivated, it stands still in it")
 {
     Skirt start;

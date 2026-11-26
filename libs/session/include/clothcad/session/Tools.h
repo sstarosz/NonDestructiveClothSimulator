@@ -26,4 +26,17 @@ constexpr std::optional<GizmoMode> gizmoOf(Tool tool) {
     }
 }
 
+// What a drag does that starts on cloth in the 3D view (a gizmo's handle comes
+// first). While the cloth plays it is pulled, whatever the tool; paused, only
+// the Pull tool (H) pulls it. A cloth that is not pulled stands still: Move
+// carries the selected panel, drape and all, and anything else is only a click.
+//
+//   if (clothDrag(tool, draped, playing, hit == selected) == ClothDrag::Carry) ...
+enum class ClothDrag { Nothing, Carry, Pull };
+constexpr ClothDrag clothDrag(Tool tool, bool draped, bool playing, bool onSelected) {
+    if (draped && (playing || tool == Tool::Pull)) return ClothDrag::Pull;
+    if (tool == Tool::Move && onSelected) return ClothDrag::Carry;
+    return ClothDrag::Nothing;
+}
+
 } // namespace clothcad::session

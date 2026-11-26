@@ -77,7 +77,13 @@ the body follows too.
 - **See-through body**: View > See-through body, or the button beside the eye
   on the body's row in the Outliner, draws the body as one sheet of dark glass.
   Cloth that has gone into the body, or is behind it, shows through, and can be
-  clicked and pulled through it. The body is still in the simulation.
+  clicked and dragged through it. The body is still in the simulation.
+- **Dragging cloth in 3D**: while the cloth plays, a drag pulls it by the
+  particle under the mouse, whatever the tool. Paused, it stands still: with
+  Move (W) a drag on the selected panel moves it in space, drape and all, with
+  Select (Q) a drag does nothing, and the Pull tool (H) pulls the cloth, which
+  runs while it is held. The help line says which happens. A draped panel whose
+  wrap you change bends with it and keeps how it hangs.
 - **Gizmos as in Maya**, in the 3D view and on the table alike: Q selects
   only, W moves (an arrow per axis, a square per plane, the middle across
   the view), E turns (a ring per axis, one about the line of sight, and
@@ -92,8 +98,9 @@ the body follows too.
   panel starts with an instance, the scale is a Scale layer, which can be
   edited, switched off or undone like any other. A Scale layer you add by hand
   stays yours: the gizmo changes it. Whichever way, the middle of the panel's
-  box stays where it was on the table. Several selected panels scale together
-  (evenly) about the middle of the group.
+  box stays where it was on the table and in space. Several selected panels
+  scale together (evenly): on the table about the middle of the group, in 3D
+  each about its own place.
 - **Editing on the table**, and in 3D on the selected panels: Delete removes
   the selected panels, or, with corners selected, the ones added with the
   Point tool; Ctrl+C remembers the panels, Ctrl+V pastes copies with their
@@ -390,13 +397,16 @@ holds and hands it what the user did.
   forward each time, and may then stand in front of another panel.
 - Pulling the cloth holds one particle; the cloth runs while it is held and
   stops again when it is let go, if it was paused.
-- Moving a draped panel's place carries its drape rigidly; a change of wrap
-  is not applied to cloth that is already draped (press Reset for that).
+- Moving a draped panel's place carries its drape rigidly. A change of its
+  wrap bends it, each particle keeping its distance from where the panel was
+  arranged; cloth that hangs far from there may go into the body or other
+  cloth until the simulation runs (press Reset to start flat on the curve).
 - Undo and redo bring back the drape of the last 64 states.
 - The move and rotate gizmos work along the axes of space (or of the table),
   not the panel's own; only the scale gizmo follows the panel's own axes.
   In 3D the gizmo stands at the panel's anchor, which can be away from where
-  draped cloth hangs. The scale gizmo's z handle does nothing; seen from the
+  draped cloth hangs: it does not follow cloth that falls, whatever the tool.
+  Drag the panel itself with Move while the cloth is paused. The scale gizmo's z handle does nothing; seen from the
   front it points at the eye and is too short to show.
 - Set length moves the two corners of an edge along the edge until it has
   the length; the edges beside it slant. It keeps both ends moving evenly, or
