@@ -1521,9 +1521,10 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
     REQUIRE((session.clothShown() && !session.simulating()));
     EXPECT((w.window.helpLine().contains("Paused") && w.window.helpLine().contains("(H)")), "pausing says what a drag does now");
 
-    // Real mouse events on the surface the picture is drawn on.
+    // Real mouse events on the surface the picture is drawn on. Without Vulkan
+    // (as in CI) there is no surface: the view is then told what it would pass on.
     QWidget* surface = space.findChild<QWidget*>("spacePicture");
-    REQUIRE(surface != nullptr);
+    REQUIRE((surface != nullptr) == (space.drawing() == SpaceView::Drawing::Picture));
     bool held = false;  // whether the cloth was held at some point of the last drag
     const auto drag = [&] {
         // Off the middle, so that the press is on the cloth and not on a gizmo.
@@ -1531,13 +1532,17 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
         const double scale = space.inPicture({1, 1}).x;
         const QPointF from = onView(space, {middle.x - 30.0 * scale, middle.y + 30.0 * scale});
         held = false;
-        send(surface, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton, {});
+        if (surface) send(surface, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton, {});
+        else space.press(from, Qt::LeftButton, {});
         for (int step = 1; step <= 5; ++step) {
-            send(surface, QEvent::MouseMove, from + QPointF(8.0 * step, -4.0 * step), Qt::NoButton, Qt::LeftButton, {});
+            const QPointF to = from + QPointF(8.0 * step, -4.0 * step);
+            if (surface) send(surface, QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton, {});
+            else space.moveTo(to, Qt::LeftButton, {});
             w.window.tick();
             held = held || session.pulling();
         }
-        send(surface, QEvent::MouseButtonRelease, from + QPointF(40.0, -20.0), Qt::LeftButton, Qt::NoButton, {});
+        if (surface) send(surface, QEvent::MouseButtonRelease, from + QPointF(40.0, -20.0), Qt::LeftButton, Qt::NoButton, {});
+        else space.release();
         w.window.tick();
     };
     const auto moved = [&](const sim::Placement& was) {
