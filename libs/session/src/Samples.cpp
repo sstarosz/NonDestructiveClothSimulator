@@ -137,6 +137,84 @@ Document tshirtBody() {
     return doc;
 }
 
+// Trousers, as examples/07_trousers.cpp: a front and a back for the right
+// leg, each a rectangle shaped by adding points, a crotch point on the inside
+// edge moved out into the crotch and a hip point on the side, with the waist
+// and the hem given lengths of their own (Set length), which a rectangle's
+// width cannot say. The left leg is a mirrored instance of both, sewn as they
+// are; the centre seams, each panel to its mirror image, are sewn by hand.
+// Right and left are the wearer's: the right leg stands at -x, since the body
+// faces +z.
+Document trousers() {
+    Document doc;
+    Param waist       = doc.add(Parameter{.name = "waist", .value = 76_cm});
+    Param hips        = doc.add(Parameter{.name = "hips", .value = 94_cm});
+    Param ease        = doc.add(Parameter{.name = "ease", .value = 6_cm});
+    Param length      = doc.add(Parameter{.name = "length", .value = 92_cm});
+    Param rise        = doc.add(Parameter{.name = "rise", .value = 28_cm});
+    Param ankle       = doc.add(Parameter{.name = "ankle", .value = 40_cm});
+    Param frontCrotch = doc.add(Parameter{.name = "front_crotch", .value = 5_cm});
+    Param backCrotch  = doc.add(Parameter{.name = "back_crotch", .value = 12_cm});
+    const Expr quarter = (hips + ease) / 4;
+    const Expr hipDepth = 18_cm;  // from the waist down to the hips
+
+    struct Leg {
+        PanelId panel;
+        EdgeRef upperSide, lowerSide, inseam, rise;  // the side above and below the hip point
+    };
+    // Seen from outside, the front has the side on its left and the inside of
+    // the leg on its right, and the back the other way round. A rectangle's
+    // right edge runs from the hem up, its left edge from the waist down.
+    const Leg front = [&] {
+        const PanelId panel = doc.add(Panel{.name = "right front"});
+        const OpRef<Rect> body = doc.add(panel, Rect{.width = quarter, .height = length});
+        const OpRef<AddPoint> crotch = doc.add(panel, AddPoint{.at = {body.right(), (length - rise) / length}});
+        const OpRef<AddPoint> hip = doc.add(panel, AddPoint{.at = {body.left(), hipDepth / length}});
+        doc.add(panel, AdjustPoint{.corner = crotch.corner(), .dx = frontCrotch, .dy = 0_cm});
+        doc.add(panel, Curve{.edge = crotch.after(body.right()), .bulge = -2_cm});                                   // the crotch curve
+        doc.add(panel, SetLength{.edge = body.top(), .length = waist / 4, .keeping = SetLength::Keeping::Start});  // the centre front stays
+        doc.add(panel, SetLength{.edge = body.bottom(), .length = ankle / 2});
+        return Leg{.panel = panel, .upperSide = body.left(), .lowerSide = hip.after(body.left()), .inseam = body.right(), .rise = crotch.after(body.right())};
+    }();
+    const Leg back = [&] {
+        const PanelId panel = doc.add(Panel{.name = "right back"});
+        const OpRef<Rect> body = doc.add(panel, Rect{.width = quarter, .height = length});
+        const OpRef<AddPoint> crotch = doc.add(panel, AddPoint{.at = {body.left(), rise / length}});
+        const OpRef<AddPoint> hip = doc.add(panel, AddPoint{.at = {body.right(), (length - hipDepth) / length}});
+        // A little lower than the front's, as patterns have it: the two inseams are then about as long.
+        doc.add(panel, AdjustPoint{.corner = crotch.corner(), .dx = -backCrotch, .dy = -1.2_cm});
+        doc.add(panel, Curve{.edge = body.left(), .bulge = -2_cm});
+        doc.add(panel, SetLength{.edge = body.top(), .length = waist / 4, .keeping = SetLength::Keeping::End});  // the centre back stays
+        doc.add(panel, SetLength{.edge = body.bottom(), .length = ankle / 2});
+        return Leg{.panel = panel, .upperSide = hip.after(body.right()), .lowerSide = body.right(), .inseam = crotch.after(body.left()), .rise = body.left()};
+    }();
+    const auto sew = [&](PanelId a, EdgeRef edgeA, PanelId b, EdgeRef edgeB) { doc.add(Seam{.a = {a, edgeA}, .b = {b, edgeB}}); };
+    sew(front.panel, front.upperSide, back.panel, back.upperSide);
+    sew(front.panel, front.lowerSide, back.panel, back.lowerSide);
+    sew(front.panel, front.inseam, back.panel, back.inseam);
+
+    const PanelId leftFront = doc.add(Panel{.name = "left front"});
+    doc.add(leftFront, Instance{.source = front.panel, .mirrored = true});
+    const PanelId leftBack = doc.add(Panel{.name = "left back"});
+    doc.add(leftBack, Instance{.source = back.panel, .mirrored = true});
+    doc.sewAsSource(leftFront);
+    doc.sewAsSource(leftBack);
+    sew(front.panel, front.rise, leftFront, front.rise);  // the centre front
+    sew(back.panel, back.rise, leftBack, back.rise);      // the centre back
+
+    // Each panel bent half round its leg, the fronts before the body and the
+    // backs behind it, inside the arms, which hang beside the hips. The hem
+    // starts 6 cm above the floor.
+    const auto stand = [&](PanelId panel, double x, double z, double turn) {
+        doc.arrange(panel, Arrangement{.placed = true, .x = x, .y = 52, .z = z, .turn = turn, .wrap = 180});
+    };
+    stand(front.panel, -11.5, 22, 0);
+    stand(back.panel, -11.5, -23, 180);
+    stand(leftFront, 11.5, 22, 0);
+    stand(leftBack, 11.5, -23, 180);
+    return doc;
+}
+
 } // namespace
 
 const std::vector<Sample>& samples() {
@@ -148,6 +226,7 @@ const std::vector<Sample>& samples() {
         {"4. Mirrored sleeve", mirroredSleeve, avatar},
         {"5. Shared base", sharedBase, avatar},
         {"6. T-shirt body", tshirtBody, avatar},
+        {"7. Trousers", trousers, avatar},
     };
     return all;
 }

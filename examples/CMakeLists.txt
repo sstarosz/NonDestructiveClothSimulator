@@ -1,6 +1,6 @@
-# Six garments built through the API, each a small program that checks
+# Seven garments built through the API, each a small program that checks
 # its own numbers. They also run as integration tests.
-foreach(example 01_waistband_skirt 02_circle_skirt 03_asymmetric_hem 04_mirrored_sleeve 05_shared_base 06_tshirt_body)
+foreach(example 01_waistband_skirt 02_circle_skirt 03_asymmetric_hem 04_mirrored_sleeve 05_shared_base 06_tshirt_body 07_trousers)
     add_executable(example_${example} ${example}.cpp)
     target_link_libraries(example_${example} PRIVATE clothcad::core)
     clothcad_warnings(example_${example})

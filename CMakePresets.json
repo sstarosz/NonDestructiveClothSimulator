@@ -101,6 +101,12 @@
                 "include": {
                     "label": "benchmark"
                 }
+            },
+            "execution": {
+                "repeat": {
+                    "mode": "until-pass",
+                    "count": 3
+                }
             }
         }
     ]

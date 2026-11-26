@@ -1,41 +1,51 @@
 # Times in yardsticks (see tests/Perf.h). Written by --update; do not edit by hand.
-frame, table only, nothing changing	0.000325974
-frame, both views, nothing changing	0.000351049
-3D view orbited (drawn off screen and read back)	0.57992
-frame while dragging a panel on the table	0.137624
-frame while dragging a corner, 3D shown, 1 cm particles	0.487676
-frame with a cloth step in it, 3D shown	3.71951
-frame while the cloth runs on its own thread, 3D shown	0.262403
-phase (skirt): the Outliner shows the document	0.000338511
+frame, table only, nothing changing	0.000312703
+frame, both views, nothing changing	0.000360811
+3D view orbited (drawn off screen and read back)	0.510981
+frame while dragging a panel on the table	0.133693
+frame while dragging a corner, 3D shown, 1 cm particles	0.452414
+frame with a cloth step in it, 3D shown	3.64259
+frame while the cloth runs on its own thread, 3D shown	0.236589
+phase (skirt): the Outliner shows the document	0.000336757
 phase (skirt): the Parameters dock shows the document	0
-phase (skirt): the Attribute Editor shows a panel	0.0041499
-phase (skirt): the table is given a document	0.000752247
-phase (skirt): the document is evaluated to outlines	0.000238212
-phase (skirt): the outlines are meshed at 2 cm	2.93131
-phase (skirt): the table paints itself	0.0446083
-phase (skirt): the 3D scene is made from the session	0.109728
-phase (skirt): the scene is copied for a drawing (with the gizmo)	0.0378255
-phase (skirt): the renderer draws it and reads it back	0.513647
-4K: frame, both views, nothing changing	0.000351049
-4K: the table paints itself	0.352954
-4K: frames while the 3D view is orbited (read back)	4.96239
-4K: frames while dragging a panel on the table	0.554305
-4K: frames while dragging a corner, 3D shown	0.567993
-4K: frames while dragging a corner, table only	0.883611
-4K: frames while the table is zoomed, table only	1.49137
-4K: frames while dragging a corner, panel fills the table	1.07676
-4K, panel fills the table: the move, the change shown in every dock	0.0405273
-phase (T-shirt): the Outliner shows the document	0.000601798
-phase (T-shirt): the Parameters dock shows the document	0.00157972
-phase (T-shirt): the Attribute Editor shows a panel	0.00922757
-phase (T-shirt): the table is given a document	0.00298391
-phase (T-shirt): the document is evaluated to outlines	0.00180539
-phase (T-shirt): the outlines are meshed at 2 cm	0.647497
-phase (T-shirt): the table paints itself	0.0975414
-phase (T-shirt): the 3D scene is made from the session	0.0498865
-phase (T-shirt): the scene is copied for a drawing (with the gizmo)	0.00450095
-phase (T-shirt): the renderer draws it and reads it back	0.494653
-frames while a panel is carried in 3D	0.857487
-carried in 3D: the move, the change shown in every dock	0.0398105
-frames while a parameter is dragged, 3D shown	1.0448
-parameter dragged: the move, the change shown in every dock	0.0569837
+phase (skirt): the Attribute Editor shows a panel	0.00451014
+phase (skirt): the table is given a document	0.000865947
+phase (skirt): the document is evaluated to outlines	0.000288649
+phase (skirt): the outlines are meshed at 2 cm	2.67084
+phase (skirt): the table paints itself	0.0419263
+phase (skirt): the 3D scene is made from the session	0.108508
+phase (skirt): the scene is copied for a drawing (with the gizmo)	0.0042696
+phase (skirt): the renderer draws it and reads it back	0.459998
+4K: frame, both views, nothing changing	0.000360811
+4K: the table paints itself	0.330383
+4K: frames while the 3D view is orbited (read back)	5.03636
+4K: frames while dragging a panel on the table	0.539524
+4K: frames while dragging a corner, 3D shown	0.53303
+4K: frames while dragging a corner, table only	0.839446
+4K: frames while the table is zoomed, table only	1.37697
+4K: frames while dragging a corner, panel fills the table	1.05283
+4K, panel fills the table: the move, the change shown in every dock	0.0377568
+phase (T-shirt): the Outliner shows the document	0.000577298
+phase (T-shirt): the Parameters dock shows the document	0.00155149
+phase (T-shirt): the Attribute Editor shows a panel	0.00894812
+phase (T-shirt): the table is given a document	0.00356
+phase (T-shirt): the document is evaluated to outlines	0.00192433
+phase (T-shirt): the outlines are meshed at 2 cm	0.599488
+phase (T-shirt): the table paints itself	0.0934621
+phase (T-shirt): the 3D scene is made from the session	0.04895
+phase (T-shirt): the scene is copied for a drawing (with the gizmo)	0.00485892
+phase (T-shirt): the renderer draws it and reads it back	0.466228
+frames while a panel is carried in 3D	0.798869
+carried in 3D: the move, the change shown in every dock	0.0381492
+frames while a parameter is dragged, 3D shown	1.01434
+parameter dragged: the move, the change shown in every dock	0.0539867
+phase (trousers): the Outliner shows the document	0.0011546
+phase (trousers): the Parameters dock shows the document	0.00151541
+phase (trousers): the Attribute Editor shows a panel	0.00731244
+phase (trousers): the table is given a document	0.00328338
+phase (trousers): the document is evaluated to outlines	0.00150338
+phase (trousers): the outlines are meshed at 2 cm	0.941537
+phase (trousers): the table paints itself	0.102254
+phase (trousers): the 3D scene is made from the session	0.0546148
+phase (trousers): the scene is copied for a drawing (with the gizmo)	0.00398095
+phase (trousers): the renderer draws it and reads it back	0.463077

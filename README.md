@@ -46,7 +46,8 @@ the body follows too.
   The centre seams, between a panel and its own instance, you sew by hand.
   For seams made on a source after its instance, select the instances and
   press "Sew as source" (Sew tab). The copies are ordinary seams that you can
-  reverse or delete.
+  reverse or delete. The Trousers sample (File > Samples) is made this way:
+  a front and a back for one leg, the other leg a mirrored instance of both.
 - **3D**: panels arranged around a body (each sample opens on the avatar in
   `assets/`; Body > Avatar from OBJ… loads another),
   meshed and simulated: gravity, seams drawing closed,
@@ -185,8 +186,16 @@ costs more than showing it). Each measurement is held to a limit in
 milliseconds and to its own baseline (`tests/benchmarks/baselines/`): a test fails
 if it gets more than 1.4 times slower than the baseline. Times are measured
 against a fixed piece of arithmetic first, so a baseline taken on one machine
-still means something on another. In a build that is not optimised the
-benchmarks do nothing and pass.
+still means something on another. That does not make up for another compiler:
+code that one compiler makes faster than another is not measured fairly, so
+baselines are written with MSVC, as the owner builds. In a build that is not
+optimised the benchmarks do nothing and pass.
+
+Run them on an idle machine, with the program closed: a cloth running in it
+slows every row (on 26 November nine rows of the window's benchmark failed
+while it ran, and none once it was closed). The benchmarks preset runs a
+benchmark that fails up to three times, and it fails only if every run does:
+a real slowdown fails each time, a moment of load on the machine rarely does.
 
 After a change that makes something faster, or a deliberate trade, write new
 baselines from an optimised build and commit them with the change:
@@ -194,19 +203,19 @@ baselines from an optimised build and commit them with the change:
     clothcad_core_and_sim_benchmarks tests/benchmarks/baselines/CoreAndSim.txt --update
     clothcad_qt_window_benchmarks    tests/benchmarks/baselines/QtWindow.txt --update
 
-The budgets, and the times measured. This first table is from a Linux machine
-(GCC 12, Vulkan in software, no screen); the window's baselines in
-`QtWindow.txt` were written later on Windows 11 with MSVC, also without a screen:
+The budgets, and the times measured on 26 November 2026 (Windows 11, MSVC,
+no screen, an idle machine):
 
 | What | Limit | Now |
 | --- | --- | --- |
-| A frame with nothing changing, both views shown | 1 ms | 0.1 ms |
-| A frame while dragging a panel on the table | 8 ms | 4 ms |
-| A frame while dragging a corner, 3D shown, 1 cm particles | 16 ms | 10 ms |
-| The 3D view orbited (drawn off screen and read back) | 60 ms | 4 ms |
-| A frame while the cloth runs on its own thread, 3D shown | 16 ms | 4 ms |
+| A frame with nothing changing, both views shown | 1 ms | 0.003 ms |
+| A frame while dragging a panel on the table | 8 ms | 1.2-1.4 ms |
+| A frame while dragging a corner, 3D shown, 1 cm particles | 16 ms | 4-6 ms |
+| The 3D view orbited (drawn off screen and read back) | 60 ms | 5 ms |
+| A frame while the cloth runs on its own thread, 3D shown | 16 ms | 2 ms |
 | A frame with a cloth step in it, 3D shown | 40 ms | 30 ms |
-| One cloth step, 2,800 particles, on a body | 16 ms | 11-15 ms |
+| One cloth step, 2,800 particles, on a body | 16 ms | 10 ms |
+| One cloth step, the trousers (2,900 particles), on the avatar | 16 ms | 12 ms |
 | Meshing a skirt at 2 cm | 25 ms | 8 ms |
 
 What working at 4K and on a T-shirt costs, per frame, mean of 40 frames spaced as a 60 Hz screen
@@ -277,7 +286,7 @@ How it is kept fast:
 | `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
-| `examples/` | Six small garments as programs, the sixth a T-shirt body | `core` |
+| `examples/` | Seven small garments as programs, the sixth a T-shirt body, the seventh trousers | `core` |
 | `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` and read and write no files (bodies are made in memory); tests on the project's avatar are in `tests/integration/AvatarTests.cpp` | everything |
 
 The core never draws and the window never computes: `evaluate(doc)` turns a

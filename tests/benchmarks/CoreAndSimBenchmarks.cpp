@@ -1,9 +1,12 @@
 // Performance of the core and the simulation: evaluating, meshing and
 // stepping the cloth, judged against tests/benchmarks/baselines/CoreAndSim.txt.
-// See tests/benchmarks/Perf.h for how times are judged.
+// See tests/benchmarks/Perf.h for how times are judged. The trousers are the
+// sample (session::samples), stepped on the project's avatar (Avatar.h).
 
 #include <cmath>
+#include <cstdio>
 
+#include "Avatar.h"
 #include "clothcad/core/Document.h"
 #include "clothcad/core/Evaluate.h"
 #include "clothcad/core/File.h"
@@ -11,6 +14,7 @@
 #include "clothcad/sim/Cloth.h"
 #include "clothcad/sim/Layout.h"
 #include "clothcad/sim/Mesh.h"
+#include "clothcad/session/Samples.h"
 #include "Perf.h"
 
 using namespace clothcad;
@@ -109,6 +113,23 @@ int main(int argc, char** argv) {
         Cloth cloth(mesh, arranged(doc, mesh));
         for (int i = 0; i < 60; ++i) cloth.step(scanned);
         report.time("carry the cloth over to the same mesh", 6.0, [&] { Cloth carried = Cloth::continued(mesh, arranged(doc, mesh), cloth, mesh); (void)carried; });
+    }
+
+    // ---- The trousers sample on the project's avatar (#54) ----
+    // Four panels with eight seams, at the default 2 cm, on the body the
+    // samples are draped on: what the owner works with.
+    {
+        const Document trousers = session::samples()[6].build();
+        const Result outlines = evaluate(trousers);
+        report.time("mesh the trousers at 2 cm", 25.0, [&] { meshOf(trousers, outlines, {.particleDistance = 2_cm}); });
+        const ClothMesh legs = meshOf(trousers, outlines, {.particleDistance = 2_cm});
+        std::size_t particles = 0;
+        for (const PanelMesh& panel : legs.panels) particles += panel.points.size();
+        std::printf("(the trousers have %zu particles)\n", particles);
+        const Body& avatar = project::avatar();
+        Cloth cloth(legs, arranged(trousers, legs));
+        for (int i = 0; i < 60; ++i) cloth.step(avatar);
+        report.record("cloth step, the trousers on the avatar", 16.0, perf::bestMilliseconds([&] { cloth.step(avatar); }, 40));
     }
     return report.finish();
 }

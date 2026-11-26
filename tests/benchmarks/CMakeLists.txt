@@ -7,7 +7,10 @@
 #   clothcad_core_and_sim_benchmarks baselines/CoreAndSim.txt --update
 #   clothcad_qt_window_benchmarks baselines/QtWindow.txt --update
 add_executable(clothcad_core_and_sim_benchmarks CoreAndSimBenchmarks.cpp)
-target_link_libraries(clothcad_core_and_sim_benchmarks PRIVATE clothcad::sim)
+# The trousers sample (session) on the project's avatar (tests/support/Avatar.h).
+target_link_libraries(clothcad_core_and_sim_benchmarks PRIVATE clothcad::sim clothcad::session)
+target_include_directories(clothcad_core_and_sim_benchmarks PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(clothcad_core_and_sim_benchmarks PRIVATE CLOTHCAD_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets")
 clothcad_warnings(clothcad_core_and_sim_benchmarks)
 add_test(NAME "benchmark: core and sim" COMMAND clothcad_core_and_sim_benchmarks ${CMAKE_CURRENT_SOURCE_DIR}/baselines/CoreAndSim.txt)
 set_tests_properties("benchmark: core and sim" PROPERTIES LABELS benchmark RUN_SERIAL TRUE)
