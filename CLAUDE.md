@@ -239,3 +239,21 @@ limit of what you built), keep the change small and note it for later:
    or `ROADMAP.md`; the issue is for the work to remove it.
 7. A cleanup that is small, inside the code you already changed and covered
    by tests is done now, not noted.
+
+## Pull requests: labels and a milestone
+
+Every pull request is opened with labels and a milestone:
+
+    gh pr create --milestone 0.1 --label Enhancement --label Render --label Qt ...
+
+- **Labels** are the repo's own (`gh label list`); never make a new one. Start
+  from the labels of the issues it closes, then make them true of the change:
+  its kind (`Bug`, `Enhancement`, `Documentation`), `Performance` or `UI/UX`
+  where they apply, and each part it changes (`Core`, `Sim`, `Session`,
+  `Render`, `Qt`). `Tests` is for work about the tests themselves, not for the
+  tests every change brings.
+- **Milestone** is that of the issues it closes or moves forward (`0.1`,
+  `0.2`, `0.x`); with no issue, the one `ROADMAP.md` puts the work in. If that
+  is not clear, ask.
+- Check with `gh pr view <number> --json labels,milestone`, and say in the
+  report what was set.
