@@ -1,14 +1,15 @@
 # Times in yardsticks (see tests/Perf.h). Written by --update; do not edit by hand.
-evaluate 40 panels of 6 operations	0.065455
-copy that document (an undo step)	0.000662366
-write it as text	0.0281638
-read it back	0.0237392
-mesh the skirt at 2 cm (2,800 particles)	1.03881
-mesh the skirt at 1 cm (10,600 particles)	6.35717
-arrange its particles in space	0.00683561
-prepare a 19,600-triangle body to collide with	32.492
-cloth step, 2,800 particles, no body	1.34247
-cloth step, 2,800 particles, mannequin	1.9594
-cloth step, 2,800 particles, scanned body	1.57964
-cloth step, cloth passing through cloth	1.04366
-carry the cloth over to the same mesh	0.434552
+evaluate 40 panels of 6 operations	0.054881
+copy that document (an undo step)	0.00132969
+write it as text	0.0373567
+read it back	0.0428887
+mesh the skirt at 2 cm (2,800 particles)	1.07723
+mesh the skirt at 1 cm (10,600 particles)	6.31435
+arrange its particles in space	0.0079154
+prepare a 19,600-triangle body to collide with	63.5345
+cloth step, 2,800 particles, no body	1.17396
+cloth step, 2,800 particles, scanned body	1.27316
+cloth step, cloth passing through cloth	0.876515
+carry the cloth over to the same mesh	0.535136
+mesh the trousers at 2 cm	1.04843
+cloth step, the trousers on the avatar	1.56073

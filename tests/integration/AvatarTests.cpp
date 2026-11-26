@@ -19,6 +19,7 @@
 #include "Helpers.h"
 #include "clothcad/core/Document.h"
 #include "clothcad/core/Evaluate.h"
+#include "clothcad/session/Samples.h"
 #include "clothcad/session/Session.h"
 #include "clothcad/sim/Body.h"
 #include "clothcad/sim/Cloth.h"
@@ -192,6 +193,42 @@ TEST_CASE("a T-shirt body shaped with added points sews shut on a body")
     std::printf("      %zu edges stretched more than 15%%\n", stretched);
     EXPECT((cloth.fastest() < 5.0), "it has settled");
     EXPECT((stretched < 20 && worstStretch(mesh, cloth.positions()) < 0.4), "nowhere stretched much, but for a few edges at the underarm");
+}
+
+TEST_CASE("the trousers sample sews shut on the avatar and hangs from the waist")
+{
+    // The sample as the window opens it (examples/07_trousers.cpp): a front and
+    // a back for each leg, the left leg a mirrored instance of the right one.
+    const Document doc = session::samples()[6].build();
+    const Result shapes = evaluate(doc);
+    REQUIRE(shapes.ok());
+    const ClothMesh mesh = meshOf(doc, shapes, {.particleDistance = 2_cm});
+    REQUIRE(mesh.panels.size() == 4);
+    Cloth cloth(mesh, arranged(doc, mesh));
+    const Body& body = project::avatar();
+    run(cloth, body, 6.0);
+    double widest = 0.0, deepest = 1e9, lowest = 1e9, waist = 0.0;
+    std::size_t waistPoints = 0;
+    for (const Stitch& stitch : mesh.stitches)
+        widest = std::max(widest, length(cloth.positions()[stitch.panelA][stitch.pointA] - cloth.positions()[stitch.panelB][stitch.pointB]));
+    for (std::size_t p = 0; p < mesh.panels.size(); ++p) {
+        for (const Vec3& at : cloth.positions()[p]) deepest = std::min(deepest, distanceTo(body, at)), lowest = std::min(lowest, at.y);
+        // A panel's waist is the top of the rectangle it starts with: its source's, for an instance.
+        const PanelId panel = mesh.panels[p].panel;
+        const PanelId drawn = doc.instanceOf(panel) ? doc.instanceOf(panel)->source : panel;
+        const EdgeRef top = OpRef<Rect>(doc.operations(drawn).front()).top();
+        for (const uint32_t i : mesh.panels[p].along(top)->points) waist += cloth.positions()[p][i].y, ++waistPoints;
+    }
+    waist /= static_cast<double>(waistPoints);
+    std::printf("      trousers: widest stitch %.2f cm, nearest to the body %.2f cm, waist at %.1f cm, hem down to %.1f cm, stretch %.1f%%, fastest %.1f cm/s\n",
+                widest, deepest, waist, lowest, 100 * worstStretch(mesh, cloth.positions()), cloth.fastest());
+    EXPECT((cloth.sound() && !cloth.sewing()), "it is sewn, and every position is a number");
+    EXPECT((widest < 0.5), "every stitch is closed, also at the crotch, where four corners are sewn into one point");
+    EXPECT((deepest > 0.1), "no particle is inside the body");
+    EXPECT((waist > project::avatarHips + 10.0), "it hangs from the waist, well above the hips");
+    EXPECT((lowest > 0.0), "and the hem is above the floor");
+    EXPECT((worstStretch(mesh, cloth.positions()) < 0.25), "nowhere stretched much: the waist and the crotch are loose enough");
+    EXPECT((cloth.fastest() < 5.0), "it has settled");
 }
 
 TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")

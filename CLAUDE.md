@@ -36,7 +36,7 @@ These came up again and again and outrank convenience:
 | `libs/session/` | One document being edited and all worked out from it: `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table or in the 3D view changes, and the tool in use, from `Tools`), `TableGizmo` (the table's gizmo), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples` | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan through Vulkan-Hpp (`vk::raii`, loaded at run time, no VMA): `Scene` is plain data, `Renderer` draws it into a picture (tests) or a window's `Swapchain`; `sceneOf` turns a session into a scene; `Picking` finds what is under the mouse, `Gizmo` is the move, rotate and scale gizmo. Its tests skip where there is no Vulkan | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`, Qt 6 Widgets): `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `TableView`, `SpaceView` only show and report | `session`, `render`, Qt 6 Widgets |
-| `examples/` | Six garments as small programs; they also run as tests | `core` |
+| `examples/` | Seven garments as small programs; they also run as tests | `core` |
 | `tests/integration/` | The whole window, driven through its widgets without a screen (`QtWindowTests`) | anything |
 | `tests/benchmarks/` | Frame and step times against baselines (`Perf.h`) | anything |
 

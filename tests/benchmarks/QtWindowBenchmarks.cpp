@@ -6,8 +6,9 @@
 // The rows after "the cloth runs on its own thread" look for what the owner
 // feels as slow: where one change's time goes (each dock, the table, the 3D
 // scene, one by one), a 4K picture, a panel carried in 3D, a parameter
-// dragged. A drag reports its slow frames too (Perf.h, `Frames`), and splits
-// each frame into the change, the session's tick and Qt's painting.
+// dragged, and where one change's time goes on the trousers. A drag reports
+// its slow frames too (Perf.h, `Frames`), and splits each frame into the
+// change, the session's tick and Qt's painting.
 //
 // The window runs without a screen (Qt's off-screen platform). There the 3D
 // view draws off screen and reads the picture back each time it changes,
@@ -292,6 +293,17 @@ void atFourK(MainWindow& window, perf::Report& report) {
     for (int i = 0; i < 3; ++i) frame(window);
 }
 
+// The trousers (the sample), the largest one: four panels, two of them
+// instances, and eight seams. Where one change's time goes there.
+void trousers(MainWindow& window, perf::Report& report) {
+    window.open(session::samples()[6].build(), "trousers");
+    for (int i = 0; i < 400 && (window.session().mesh()->panels.empty() || !window.session().bodyReady()); ++i) {
+        frame(window);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    phases(window, report, "trousers");
+}
+
 // A T-shirt body (the sample) as the owner works on it: a panel carried in 3D
 // with the move gizmo, and a parameter dragged.
 void tshirt(MainWindow& window, perf::Report& report) {
@@ -519,6 +531,7 @@ int main(int argc, char** argv) {
         phases(window, report, "skirt");
         atFourK(window, report);
         tshirt(window, report);
+        trousers(window, report);
     }
     return report.finish();
 }

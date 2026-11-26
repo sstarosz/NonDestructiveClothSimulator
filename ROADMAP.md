@@ -120,10 +120,11 @@ decided when 0.2 is out; their issues are in the milestone "0.x".
 
 | Step | Size | Issues | Why |
 | --- | --- | --- | --- |
-| Seams along part of an edge, from one point to another, and one edge to several | M | #15 | Sleeves into armholes, collars, gathers in one place; a point added to a sewn edge no longer halves its seam |
+| Seams along part of an edge, and one edge to several: the seam itself, sewing one edge to several in the Sew tool, a point added to a sewn edge keeping it sewn | M | #15: #98, #97, #96 | A waistband in two pieces sewn to four trouser panels, sleeves into armholes, collars, gathers in one place |
 | An instance's seams worked out from its source, not copied once. With the step above, since both change what a seam is | L | #71 | Nothing baked in |
-| Internal lines with free points, several segments, curves | M | | Darts, pleats, pockets |
-| Darts and pleats as operations | M | | Shaping that a flat pattern cannot do |
+| Darts as an operation, with a tool, closed in 3D; then pleats | M | #100 | Shaping that a flat pattern cannot do: a trousers' back waist, skirts, bodices |
+| Construction lines set by measurements (waist, hip, crotch, knee), with points put on them | L | #99 | Drafting as a pattern book does, and seeing the knee and hip lines on the table |
+| Internal lines with free points, several segments, curves | M | | Pleats, pockets |
 | Curves of several segments per edge | M | | Armholes and necklines need more than one cubic |
 | Mirror across an internal line | S | | Fold lines inside a panel |
 | Positions along an edge in cm, not only as a fraction | S | | "3 cm from the corner" stays 3 cm when the edge grows |
