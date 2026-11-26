@@ -136,8 +136,8 @@ Tools that help a pattern fit real body proportions, kept together.
 
 | Step | Size | Issues | Why |
 | --- | --- | --- | --- |
-| A section through the body and the cloth in 3D: a plane put where wanted shows the outline of both, so the edges around an armpit can be made to follow it | M | | The see-through body does not show the body's shape under the cloth |
-| Trousers fitted to a body's proportions: seat height, the curve through the crotch and the crotch widths measured on the avatar, shown beside the pattern's, and put right by parameters | L | | Bodies differ in more than waist and hips |
+| A section through the body and the cloth in 3D: a plane put where wanted shows the outline of both, so the edges around an armpit can be made to follow it | M | #112 | The see-through body does not show the body's shape under the cloth |
+| Trousers fitted to a body's proportions: seat height, the curve through the crotch and the crotch widths measured on the avatar, shown beside the pattern's, and put right by parameters | L | #111 | Bodies differ in more than waist and hips |
 
 ### Simulation quality
 
