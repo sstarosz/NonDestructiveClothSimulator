@@ -3865,3 +3865,83 @@ TEST_CASE("the status bar's help line gives way to the frame times, and both to 
     EXPECT((times->toolTip() == times->text() && help->toolTip() == help->text()), "what is cut is whole in its tooltip");
     w.window.findChild<QAction*>("showFrameTimes")->trigger();
 }
+
+// ---- Export ----
+
+namespace {
+
+std::size_t trianglesOf(const sim::ClothMesh& mesh, const std::string& without = {}, const Document* doc = nullptr) {
+    std::size_t triangles = 0;
+    for (const sim::PanelMesh& panel : mesh.panels)
+        if (!doc || doc->get(panel.panel).name != without) triangles += panel.triangles.size();
+    return triangles;
+}
+
+} // namespace
+
+TEST_CASE("File > Export OBJ writes the garment, says how many panels went where, and why when it cannot", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-export-XXXXXX");
+    REQUIRE(folder.isValid());
+    auto* item = w.window.findChild<QAction*>("fileExportObj");
+    REQUIRE(item != nullptr);
+    EXPECT((item->isEnabled() && item->shortcut() == QKeySequence("Ctrl+E")), "in the File menu, with Ctrl+E");
+    {
+        Answering answer(QMessageBox::Cancel);
+        item->trigger();
+        EXPECT((answer.fileDialogs == 1 && answer.questions.empty()), "it asks where to; cancelled, nothing else happens");
+    }
+
+    const QString path = folder.filePath(QString::fromUtf8("koszulka 衣.obj"));
+    REQUIRE(w.window.exportObj(path));
+    const sim::LoadedSurface read = sim::loadObj(path.toStdString());
+    REQUIRE(read.problem.empty());
+    EXPECT(read.surface.triangles.size() == trianglesOf(w.window.session().shownMesh()), "every triangle of the garment");
+    EXPECT((w.window.helpLine().contains("2 panels") && w.window.helpLine().contains(QDir::toNativeSeparators(path))), "and says so");
+    EXPECT(!w.window.isWindowModified(), "exporting leaves the pattern saved");
+
+    const PanelId hidden = w.doc().panels().front();
+    emit w.window.outliner()->panelShownChanged(hidden, false);
+    REQUIRE(w.window.exportObj(path));
+    EXPECT(sim::loadObj(path.toStdString()).surface.triangles.size() ==
+               trianglesOf(w.window.session().shownMesh(), w.doc().get(hidden).name, &w.doc()),
+           "a hidden panel is not written");
+    EXPECT((w.window.helpLine().contains("1 panel ") && w.window.helpLine().contains("1 hidden")), "and that is said");
+
+    EXPECT(!w.window.exportObj(folder.filePath("no such folder/x.obj")), "a place that cannot be written");
+    EXPECT(w.window.helpLine().startsWith("Could not write"), "says why");
+
+    emit w.window.outliner()->panelShownChanged(w.doc().panels().back(), false);
+    const auto bytes = [&] {
+        QFile file(path);
+        REQUIRE(file.open(QIODevice::ReadOnly));
+        return file.readAll();
+    };
+    const QByteArray old = bytes();
+    EXPECT((!w.window.exportObj(path) && w.window.helpLine().contains("hidden") && bytes() == old), "with nothing to write, the file is left as it was");
+}
+
+TEST_CASE("Export OBJ writes the pattern as it is, also with only the table shown; with nothing to export it is greyed", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-export-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString path = folder.filePath("wide.obj");
+    w.window.shelf()->layout(ViewLayout::TableOnly)->trigger();
+    w.window.tick();
+    const std::size_t before = trianglesOf(w.window.session().shownMesh());
+    setChest(w, "120 cm");
+    w.window.tick();
+    REQUIRE(w.window.exportObj(path));
+    const std::size_t written = sim::loadObj(path.toStdString()).surface.triangles.size();
+    EXPECT(written > before, "the wider chest is in the file");
+    EXPECT(written == trianglesOf(sim::meshOf(w.doc(), evaluate(w.doc()))), "as the pattern is now");
+
+    Answering answer(QMessageBox::Discard);
+    choose(w, "fileNew");
+    EXPECT(!w.window.findChild<QAction*>("fileExportObj")->isEnabled(), "an empty table has nothing to export");
+    w.window.shelf()->undo()->trigger();
+    choose(w, "fileSample0");
+    EXPECT(w.window.findChild<QAction*>("fileExportObj")->isEnabled(), "a garment has");
+}

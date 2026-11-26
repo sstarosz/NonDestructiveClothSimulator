@@ -5,8 +5,10 @@ clothcad_library(sim
     SOURCES
         src/Body.cpp
         src/Cloth.cpp
+        src/Export.cpp
         src/Layout.cpp
         src/Mesh.cpp
+        src/Normals.cpp
     DEPENDS clothcad::core
     PRIVATE_DEPENDS CDT::CDT
 )

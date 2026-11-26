@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <future>
 #include <utility>
 
 namespace clothcad::session {
@@ -185,6 +186,15 @@ void Simulation::advance() {
         running = running_;
     }
     if (running || held_) stepOnce();  // a held cloth runs, told to or not
+}
+
+void Simulation::waitForChanges() {
+    if (threading_ == Threading::OneStepPerAdvance) return;  // taken as they were handed over
+    // Changes are taken in the order they came: when this one runs, so has all before it.
+    const auto taken = std::make_shared<std::promise<void>>();
+    std::future<void> done = taken->get_future();
+    hand([taken] { taken->set_value(); });
+    done.wait();
 }
 
 bool Simulation::fetch(News& into) {

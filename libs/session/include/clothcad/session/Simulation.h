@@ -68,6 +68,9 @@ public:
 
     // With Threading::OneStepPerAdvance: one step, if running. Otherwise nothing.
     void advance();
+    // Waits until the cloth has taken everything handed to it, so that fetch()
+    // hands out news of it. It does not wait for a step.
+    void waitForChanges();
 
     struct News {
         std::uint64_t version = 0;                  // goes up with every piece of news

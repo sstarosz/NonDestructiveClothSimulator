@@ -346,12 +346,38 @@ How it is kept fast:
 4. Press Play in the action row (or Space; Space again pauses).
 5. Change a width while it hangs.
 
+## Export
+
+File > Export OBJ… (Ctrl+E) writes the garment to a Wavefront OBJ file, for
+Blender, Maya or any other 3D program:
+
+- **The cloth as it hangs.** Before Play, or after Reset, the panels flat (or
+  wrapped) where they are arranged in space. It is always the pattern as it is
+  now, also with only the table shown. Exporting does not step the cloth,
+  change the pattern or clear the "*".
+- **In cm, the avatar's units**, so it lines up with the character it was
+  draped on. The body is not in the file: load your own avatar file beside it.
+- **One group per panel**, named after it (spaces become `_`; a name used
+  twice gets a number). Hidden panels are left out, and the help line says how
+  many; deactivated panels are written where they stand.
+- **UVs are the pattern as it lies on the table**: each panel turned and placed
+  as there, all of it in the square from 0 to 1 with one scale both ways. Move
+  panels apart on the table to keep their UVs apart. Hiding a panel does not
+  move the others' UVs.
+- **Normals** are smooth across closed seams, as the 3D view shades them, and
+  each panel's front (the side the table shows) is the front of its faces.
+
+In Blender, File > Import > Wavefront (.obj) brings the garment in as one
+object; switch on "Split by Group" for one object per panel. Blender reads one
+unit as a metre, so give the garment and the avatar the same Scale, 0.01, to
+get their real size.
+
 ## How the code is laid out
 
 | Folder | What is in it | Depends on |
 | --- | --- | --- |
 | `libs/core/` | The document (parameters, panels, operations, seams), formulas, evaluation to 2D outlines, files | nothing |
-| `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
+| `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver, the garment as OBJ text | `core`, CDT |
 | `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use; the recovery copy of unsaved work (`Autosave`) | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
@@ -370,6 +396,12 @@ holds and hands it what the user did.
   about 1 cm apart, and cloth pulled open or moving very fast can slip
   through.
 - One fabric for everything, with fixed properties; no pins in the window.
+- The exported OBJ is the cloth alone, without thickness or seam allowance,
+  and with no materials file (`.mtl`). Panels are not welded: the two sides of
+  a seam are separate points, which lie together only where the seam closed. A
+  panel that shows its back on the outside in the 3D view is inside out in the
+  file too. Panels that overlap on the table overlap in the UVs. All panels
+  shown are written; a selection cannot be exported on its own.
 - The avatar must be one closed surface in cm, y up, facing +z.
 - Seams join whole edges, one to one.
 - Delete on a corner works only for corners added with the Point tool; any
