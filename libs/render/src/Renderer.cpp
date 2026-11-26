@@ -107,12 +107,17 @@ struct Image {
     }
 };
 
-// A render pass for one kind of picture, and the two ways of drawing into it.
+constexpr vk::ColorComponentFlags everyColour = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |
+                                                vk::ColorComponentFlagBits::eA;
+
+// A render pass for one kind of picture, and the ways of drawing into it.
 struct Pass {
     vk::Format format = vk::Format::eUndefined;
     vk::ImageLayout finalLayout = vk::ImageLayout::eUndefined;
     vk::raii::RenderPass renderPass{nullptr};
     vk::raii::Pipeline surfaces{nullptr};
+    vk::raii::Pipeline seeThrough{nullptr};  // surfaces that leave no depth: they hide nothing
+    vk::raii::Pipeline depthOnly{nullptr};   // surfaces that leave their depth and no colour
     vk::raii::Pipeline lines{nullptr};
 };
 
@@ -167,7 +172,7 @@ struct Renderer::Inside {
             std::uint32_t count, first;
             std::int32_t base;
             Colour colour, back;
-            bool lit;
+            bool lit, nearestOnly;
         };
         struct Plain {
             std::uint32_t count, first;
@@ -294,13 +299,12 @@ const Pass& Renderer::Inside::passFor(vk::Format format, vk::ImageLayout finalLa
     const vk::PipelineVertexInputStateCreateInfo vertexInput({}, binding, inputs);
     const vk::PipelineViewportStateCreateInfo viewport({}, 1, nullptr, 1, nullptr);
     const vk::PipelineMultisampleStateCreateInfo samples({}, vk::SampleCountFlagBits::e1);
-    const vk::PipelineDepthStencilStateCreateInfo depth({}, VK_TRUE, VK_TRUE, vk::CompareOp::eLessOrEqual);
-    const vk::PipelineColorBlendAttachmentState blend(VK_TRUE, vk::BlendFactor::eSrcAlpha, vk::BlendFactor::eOneMinusSrcAlpha, vk::BlendOp::eAdd,
-                                                      vk::BlendFactor::eOne, vk::BlendFactor::eOneMinusSrcAlpha, vk::BlendOp::eAdd,
-                                                      vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |
-                                                          vk::ColorComponentFlagBits::eA);
-    const vk::PipelineColorBlendStateCreateInfo blending({}, VK_FALSE, vk::LogicOp::eCopy, blend);
-    const auto pipeline = [&](vk::PrimitiveTopology topology, const vk::raii::ShaderModule& vertex, const vk::raii::ShaderModule& fragment) {
+    const auto pipeline = [&](vk::PrimitiveTopology topology, const vk::raii::ShaderModule& vertex, const vk::raii::ShaderModule& fragment,
+                              bool leavesDepth = true, vk::ColorComponentFlags writes = everyColour) {
+        const vk::PipelineDepthStencilStateCreateInfo depth({}, VK_TRUE, leavesDepth ? VK_TRUE : VK_FALSE, vk::CompareOp::eLessOrEqual);
+        const vk::PipelineColorBlendAttachmentState blend(VK_TRUE, vk::BlendFactor::eSrcAlpha, vk::BlendFactor::eOneMinusSrcAlpha, vk::BlendOp::eAdd,
+                                                          vk::BlendFactor::eOne, vk::BlendFactor::eOneMinusSrcAlpha, vk::BlendOp::eAdd, writes);
+        const vk::PipelineColorBlendStateCreateInfo blending({}, VK_FALSE, vk::LogicOp::eCopy, blend);
         std::vector<vk::DynamicState> dynamic{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
         if (topology == vk::PrimitiveTopology::eLineList) dynamic.push_back(vk::DynamicState::eLineWidth);
         const vk::PipelineDynamicStateCreateInfo dynamicState({}, dynamic);
@@ -315,6 +319,8 @@ const Pass& Renderer::Inside::passFor(vk::Format format, vk::ImageLayout finalLa
                                                                  &dynamicState, *layout, *pass.renderPass, 0));
     };
     pass.surfaces = pipeline(vk::PrimitiveTopology::eTriangleList, surfaceVertex, surfaceFragment);
+    pass.seeThrough = pipeline(vk::PrimitiveTopology::eTriangleList, surfaceVertex, surfaceFragment, false);
+    pass.depthOnly = pipeline(vk::PrimitiveTopology::eTriangleList, surfaceVertex, surfaceFragment, true, {});
     pass.lines = pipeline(vk::PrimitiveTopology::eLineList, lineVertex, lineFragment);
     passes.push_back(std::move(pass));
     return passes.back();
@@ -337,7 +343,8 @@ Renderer::Inside::Draws Renderer::Inside::upload(const Scene& scene) {
             if (s.triangles.empty() || s.points.empty()) continue;
             for (std::size_t i = 0; i < s.points.size(); ++i) vertex[vertexAt + i] = {s.points[i], i < s.normals.size() ? s.normals[i] : Point{0, 0, 1}};
             std::copy(s.triangles.begin(), s.triangles.end(), index + indexAt);
-            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.back.value_or(s.colour), s.lit});
+            into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.back.value_or(s.colour), s.lit,
+                            s.nearestOnly});
             vertexAt += static_cast<std::uint32_t>(s.points.size());
             indexAt += static_cast<std::uint32_t>(s.triangles.size());
         }
@@ -363,19 +370,16 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
     commands.bindIndexBuffer(*indices.buffer, 0, vk::IndexType::eUint32);
     Push push{scene.viewProjection, {}, {scene.toLight.x, scene.toLight.y, scene.toLight.z, 0.0f}, {}};
     const vk::ShaderStageFlags stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
-    commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
-    // The light's w says whether a surface is lit (0) or drawn in its colour alone (1).
-    const auto drawSurfaces = [&](bool seeThrough) {
-        for (const Draws::Indexed& d : draws.surfaces) {
-            if ((d.colour.alpha < 1.0f) != seeThrough) continue;
-            push.colour = d.colour;
-            push.back = d.back;
-            push.toLight[3] = d.lit ? 0.0f : 1.0f;
-            commands.pushConstants<Push>(*layout, stages, 0, push);
-            commands.drawIndexed(d.count, 1, d.first, d.base, 0);
-        }
+    const auto drawSurface = [&](const vk::raii::Pipeline& pipeline, const Draws::Indexed& d) {
+        commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
+        push.colour = d.colour;
+        push.back = d.back;
+        push.toLight[3] = d.lit ? 0.0f : 1.0f;  // the light's w: lit (0), or drawn in its colour alone (1)
+        commands.pushConstants<Push>(*layout, stages, 0, push);
+        commands.drawIndexed(d.count, 1, d.first, d.base, 0);
     };
-    drawSurfaces(false);
+    for (const Draws::Indexed& d : draws.surfaces)
+        if (d.colour.alpha >= 1.0f) drawSurface(pass.surfaces, d);
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.lines);
     const std::optional<Point> eye = eyeOf(scene.viewProjection);
     Push forLines = push;
@@ -386,22 +390,21 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
         commands.pushConstants<Push>(*layout, stages, 0, forLines);
         commands.draw(d.count, 1, d.first, 0);
     }
-    // Last, what lets light through: over everything it is in front of.
-    commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
-    drawSurfaces(true);
+    // Then what lets light through, over everything it is in front of.
+    for (const Draws::Indexed& d : draws.surfaces)
+        if (d.colour.alpha < 1.0f && !d.nearestOnly) drawSurface(pass.seeThrough, d);
+    // Of these the depth first, so that only the nearest side is then blended in.
+    for (const Draws::Indexed& d : draws.surfaces)
+        if (d.colour.alpha < 1.0f && d.nearestOnly) {
+            drawSurface(pass.depthOnly, d);
+            drawSurface(pass.surfaces, d);
+        }
     if (!draws.overlay.empty()) {
         // In front of everything drawn so far: the depth starts again, so the
         // overlay hides only its own parts behind each other.
         commands.clearAttachments(vk::ClearAttachment(vk::ImageAspectFlagBits::eDepth, 0, vk::ClearValue(vk::ClearDepthStencilValue(1.0f, 0))),
                                   vk::ClearRect(vk::Rect2D({0, 0}, extent), 0, 1));
-        commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.surfaces);
-        for (const Draws::Indexed& d : draws.overlay) {
-            push.colour = d.colour;
-            push.back = d.back;
-            push.toLight[3] = d.lit ? 0.0f : 1.0f;
-            commands.pushConstants<Push>(*layout, stages, 0, push);
-            commands.drawIndexed(d.count, 1, d.first, d.base, 0);
-        }
+        for (const Draws::Indexed& d : draws.overlay) drawSurface(pass.surfaces, d);
     }
     commands.endRenderPass();
 }

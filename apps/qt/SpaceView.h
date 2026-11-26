@@ -5,7 +5,7 @@
 // the wheel dollies too and F frames everything.
 //
 // A click with the left button picks the panel under it (or none, on the
-// body or the floor). With Move (W), Rotate (E) or Scale (R) the selected
+// body or the floor; through a see-through body, the panel behind it). With Move (W), Rotate (E) or Scale (R) the selected
 // panel shows that gizmo (render/Gizmo): arrows and squares move it, rings
 // turn it, handles scale it; Ctrl moves in whole centimetres, turns in steps
 // of 15° and scales in steps of 10 %. With Move, dragging the selected panel
@@ -19,7 +19,7 @@
 // the same picture is drawn off screen and painted. Without Vulkan at all,
 // the view says why.
 //
-//   space->show(session, selected, drafting.tool, meshShown);  // each frame; draws only what changed
+//   space->show(session, drafting.tool, {.selected = panel, .mesh = true});  // each frame; draws only what changed
 //   connect(space, &SpaceView::gestured, [&](const session::Gesture& g) { ... });
 //   space->showTime(seconds, sewing);
 
@@ -33,6 +33,7 @@
 #include "clothcad/render/Picking.h"
 #include "clothcad/render/Renderer.h"
 #include "clothcad/render/Scene.h"
+#include "clothcad/render/SceneOf.h"
 #include "clothcad/session/Drafting.h"
 #include "clothcad/session/Session.h"
 
@@ -51,8 +52,8 @@ public:
     ~SpaceView() override;
 
     // What to show, and with which tool: it says which gizmo the selected panel shows.
-    void show(const session::Session& session, std::optional<PanelId> selected, session::Tool tool, bool mesh, bool body = true,
-              std::optional<SeamId> seam = {});
+    // How wide a pixel is the view says itself (SceneOptions::pixel).
+    void show(const session::Session& session, session::Tool tool, render::SceneOptions options);
     void showTime(std::optional<double> seconds, bool sewing);
     void frame();  // everything in view
 
@@ -126,11 +127,7 @@ private:
     // What the scene was made from, to make it again only when that changed.
     struct Shown {
         std::uint64_t version = 0;
-        std::optional<PanelId> selected;
-        bool mesh = false;
-        bool body = true;
-        std::optional<SeamId> seam{};
-        double pixel = 1.0;
+        render::SceneOptions options;
         bool operator==(const Shown&) const = default;
     };
     std::optional<Shown> shown_;

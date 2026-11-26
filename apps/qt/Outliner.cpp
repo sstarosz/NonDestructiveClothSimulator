@@ -83,6 +83,9 @@ Outliner::Outliner(QWidget* parent) : QTreeWidget(parent) {
             shown->setToolTip("Hidden, the body is also taken out of the simulation.");
             shown->setCheckable(true);
             shown->setChecked(bodyNow_.shown);
+            QAction* seeThrough = menu.addAction("See-through", [this](bool on) { emit bodySeeThroughChanged(on); });
+            seeThrough->setCheckable(true);
+            seeThrough->setChecked(bodyNow_.seeThrough);
             menu.exec(viewport()->mapToGlobal(where));
             return;
         }
@@ -142,8 +145,9 @@ bool Outliner::pressButton(const QMouseEvent* event) {
     const QPoint at = event->position().toPoint();
     const QTreeWidgetItem* item = itemAt(at);
     const int column = columnAt(at.x());
-    if (item == body_ && column == eyeColumn && !bodyNow_.name.isEmpty()) {
-        emit bodyShownChanged(!bodyNow_.shown);
+    if (item == body_ && !bodyNow_.name.isEmpty() && (column == eyeColumn || column == seeThroughColumn)) {
+        if (column == eyeColumn) emit bodyShownChanged(!bodyNow_.shown);
+        else emit bodySeeThroughChanged(!bodyNow_.seeThrough);
         return true;
     }
     if (column == eyeColumn) {
@@ -259,7 +263,11 @@ void Outliner::showBody(const Body& body) {
     body_->setForeground(0, none || !body.shown ? theme::quiet : theme::text);
     body_->setIcon(eyeColumn, none ? QIcon() : icon(body.shown ? Icon::Eye : Icon::EyeShut, theme::quiet));
     body_->setToolTip(eyeColumn, none ? QString() : body.shown ? "Shown. Click to hide it; hidden, it is also out of the simulation." : "Hidden. Click to show it.");
+    body_->setIcon(seeThroughColumn, none ? QIcon() : icon(body.seeThrough ? Icon::SeeThrough : Icon::Solid, theme::quiet));
+    body_->setToolTip(seeThroughColumn, none ? QString() : body.seeThrough ? "See-through. Click to make it solid." : "Solid. Click to see through it to the cloth inside.");
 }
+
+QString Outliner::bodySeeThroughHint() const { return body_->toolTip(seeThroughColumn); }
 
 QString Outliner::bodyShown() const { return body_->text(0); }
 

@@ -186,7 +186,12 @@ struct UseShapeLength {
 };
 
 // How a panel added next to another relates to it: a copy of its own, or
-// something that follows the source (an instance, or its mirror image).
+// something that follows the source (an instance, or its mirror image). A
+// mirrored instance of a panel at one side of the body also stands in space as
+// its mirror image across x = 0, if the source has a place there and its anchor
+// is at least a quarter of its width from the middle. Everything else stands
+// where the table has it. This is the new panel's first place: it does not follow
+// the source's later moves.
 enum class Follow { Copy, Instance, MirroredInstance };
 // A new panel just right of `source`, selected. An instance is sewn as its
 // source is, as far as there is something to sew it to (Document::sewAsSource).

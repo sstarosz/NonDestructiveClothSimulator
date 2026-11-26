@@ -48,6 +48,11 @@ the body follows too.
   press "Sew as source" (Sew tab). The copies are ordinary seams that you can
   reverse or delete. The Trousers sample (File > Samples) is made this way:
   a front and a back for one leg, the other leg a mirrored instance of both.
+- **The other side stands in place**: a mirrored instance of a panel that
+  stands at one side of the body is put in space as its mirror image (across
+  the body's middle, with the same wrap), so a second leg drapes without
+  arranging it by hand. This is its first place only: moving the source later
+  leaves it where it is.
 - **3D**: panels arranged around a body (each sample opens on the avatar in
   `assets/`; Body > Avatar from OBJ… loads another),
   meshed and simulated: gravity, seams drawing closed,
@@ -69,6 +74,10 @@ the body follows too.
   Neither changes the pattern.
 - **Smooth across seams**: where a seam has closed, the cloth on both sides is
   shaded as one piece.
+- **See-through body**: View > See-through body, or the button beside the eye
+  on the body's row in the Outliner, draws the body as one sheet of dark glass.
+  Cloth that has gone into the body, or is behind it, shows through, and can be
+  clicked and pulled through it. The body is still in the simulation.
 - **Gizmos as in Maya**, in the 3D view and on the table alike: Q selects
   only, W moves (an arrow per axis, a square per plane, the middle across
   the view), E turns (a ring per axis, one about the line of sight, and
@@ -121,7 +130,7 @@ the body follows too.
   Rotate, Scale, and the view layouts), the 3D
   view and the table side by side (or stacked, or either one alone), and dockable panels
   that fold and stack as tabs (tabs on top): the Outliner (which also shows
-  or hides the body, with its eye) and Parameters on the left, the Attribute
+  or hides the body, or makes it see-through) and Parameters on the left, the Attribute
   Editor on the right (a panel's operations as layers, and how fine its cloth is).
   Its 3D view is drawn by the graphics card, with Vulkan.
 
@@ -231,6 +240,7 @@ read back here, which the real window does not do):
 | Zooming the table at 4K (its floor is drawn again every frame) | 16 ms | 12 ms |
 | Dragging a corner at 4K, a panel filling the table | 16 ms | 9 ms |
 | Carrying a T-shirt panel in 3D with the gizmo | 24 ms | 7 ms |
+| Orbiting the 3D view at 4K, solid body / see-through | 120 ms | 40 / 41 ms |
 | Dragging a length parameter on the T-shirt | 16 ms | 8-9 ms |
 
 A drag also reports its slowest 1 frame in 20 (held to twice the limit) and its
@@ -351,8 +361,17 @@ holds and hands it what the user did.
   something else gets the source's seam as well. Ticking "Mirrored" on one of
   two sewn instances later twists their seams (reverse them). A panel made an
   instance by adding the layer, or given another source, is not sewn by itself:
-  press "Sew as source". An instance stands in space where the table has it,
-  not mirrored from its source's place.
+  press "Sew as source".
+- Only a mirrored instance made by the button (or "Add beside") is placed in
+  space from its source, and only once. A plain instance, a copy, a panel made
+  an instance by adding the layer and a mirrored instance of a panel on the
+  body's middle (its anchor less than a quarter of its width to a side) stand
+  where the table has them.
+- The see-through body shows cloth inside or behind it, not the body inside
+  the cloth: draped cloth hides what it covers. Only the body's nearest side
+  shows (not the torso behind an arm). A deactivated panel and the body are
+  tinted as if the body were in front, whichever is. Like hiding the body, it
+  is not saved in the file and is not an undo step.
 - A panel grows away from its sewn edges that kept their length. If every
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.

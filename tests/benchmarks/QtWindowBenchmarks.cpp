@@ -246,13 +246,20 @@ void atFourK(MainWindow& window, perf::Report& report) {
     SpaceView& space = *window.space();
     if (space.drawing() != SpaceView::Drawing::Nothing) {
         QPointF at(400, 600);
-        space.press(at, Qt::LeftButton, Qt::AltModifier);
-        const perf::Frames orbit = dragged(window, 30, [&](int) {
-            at += QPointF(4, 0);
-            space.moveTo(at, Qt::LeftButton, Qt::AltModifier);
-        });
-        space.release();
-        report.frames("4K: frames while the 3D view is orbited (read back)", 120.0, orbit);
+        const auto orbited = [&](double step) {
+            space.press(at, Qt::LeftButton, Qt::AltModifier);
+            const perf::Frames spent = dragged(window, 30, [&](int) {
+                at += QPointF(step, 0);
+                space.moveTo(at, Qt::LeftButton, Qt::AltModifier);
+            });
+            space.release();
+            return spent;
+        };
+        report.frames("4K: frames while the 3D view is orbited (read back)", 120.0, orbited(4));
+        // The same way back with the body see-through: it is then drawn twice, over the cloth.
+        window.showBodySeeThrough(true);
+        report.frames("4K: frames while the 3D view is orbited, the body see-through (read back)", 120.0, orbited(-4));
+        window.showBodySeeThrough(false);
     }
     window.setThreading(session::Threading::OwnThread);
     const auto panelRun = [&] { return Run{panelDragged(window, report, "4K"), {}}; };

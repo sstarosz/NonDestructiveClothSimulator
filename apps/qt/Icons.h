@@ -15,7 +15,7 @@ enum class Icon {
     Select, Move, Rotate, Scale, Rectangle, Circle, Ring, Point, Curve, Line, Mirror, Cut, Split, Sew, Pull,
     Undo, Redo, Play, Pause, Reset, Body, Avatar, Mesh, Grid, Lengths, Fit,
     SpaceOnly, TableOnly, SideBySide, Stacked, Eye, EyeShut, Lock, Plus, Copy, Instance, Delete, Folder, Twist,
-    Active, Inactive,
+    Active, Inactive, Solid, SeeThrough,
 };
 
 QIcon icon(Icon which, QColor colour = theme::text);

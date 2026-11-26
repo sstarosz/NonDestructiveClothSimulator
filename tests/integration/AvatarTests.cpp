@@ -19,6 +19,7 @@
 #include "Helpers.h"
 #include "clothcad/core/Document.h"
 #include "clothcad/core/Evaluate.h"
+#include "clothcad/session/Drafting.h"
 #include "clothcad/session/Samples.h"
 #include "clothcad/session/Session.h"
 #include "clothcad/sim/Body.h"
@@ -195,11 +196,11 @@ TEST_CASE("a T-shirt body shaped with added points sews shut on a body")
     EXPECT((stretched < 20 && worstStretch(mesh, cloth.positions()) < 0.4), "nowhere stretched much, but for a few edges at the underarm");
 }
 
-TEST_CASE("the trousers sample sews shut on the avatar and hangs from the waist")
-{
-    // The sample as the window opens it (examples/07_trousers.cpp): a front and
-    // a back for each leg, the left leg a mirrored instance of the right one.
-    const Document doc = session::samples()[6].build();
+namespace {
+
+// Four panels of trousers, a front and a back for each leg, draped: they sew
+// shut and hang from the waist.
+void expectTrousersToHang(const Document& doc) {
     const Result shapes = evaluate(doc);
     REQUIRE(shapes.ok());
     const ClothMesh mesh = meshOf(doc, shapes, {.particleDistance = 2_cm});
@@ -229,6 +230,40 @@ TEST_CASE("the trousers sample sews shut on the avatar and hangs from the waist"
     EXPECT((lowest > 0.0), "and the hem is above the floor");
     EXPECT((worstStretch(mesh, cloth.positions()) < 0.25), "nowhere stretched much: the waist and the crotch are loose enough");
     EXPECT((cloth.fastest() < 5.0), "it has settled");
+}
+
+} // namespace
+
+TEST_CASE("the trousers sample sews shut on the avatar and hangs from the waist")
+{
+    // The sample as the window opens it (examples/07_trousers.cpp): a front and
+    // a back for each leg, the left leg a mirrored instance of the right one.
+    expectTrousersToHang(session::samples()[6].build());
+}
+
+TEST_CASE("trousers with only the right leg arranged, the left made as mirrored instances, hang as well")
+{
+    // The sample without its left leg, which is then made as in the window:
+    // nothing of it is placed or sewn by hand but the two centre seams.
+    Document right = session::samples()[6].build();
+    std::vector<PanelId> legs = right.panels();
+    REQUIRE(legs.size() == 4);
+    const PanelId front = legs[0], back = legs[1];
+    const EdgeRef frontRise = right.get(right.seams()[right.seams().size() - 2]).a.edge, backRise = right.get(right.seams().back()).a.edge;
+    right.remove(legs[2]);
+    right.remove(legs[3]);
+    REQUIRE((right.panels().size() == 2 && right.seams().size() == 3));
+
+    session::Editor editor(right);
+    session::Drafting drafting;
+    drafting.handle(editor, session::SelectPanels{{front, back}, session::Pick::Replace});
+    drafting.handle(editor, session::DuplicateSelection{session::Follow::MirroredInstance});
+    const std::vector<PanelId> made = drafting.selection.panels();
+    REQUIRE(made.size() == 2);
+    drafting.handle(editor, session::SewEdges{{front, frontRise}, {made[0], frontRise}});
+    drafting.handle(editor, session::SewEdges{{back, backRise}, {made[1], backRise}});
+    REQUIRE(editor.document().seams().size() == 8);
+    expectTrousersToHang(editor.document());
 }
 
 TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")

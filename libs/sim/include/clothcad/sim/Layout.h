@@ -54,6 +54,14 @@ Vec2 anchorOf(const Arrangement& arrangement, const Pattern& outline);
 // of them; a panel sewn to nothing grows about the middle of its box.
 Vec2 anchorAfterChange(const Document& doc, PanelId panel, const Pattern& before, const Pattern& after, Vec2 anchorBefore);
 
+// The mirror image of an arrangement across x = 0, the body's middle, for a
+// panel whose outline is the other's mirrored (Instance::mirrored): every
+// spot (x, y) of the other has its image at (-x, y) here, and stands in space
+// where the mirror image of that spot does.
+//
+//   doc.arrange(leftLeg, sim::mirrored(doc.get(rightLeg).arrangement));
+Arrangement mirrored(const Arrangement& arrangement);
+
 // A whole draped panel carried through space, as when its arrangement is
 // changed while it hangs: turned about where its anchor stood, then taken to
 // where the anchor stands now. Its drape is kept; its wrap, which only says

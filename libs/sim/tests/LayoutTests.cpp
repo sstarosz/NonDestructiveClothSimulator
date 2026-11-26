@@ -125,6 +125,19 @@ TEST_CASE("panels are arranged in space")
     EXPECT((arc > 39.0 && arc <= 40.0 + 1e-9), "and its bottom edge is still 40 cm long");
 }
 
+TEST_CASE("a mirrored arrangement points every direction of the mirrored panel as in a mirror")
+{
+    const Arrangement was{.placed = true, .x = 10, .y = 120, .z = 20, .turn = 30, .tilt = 15, .roll = -40, .wrap = 90, .anchor = Vec2{4, 7}};
+    const Arrangement image = mirrored(was);
+    EXPECT((image.placed && image.x == -10.0 && image.y == 120.0 && image.z == 20.0 && image.wrap == 90.0 && image.anchor == Vec2{-4, 7}), "across x = 0");
+    // The panel's own x is the other way round in the mirrored outline, and so is x in space.
+    for (const Vec3 own : {Vec3{1, 0, 0}, Vec3{0, 1, 0}, Vec3{0, 0, 1}}) {
+        const Vec3 there = inSpace(was, own);
+        EXPECT((length(inSpace(image, {-own.x, own.y, own.z}) - Vec3{-there.x, there.y, there.z}) < 1e-9), "each of its directions is the mirror image");
+    }
+    EXPECT((mirrored(image) == was), "mirrored twice, it is where it was");
+}
+
 TEST_CASE("an arrangement turned about any axis keeps its anchor and turns every point of the panel")
 {
     const auto near = [](Vec3 a, Vec3 b) { return length(a - b) < 1e-9; };

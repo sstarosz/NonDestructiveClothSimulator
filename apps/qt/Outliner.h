@@ -1,8 +1,9 @@
 #pragma once
 // The scene as a tree, as Maya's Outliner: the body, the panels, the seams.
 // A panel's icon says what it is: mirrored (pink), an instance (violet).
-// The body's row has an eye: click it, or use the row's menu, to hide the
-// body (it is then also out of the simulation) or show it again.
+// The body's row has two buttons, also in its menu: an eye, to hide the body
+// (it is then also out of the simulation) or show it again, and one to make it
+// see-through, so that cloth inside it shows.
 // Choosing, renaming (double click or F2), copying, making it base only and
 // deleting a panel (its context menu, Delete) are only reported, as is
 // deleting a seam (its context menu, Delete). Choosing a seam's row is
@@ -31,11 +32,13 @@ class Outliner : public QTreeWidget {
 public:
     explicit Outliner(QWidget* parent = nullptr);
     // The body as the row shows it: its name (empty: none), whether it is
-    // drawn and simulated, and whether it is ready to collide with.
+    // drawn and simulated, whether it is ready to collide with, and whether it
+    // is drawn see-through.
     struct Body {
         QString name;
         bool shown = true;
         bool ready = true;
+        bool seeThrough = false;
         friend bool operator==(const Body&, const Body&) = default;
     };
     void show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const Body& body, std::optional<SeamId> seam = {});
@@ -43,8 +46,9 @@ public:
     // Which panels are hidden in 3D and which are deactivated: their rows say so.
     void showPanelStates(const std::vector<PanelId>& hidden, const std::vector<PanelId>& inactive);
     void showSeamStates(const std::vector<SeamId>& hidden);  // which seams have no lines in 3D
-    // The columns of the buttons: the eye (the body's and the panels') and activation.
-    static constexpr int eyeColumn = 2, activeColumn = 3;
+    // The columns of the buttons: the eye (the body's and the panels') and activation,
+    // which on the body's row is where it is made see-through.
+    static constexpr int eyeColumn = 2, activeColumn = 3, seeThroughColumn = activeColumn;
     QString bodyShown() const;        // the words on its row
 
     // For tests and the window: the panels in the order shown.
@@ -55,6 +59,7 @@ public:
     void remove(PanelId panel) { emit deleteRequested(panel); }  // as "Delete" in its menu
     void setBaseOnly(PanelId panel, bool on);                    // as ticking "Base only" in its menu
     void setBodyShown(bool shown) { emit bodyShownChanged(shown); }  // as a click on the body's eye
+    QString bodySeeThroughHint() const;                              // the words on the row's other button
     std::vector<SeamId> seamsShown() const;
     void removeSeam(SeamId seam) { emit seamDeleteRequested(seam); }  // as "Delete" in a seam's menu
 
@@ -69,6 +74,7 @@ signals:
     void seamDeleteRequested(clothcad::SeamId seam);
     // The body's eye was clicked: shown or hidden.
     void bodyShownChanged(bool shown);
+    void bodySeeThroughChanged(bool seeThrough);
     void panelShownChanged(clothcad::PanelId panel, bool shown);
     void panelActiveChanged(clothcad::PanelId panel, bool active);
     void seamShownChanged(clothcad::SeamId seam, bool shown);

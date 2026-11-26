@@ -26,6 +26,7 @@ double focalOf(const OrbitCamera& camera, ViewSize size) {
 }
 
 // The nearest triangle of the scene's surfaces the ray meets (Möller and Trumbore).
+// A see-through body is passed through: what shows behind it can be clicked.
 struct Met {
     std::size_t surface;
     std::array<std::uint32_t, 3> corners;
@@ -35,6 +36,7 @@ std::optional<Met> nearestMet(const Scene& scene, const Ray& ray) {
     std::optional<Met> nearest;
     for (std::size_t s = 0; s < scene.surfaces.size(); ++s) {
         const Surface& surface = scene.surfaces[s];
+        if (surface.nearestOnly && !surface.panel) continue;
         const auto at = [&](std::uint32_t i) { return sim::Vec3{surface.points[i].x, surface.points[i].y, surface.points[i].z}; };
         for (std::size_t t = 0; t + 2 < surface.triangles.size(); t += 3) {
             const std::array<std::uint32_t, 3> corners{surface.triangles[t], surface.triangles[t + 1], surface.triangles[t + 2]};

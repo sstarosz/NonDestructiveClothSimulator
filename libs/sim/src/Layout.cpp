@@ -70,6 +70,18 @@ Vec2 anchorOf(const Arrangement& arrangement, const Pattern& outline) {
     return box ? Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0} : Vec2{};
 }
 
+Arrangement mirrored(const Arrangement& arrangement) {
+    // In a mirror, turning about the vertical and rolling go the other way
+    // round; tilting, about the axis the mirror stands across, and wrapping,
+    // which bends both sides back alike, do not change.
+    Arrangement image = arrangement;
+    image.x = -arrangement.x;
+    image.turn = -arrangement.turn;
+    image.roll = -arrangement.roll;
+    if (image.anchor) image.anchor->x = -image.anchor->x;
+    return image;
+}
+
 Vec2 anchorAfterChange(const Document& doc, PanelId panel, const Pattern& before, const Pattern& after, Vec2 anchorBefore) {
     // How far each sewn edge's middle moved in the panel's own coordinates.
     struct SewnEdge {

@@ -9,7 +9,7 @@
 // its sides are shaded as one cloth, with the same normals; the selected seam
 // is lined in amber, wider, open or closed. A hidden seam has no lines. A
 // hidden panel is left out, with its side of every seam; a deactivated one is
-// seen through.
+// seen through. The body can be see-through too, to show cloth inside it.
 //
 //   render::Scene scene = render::sceneOf(session, camera, width / double(height), {.selected = panel});
 
@@ -28,6 +28,8 @@ struct SceneOptions {
     bool mesh = false;  // the cloth's triangles drawn over it
     std::optional<SeamId> seam{};  // the selected seam
     double pixel = 1.0;            // picture pixels in one pixel of the screen's own scale: how wide lines are
+    bool seeThroughBody = false;   // the body drawn so that cloth inside it shows
+    friend bool operator==(const SceneOptions&, const SceneOptions&) = default;
 };
 
 Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double aspect, const SceneOptions& options);

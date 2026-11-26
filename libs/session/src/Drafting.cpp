@@ -81,8 +81,25 @@ Vec2 besideSource(const Editor& editor, PanelId source, Follow how) {
 // "1 seam", "2 seams".
 std::string seamCount(std::size_t count) { return std::to_string(count) + (count == 1 ? " seam" : " seams"); }
 
+// Where a mirrored instance of `source` first stands in space: as its source,
+// mirrored across the body's middle (a second leg beside the first). None, so
+// that it stands where the table has it, as any new panel, if the source has no
+// place of its own, or its anchor is less than a quarter of its width from the
+// middle: its mirror image would start inside it.
+std::optional<Arrangement> mirrorImageInSpace(const Editor& editor, PanelId source) {
+    Arrangement from = editor.document().get(source).arrangement;
+    const Pattern& outline = editor.shapes()[source];
+    const std::optional<Bounds> box = bounds(outline);
+    if (!from.placed || !box || std::abs(from.x) < (box->max.x - box->min.x) / 4.0) return std::nullopt;
+    // Said, though it may be the middle of the box: the instance's anchor is the image of this spot.
+    from.anchor = sim::anchorOf(from, outline);
+    return sim::mirrored(from);
+}
+
 // A new panel like each `source`, at its place on the table, all in one change.
-// Instances are sewn as their sources are. Empty if the change is refused.
+// Instances are sewn as their sources are, and a mirrored instance of a panel
+// at one side of the body stands in space as its mirror image. Empty if the
+// change is refused.
 struct Placed {
     PanelId source;
     Vec2 at;
@@ -102,6 +119,8 @@ std::vector<PanelId> addLike(Editor& editor, const std::vector<Placed>& wanted, 
             } else {
                 const PanelId panel = doc.add(Panel{.name = name, .x = one.at.x, .y = one.at.y});
                 doc.add(panel, Instance{.source = one.source, .mirrored = how == Follow::MirroredInstance});
+                if (how == Follow::MirroredInstance)
+                    if (const std::optional<Arrangement> image = mirrorImageInSpace(editor, one.source)) doc.arrange(panel, *image);
                 added.push_back(panel);
             }
         }
