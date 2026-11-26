@@ -325,6 +325,37 @@ double furthest(const sim::Placement& a, const sim::Placement& b) {
 
 } // namespace
 
+TEST_CASE("a seam that cannot close is in the cloth's news, until it closes or the cloth is reset")
+{
+    Pair two;
+    Session session(two.start.doc, Threading::OneStepPerAdvance);
+    session.simulate(true);
+    frames(session, 1);
+    // One stitched point held under the floor, where the one sewn to it cannot follow.
+    const sim::Stitch stitch = session.cloth().mesh->stitches.front();
+    session.grab(session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0});
+    frames(session, 600);
+    REQUIRE(!session.cloth().sewing);
+    REQUIRE(session.cloth().open.size() == 1);
+    EXPECT((session.cloth().open[0].seam == two.seam && session.cloth().open[0].widest > 30.0), "the seam, and how far apart it is");
+
+    session.simulate(false);
+    frames(session, 2);
+    session.letGo();
+    session.simulate(true);
+    frames(session, 240);
+    EXPECT(session.cloth().open.empty(), "let go, it closes and is not reported");
+
+    session.resetCloth();
+    session.simulate(true);
+    frames(session, 1);
+    session.grab(session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0});
+    frames(session, 600);
+    REQUIRE(!session.cloth().open.empty());
+    session.resetCloth();
+    EXPECT(session.cloth().open.empty(), "no cloth, no open seam");
+}
+
 TEST_CASE("the scene a file keeps comes back as it was left: what is frozen and hidden, the body's looks and the cloth")
 {
     Pair two;

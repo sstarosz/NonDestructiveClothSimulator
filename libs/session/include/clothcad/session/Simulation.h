@@ -79,6 +79,7 @@ public:
         sim::Placement positions;
         double time = 0.0;                          // seconds of cloth time so far
         bool sewing = false;
+        std::vector<sim::OpenSeam> open;            // the seams that could not close (sim::Cloth::openSeams)
         bool failed = false;                        // the cloth stopped being numbers and was dropped; should never happen
         double stepMilliseconds = 0.0;              // how long the latest step took to work out
     };

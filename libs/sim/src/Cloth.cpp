@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "Arranging.h"
+#include "clothcad/sim/Normals.h"  // joinedWithin: how wide a seam can be and still look closed
 
 namespace clothcad::sim {
 
@@ -73,7 +74,7 @@ Cloth::Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric) : fab
         if (stitch.panelA >= firstOf_.size() || stitch.panelB >= firstOf_.size()) continue;
         if (firstOf_[stitch.panelA] == none || firstOf_[stitch.panelB] == none) continue;
         const uint32_t a = firstOf_[stitch.panelA] + stitch.pointA, b = firstOf_[stitch.panelB] + stitch.pointB;
-        threads_.push_back({a, b, length(at_[b] - at_[a])});
+        threads_.push_back({a, b, length(at_[b] - at_[a]), stitch.seam});
     }
 
     // Particles are kept six tenths of a typical triangle side apart: close
@@ -124,7 +125,9 @@ void Cloth::leaveOut(const std::vector<uint32_t>& panels) {
     if (joined) {
         seamsClosed_ = false;
         drawnInAt_ = -1.0;
+        open_.clear();
     }
+    measureOpenSeams();  // a seam of a panel left out holds nothing: it is not open any more
     findAlone();
 }
 
@@ -294,6 +297,7 @@ Cloth Cloth::resumed(const ClothMesh& mesh, const Placement& positions, double t
     if (sewn) {
         for (Thread& thread : cloth.threads_) thread.left = 0.0;
         cloth.seamsClosed_ = true;
+        cloth.listOpenSeams();  // sewn as far as it got: what is open was given up on
     } else if (cloth.drawnInAt_ >= 0.0) {
         cloth.drawnInAt_ = time;  // the threads were drawn in just now, not at time zero
     }
@@ -540,6 +544,7 @@ void Cloth::step(const Body& body, double seconds) {
         }
     }
     time_ += seconds;
+    measureOpenSeams();
     checkTheSeams();
     for (std::size_t p = 0; p < firstOf_.size(); ++p)
         if (firstOf_[p] != none) std::copy_n(at_.begin() + firstOf_[p], positions_[p].size(), positions_[p].begin());
@@ -558,6 +563,26 @@ void Cloth::checkTheSeams() {
     const bool allClosed = std::all_of(threads_.begin(), threads_.end(),
                                        [&](const Thread& t) { return !t.holds || length(at_[t.b] - at_[t.a]) <= closedWithin; });
     seamsClosed_ = allClosed || time_ - drawnInAt_ >= givingUpAfter;
+    if (seamsClosed_ && !allClosed) listOpenSeams();
+}
+
+void Cloth::listOpenSeams() {
+    open_.clear();
+    for (const Thread& thread : threads_) {
+        if (!thread.holds || length(at_[thread.b] - at_[thread.a]) <= joinedWithin) continue;
+        if (std::none_of(open_.begin(), open_.end(), [&](const OpenSeam& open) { return open.seam == thread.seam; })) open_.push_back({thread.seam});
+    }
+    measureOpenSeams();
+}
+
+// Run after every step: with no seam open, as is usual, it costs nothing.
+void Cloth::measureOpenSeams() {
+    for (OpenSeam& open : open_) {
+        open.widest = 0.0;
+        for (const Thread& thread : threads_)
+            if (thread.holds && thread.seam == open.seam) open.widest = std::max(open.widest, length(at_[thread.b] - at_[thread.a]));
+    }
+    std::erase_if(open_, [](const OpenSeam& open) { return open.widest <= joinedWithin; });
 }
 
 bool Cloth::sound() const {

@@ -68,6 +68,10 @@ the body follows too.
   its lines are gone. Choosing a seam's row in the Outliner shows it in amber,
   open or closed, in 3D, and lights it on the table. The eye on a seam's row
   hides its lines; the eye on "Seams" hides or shows all of them.
+- **A seam left open**: if a seam is still open 3 seconds after its thread is
+  drawn in, its lines in 3D turn red and its card in the Attribute Editor says
+  "Left open: 4 cm apart. Move the panels closer, then Reset." Both go once it
+  closes.
 - **Hide and deactivate panels**: each panel's row in the Outliner has an eye,
   which hides it in the 3D view only (it is still simulated), and a button that
   deactivates it, as in Marvelous Designer: it stays where it is, seen through,
@@ -442,8 +446,11 @@ holds and hands it what the user did.
   sewn edge changed (only side seams, and the panel got longer) it grows about
   the middle of those edges; a turn of the outline itself is not followed.
 - While seams are pulled shut the cloth slides on the body without friction.
-  Seams that cannot close (the pieces do not fit, or cloth is caught on an
-  arm) are given up 3 seconds after the thread is drawn in, and stay open.
+  A stitch pulls its two ends together firmly, so where pieces do not fit the
+  cloth usually stretches, even into the body, and the seam closes: no seam is
+  then reported as open. Only a seam still open when the cloth gives up (3
+  seconds after the thread is drawn in) is reported; one that opens later is
+  not. A change of the pattern or a move in space draws the seams in again.
 - Where three or more panel corners are sewn into one point (a band's side
   seam meeting a skirt), the stitches there pull against each other and that
   corner stays up to about 0.8 cm open. Pulling such a corner shut at once

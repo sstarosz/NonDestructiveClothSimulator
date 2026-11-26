@@ -2602,6 +2602,40 @@ TEST_CASE("the ends of a seam's edges that meet are linked; reversing the seam c
     EXPECT((!(table->seamLinks()[0].second == wentTo)), "reversed, each end goes to the other end");
 }
 
+TEST_CASE("a seam the cloth could not close says so on its card, until the cloth is reset", "[qt]")
+{
+    Window w;
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> frontRect = doc.add(front, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId back = doc.add(Panel{.name = "back", .x = 30});
+    const OpRef<Rect> backRect = doc.add(back, Rect{.width = 20_cm, .height = 30_cm});
+    doc.arrange(front, Arrangement{.placed = true, .x = 0, .y = 30, .z = 5});
+    doc.arrange(back, Arrangement{.placed = true, .x = 0, .y = 30, .z = -5, .turn = 180});
+    const SeamId seam = doc.add(Seam{.a = {front, frontRect.right()}, .b = {back, backRect.left()}});
+    w.window.open(std::move(doc), "open seam");
+    w.window.select(front);
+    w.window.tick();
+    EXPECT((w.window.attributes()->openShown(seam).isEmpty()), "with no cloth the card says nothing of it");
+
+    const session::Session& session = w.window.session();
+    w.window.shelf()->simulate()->setChecked(true);
+    w.window.tick();
+    REQUIRE(session.clothShown());
+    // One stitched point pulled under the floor and held there, where the one sewn to it cannot follow.
+    const sim::Stitch stitch = session.cloth().mesh->stitches.front();
+    emit w.window.space()->clothPulled(session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}, session::DragPhase::Begin);
+    for (int i = 0; i < 600; ++i) w.window.tick();
+    const QString said = w.window.attributes()->openShown(seam);
+    EXPECT((said.startsWith("Left open: ") && said.endsWith(" cm apart. Move the panels closer, then Reset.")), said.toStdString());
+
+    w.window.select(back);
+    EXPECT((w.window.attributes()->openShown(seam) == said), "the other panel's card of the same seam says it too, at once");
+    w.window.shelf()->reset()->trigger();
+    w.window.tick();
+    EXPECT((w.window.attributes()->openShown(seam).isEmpty()), "after Reset there is nothing to say");
+}
+
 TEST_CASE("a panel is placed in space again where the table has it", "[qt]")
 {
     Table w;

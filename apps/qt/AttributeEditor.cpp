@@ -18,6 +18,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <cmath>
+
 #include "Icons.h"
 #include "Section.h"
 #include "ValueField.h"
@@ -292,6 +294,33 @@ void AttributeEditor::showMesh(std::optional<MeshCounts> counts) {
 
 QString AttributeEditor::meshShown() const { return meshCounts_->text(); }
 
+void AttributeEditor::showOpenSeams(const std::vector<sim::OpenSeam>& open) {
+    if (open == openSeams_) return;
+    openSeams_ = open;
+    sayOpenSeams();
+}
+
+void AttributeEditor::sayOpenSeams() {
+    for (std::size_t i = 0; i < seamCards_.size() && i < seams_.size(); ++i) {
+        QLabel* label = seamCards_[i].open;
+        if (!label) continue;
+        QString words;
+        for (const sim::OpenSeam& open : openSeams_)
+            if (open.seam == seams_[i]) {
+                const double rounded = std::round(open.widest * 10.0) / 10.0;  // a tenth of a cm: it settles quietly
+                words = QString::fromStdString("Left open: " + formatValue(rounded, Unit::Length) + " apart. Move the panels closer, then Reset.");
+            }
+        if (label->text() != words) label->setText(words);
+        label->setVisible(!words.isEmpty());
+    }
+}
+
+QString AttributeEditor::openShown(SeamId seam) const {
+    for (std::size_t i = 0; i < seamCards_.size() && i < seams_.size(); ++i)
+        if (seams_[i] == seam && seamCards_[i].open && !seamCards_[i].open->isHidden()) return seamCards_[i].open->text();
+    return {};
+}
+
 // The seams that touch the panel, one small card each: the panel it is sewn
 // to, both lengths and what is gathered, and a button that twists it. Which
 // edges are sewn is in the card's tooltip; removing a seam is the Outliner's.
@@ -406,9 +435,20 @@ void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
         numbers->addWidget(gathered, 1);
         grid->addLayout(numbers, 1, 1);
         grid->setColumnStretch(1, 1);
+        // A broken seam sews nothing, so the cloth has nothing to say of it.
+        QLabel* open = nullptr;
+        if (!row.broken) {
+            open = new QLabel(card);
+            open->setObjectName("seamOpen");
+            open->setWordWrap(true);
+            open->setStyleSheet(QString("color: %1").arg(theme::error.name()));
+            open->hide();
+            grid->addWidget(open, 2, 1, 1, 2);
+        }
         seamRows_->addWidget(card);
-        seamCards_.push_back({lengths, gathered});
+        seamCards_.push_back({lengths, gathered, open});
     }
+    sayOpenSeams();
 }
 
 void AttributeEditor::reverseSeam(SeamId seam, bool reversed) { emit seamReversed(seam, reversed); }

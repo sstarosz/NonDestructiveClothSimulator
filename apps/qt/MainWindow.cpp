@@ -862,6 +862,7 @@ void MainWindow::tick() {
     outliner_->showPanelStates(session_.hiddenPanels(), session_.inactivePanels());
     outliner_->showSeamStates(session_.hiddenSeams());
     showMeshCounts();
+    attributes_->showOpenSeams(session_.cloth().open);
     if (autosave_)
         if (const std::optional<std::string> problem =
                 autosave_->update(session_, static_cast<double>(clock_.nsecsElapsed()) / 1e9, title_.toStdString(), path_.toStdString()))

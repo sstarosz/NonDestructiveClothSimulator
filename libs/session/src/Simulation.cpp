@@ -156,11 +156,13 @@ void Simulation::publish() {
         latest_.positions = cloth_->positions();
         latest_.time = cloth_->time();
         latest_.sewing = cloth_->sewing();
+        latest_.open = cloth_->openSeams();
     } else {
         latest_.mesh.reset();
         latest_.positions.clear();
         latest_.time = 0.0;
         latest_.sewing = false;
+        latest_.open.clear();
     }
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 // The selected panel, as Maya's Attribute Editor: where it is in space and
-// on the table, its seams, and at the bottom its operations as layers (newest
+// on the table, its seams (a seam the cloth could not close says so on its
+// card), and at the bottom its operations as layers (newest
 // on top, the base shape last). Every layer is open, showing its fields; a
 // click on its name closes it. The eye switches one off, dragging a name
 // moves the layer, the bin removes it, Alt+click on a name shows the panel as
@@ -19,6 +20,7 @@
 #include "clothcad/core/Fields.h"
 #include "clothcad/session/Drafting.h"
 #include "clothcad/session/Offers.h"
+#include "clothcad/sim/Cloth.h"
 
 class QLabel;
 class QPropertyAnimation;
@@ -43,6 +45,10 @@ public:
         friend bool operator==(const MeshCounts&, const MeshCounts&) = default;
     };
     void showMesh(std::optional<MeshCounts> counts);
+    // The seams the cloth could not close, as it hangs now: each one's card
+    // says how far apart it is and what to do. Cheap to call every frame.
+    void showOpenSeams(const std::vector<sim::OpenSeam>& open);
+    QString openShown(SeamId seam) const;  // what its card says of it; empty if nothing
 
     // The layers as shown, top first; and whether one shows its fields.
     std::vector<OpId> layersShown() const { return layers_; }
@@ -136,8 +142,11 @@ private:
     struct SeamCard {
         QLabel* lengths;
         QLabel* gathered;
+        QLabel* open;  // hidden while there is nothing to say; none for a broken seam
     };
     std::vector<SeamCard> seamCards_;  // in the order of seams_
+    std::vector<sim::OpenSeam> openSeams_;
+    void sayOpenSeams();
     // A layer's summary (its first value, as the row shows it), for the same reason.
     struct LayerSummary {
         OpId layer;

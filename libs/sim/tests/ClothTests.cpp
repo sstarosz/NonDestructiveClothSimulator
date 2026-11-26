@@ -101,6 +101,74 @@ TEST_CASE("seams pull panels together")
     EXPECT((worstStretch(mesh, cloth.positions()) < 0.05), "without stretching");
 }
 
+TEST_CASE("a seam that cannot close is reported as left open, with how far apart it stayed")
+{
+    // Two panels 20 cm apart, every particle pinned: their seam cannot close.
+    // Beside them two free ones, whose seam does.
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> frontRect = doc.add(front, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId back = doc.add(Panel{.name = "back"});
+    const OpRef<Rect> backRect = doc.add(back, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId left = doc.add(Panel{.name = "left"});
+    const OpRef<Rect> leftRect = doc.add(left, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId right = doc.add(Panel{.name = "right"});
+    const OpRef<Rect> rightRect = doc.add(right, Rect{.width = 20_cm, .height = 30_cm});
+    const SeamId held = doc.add(Seam{.a = {front, frontRect.right()}, .b = {back, backRect.left()}});
+    doc.add(Seam{.a = {left, leftRect.right()}, .b = {right, rightRect.left()}});
+    doc.arrange(front, Arrangement{.placed = true, .x = 0, .y = 100, .z = 10});
+    doc.arrange(back, Arrangement{.placed = true, .x = 0, .y = 100, .z = -10, .turn = 180});
+    doc.arrange(left, Arrangement{.placed = true, .x = 90, .y = 100, .z = 0});
+    doc.arrange(right, Arrangement{.placed = true, .x = 112, .y = 100, .z = 0});
+    const ClothMesh mesh = meshOf(doc, evaluate(doc), {.particleDistance = 2_cm});
+    Cloth cloth(mesh, arranged(doc, mesh));
+    for (const uint32_t panel : {0u, 1u})
+        for (uint32_t point = 0; point < mesh.panels[panel].points.size(); ++point) cloth.pin(panel, point);
+
+    run(cloth, Body{}, 2.0);
+    EXPECT((cloth.sewing() && cloth.openSeams().empty()), "while it is still trying, nothing is reported");
+    run(cloth, Body{}, 3.0);
+    REQUIRE(!cloth.sewing());
+    REQUIRE(cloth.openSeams().size() == 1);
+    EXPECT(cloth.openSeams()[0].seam == held, "the seam that was held apart, not the one that closed");
+    EXPECT_NEAR(cloth.openSeams()[0].widest, 20.0, "as far apart as its panels");
+
+    const Cloth again = Cloth::resumed(mesh, cloth.positions(), cloth.time(), true);
+    EXPECT((again.openSeams() == cloth.openSeams()), "a cloth brought back as it was says the same");
+    const Cloth unfinished = Cloth::resumed(mesh, cloth.positions(), cloth.time(), false);
+    EXPECT((unfinished.sewing() && unfinished.openSeams().empty()), "one brought back still sewing has not given up yet");
+    const Cloth carried = Cloth::continued(mesh, arranged(doc, mesh), cloth, mesh);
+    EXPECT((carried.sewing() && carried.openSeams().empty()), "after a change the seams are drawn in anew");
+
+    cloth.leaveOut({1});
+    EXPECT(cloth.openSeams().empty(), "the seam of a panel left out holds nothing, and is not open");
+}
+
+TEST_CASE("a seam left open is no longer reported once it closes")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> frontRect = doc.add(front, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId back = doc.add(Panel{.name = "back"});
+    const OpRef<Rect> backRect = doc.add(back, Rect{.width = 20_cm, .height = 30_cm});
+    const SeamId seam = doc.add(Seam{.a = {front, frontRect.right()}, .b = {back, backRect.left()}});
+    doc.arrange(front, Arrangement{.placed = true, .x = 0, .y = 30, .z = 5});
+    doc.arrange(back, Arrangement{.placed = true, .x = 0, .y = 30, .z = -5, .turn = 180});
+    const ClothMesh mesh = meshOf(doc, evaluate(doc), {.particleDistance = 2_cm});
+    Cloth cloth(mesh, arranged(doc, mesh));
+    // One stitched point held under the floor, where the one sewn to it cannot follow.
+    const Stitch& stitch = mesh.stitches.front();
+    cloth.hold(stitch.panelA, stitch.pointA, {10, -40, 0});
+    run(cloth, Body{}, 6.0);
+    REQUIRE(!cloth.sewing());
+    REQUIRE(cloth.openSeams().size() == 1);
+    EXPECT((cloth.openSeams()[0].seam == seam && cloth.openSeams()[0].widest > 30.0), "held apart, it is reported with its widest stitch");
+
+    cloth.letGo();  // its thread, still pulling, closes it
+    run(cloth, Body{}, 3.0);
+    EXPECT(cloth.openSeams().empty(), "closed, it is not reported any more");
+}
+
 TEST_CASE("cloth rests on a body")
 {
     Document doc;
