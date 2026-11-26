@@ -6,6 +6,52 @@ can be numbers or formulas over named parameters. Change the waist and every
 panel, copy, instance and seam that depends on it follows, and the cloth on
 the body follows too.
 
+## Using Cloth CAD
+
+### What you need
+
+- Windows 10 or 11, 64-bit (x64).
+- A graphics card with a Vulkan 1.1 driver. Any current driver from NVIDIA,
+  AMD or Intel has it. Without one the table works, and the 3D view says what
+  is missing.
+
+### Start it
+
+1. Download `ClothCad-<version>-windows-x64.zip` from the
+   [Releases page](https://github.com/sstarosz/NonDestructiveClothSimulator/releases).
+2. Unpack it: right-click the zip and choose "Extract All".
+3. Open `clothcad.exe` in the `bin` folder. There is no installer.
+
+The program is not signed, so Windows warns the first time ("Windows
+protected your PC"): choose "More info", then "Run anyway". Help > About
+shows the version; please name it when you report a problem.
+
+### A first garment: trousers
+
+The window has the 3D view on the left and the pattern on its table on the
+right. It opens on a T-shirt.
+
+1. Choose File > Samples > 7. Trousers. Four panels lie on the table, and in
+   3D they stand around the legs.
+2. Look around. In 3D: Alt and the left button turn the view, the middle
+   button moves it, the wheel comes nearer. On the table: the right or middle
+   button moves it, the wheel zooms.
+3. Press Play, in the row under the menu (or Space). The seams pull shut and
+   the trousers settle on the body in a few seconds.
+4. While they play, drag the cloth in 3D to pull it.
+5. Change a measurement: in Parameters, on the left, type `80` in `waist` and
+   press Enter. The panels on the table and the cloth on the body follow.
+   Ctrl+Z takes it back.
+6. Press Space to pause. Paused, the cloth stands still: the Pull tool (H)
+   pulls it, and Move (W) carries the selected panel with its drape. Reset,
+   beside Play, drops the cloth again from where the panels are placed.
+7. Save with Ctrl+S. The file holds the pattern, the avatar and the drape.
+8. Take it out with File > Export OBJ… (Ctrl+E), for Blender or Maya: see
+   [Export](#export).
+
+To dress your own character, choose Body > Avatar from OBJ…. It must be one
+closed surface in cm, with y up and facing +z.
+
 ## What 0.1 does
 
 - **Patterns in 2D**: rectangles, circles, rings, points added on any edge
@@ -211,9 +257,16 @@ window, for machines without a display. A warning stops the build;
 something out with another compiler.
 
 A package to hand out, with the program, Qt's libraries, the compiler's
-runtime and the avatars in `<folder>/bin`:
+runtime, the avatars and the licences in `<folder>/bin` (Qt's plugins in
+`<folder>/plugins`):
 
     cmake --install out/build/x64-win-msvc2026 --config Release --prefix <folder>
+
+`cmake/CheckPackage.cmake` says what that folder must hold and may hold, and
+starts the installed program; the test "release: the installed folder is
+complete" runs it. Whatever ships is listed in `THIRD-PARTY.md`.
+`licenses/qt-third-party.txt` was taken from the documentation of Qt 6.12.0:
+another version of Qt needs it, and `THIRD-PARTY.md`, brought up to date.
 
 ### Continuous integration
 
@@ -228,6 +281,17 @@ The runner has no graphics card, so the renderer's tests are skipped there,
 and the benchmarks are not run there (shared machines are too noisy for
 their limits): run them on your own machine when `sim`, `session` or the
 drawing changed.
+
+### Making a release
+
+1. Set the version in `project()` in `CMakeLists.txt` (and in `vcpkg.json`),
+   and write the section `## <version>` in `CHANGELOG.md`.
+2. Tag that commit and push the tag: `v0.1.0`, or `v0.1.0-rc1` to try it.
+3. `.github/workflows/release.yml` checks the tag against the version, builds
+   and tests as for a pull request, installs, starts the installed program,
+   zips the folder and makes a **draft** GitHub Release with the changelog's
+   section as its notes.
+4. Try the zip on a PC that never built the project, then publish the draft.
 
 ## Performance
 
@@ -344,18 +408,6 @@ How it is kept fast:
 
 `-DCLOTHCAD_WINDOW=OFF` builds everything but the window program;
 `libs/core` alone has no dependencies.
-
-## A first garment
-
-1. Rectangle tool: draw two panels of about 46 x 55 cm.
-2. Sew tool: click the right edge of one near its bottom, then the left edge
-   of the other near its bottom; then the two remaining side edges the same
-   way.
-3. Select the first panel. In the Attribute Editor, open "In space" and set
-   Position to 0, 95, 24 and Wrap to 110. For the second: Position 0, 95, -24,
-   Rotation 0, 180, 0 (the middle number turns it about y), Wrap 110.
-4. Press Play in the action row (or Space; Space again pauses).
-5. Change a width while it hangs.
 
 ## Export
 

@@ -14,6 +14,17 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # release.yml builds a tag's release with this same job.
+  workflow_call:
+    inputs:
+      package:
+        description: A folder to install into, check, zip and keep as the artifact "package". Empty, no package.
+        type: string
+        default: ''
+      version:
+        description: The version the packaged program must say it is.
+        type: string
+        default: ''
 
 # A newer push to the same pull request or branch cancels the run before it.
 concurrency:
@@ -88,6 +99,28 @@ jobs:
 
       - name: Test
         run: ctest --preset x64-win-msvc2026-ci --output-junit ${{ github.workspace }}\test-results.xml
+
+      # What is handed out: installed into a folder of its own, checked (what
+      # is in it, and the installed program is started once), and zipped.
+      - name: Install into a folder, start it and zip it
+        if: inputs.package != ''
+        shell: pwsh
+        env:
+          PACKAGE: ${{ inputs.package }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          cmake "-DBUILD=out/build/x64-win-msvc2026" -DCONFIG=Release "-DFOLDER=$env:GITHUB_WORKSPACE/package/$env:PACKAGE" "-DVERSION=$env:VERSION" -P cmake/CheckPackage.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Set-Location package
+          cmake -E tar cf "$env:PACKAGE.zip" --format=zip $env:PACKAGE
+
+      - name: Keep the package
+        if: inputs.package != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: ${{ github.workspace }}\package\${{ inputs.package }}.zip
+          if-no-files-found: error
 
       - name: Keep the test results
         if: failure()

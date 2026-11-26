@@ -30,10 +30,42 @@ if(TARGET clothcad_qt_ui)
     target_include_directories(clothcad_qt_window_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
     clothcad_warnings(clothcad_qt_window_tests)
     clothcad_avatars_beside(clothcad_qt_window_tests)
+    target_compile_definitions(clothcad_qt_window_tests PRIVATE CLOTHCAD_PROJECT_VERSION="${PROJECT_VERSION}")
     catch_discover_tests(clothcad_qt_window_tests
         TEST_PREFIX "qt: "
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
         DISCOVERY_MODE PRE_TEST
         DL_PATHS "$<TARGET_FILE_DIR:Qt6::Core>"
         PROPERTIES LABELS integration ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+# What a release is made of. The tag and the notes are checked everywhere; the
+# installed folder and the program in it where the window is built.
+set(version_pattern "${PROJECT_VERSION}")
+string(REPLACE "." "\\." version_pattern "${version_pattern}")
+foreach(tag "v${PROJECT_VERSION}" "v${PROJECT_VERSION}-rc1")
+    add_test(NAME "release: ${tag} has this version's notes"
+        COMMAND ${CMAKE_COMMAND} -DTAG=${tag} -DNOTES=${CMAKE_CURRENT_BINARY_DIR}/notes-${tag}.md
+                -P ${PROJECT_SOURCE_DIR}/cmake/ReleaseNotes.cmake)
+    set_tests_properties("release: ${tag} has this version's notes" PROPERTIES LABELS integration)
+endforeach()
+foreach(tag "v99.0.0" "${PROJECT_VERSION}" "v${PROJECT_VERSION}-beta")
+    add_test(NAME "release: the tag ${tag} is refused"
+        COMMAND ${CMAKE_COMMAND} -DTAG=${tag} -DNOTES=${CMAKE_CURRENT_BINARY_DIR}/notes-refused.md
+                -P ${PROJECT_SOURCE_DIR}/cmake/ReleaseNotes.cmake)
+    set_tests_properties("release: the tag ${tag} is refused" PROPERTIES LABELS integration WILL_FAIL TRUE)
+endforeach()
+
+if(TARGET clothcad)
+    add_test(NAME "release: clothcad --version prints the version and ends" COMMAND clothcad --version)
+    set_tests_properties("release: clothcad --version prints the version and ends" PROPERTIES
+        LABELS integration TIMEOUT 60
+        PASS_REGULAR_EXPRESSION "Cloth CAD ${version_pattern} \\(([0-9a-f]+|unknown)\\)")
+    # A Debug build is not handed out: its libraries are not in the package.
+    add_test(NAME "release: the installed folder is complete, and its program starts"
+        COMMAND ${CMAKE_COMMAND} -DBUILD=${CMAKE_BINARY_DIR} -DCONFIG=$<CONFIG>
+                -DFOLDER=${CMAKE_CURRENT_BINARY_DIR}/package-$<CONFIG> -DVERSION=${PROJECT_VERSION}
+                -P ${PROJECT_SOURCE_DIR}/cmake/CheckPackage.cmake
+        CONFIGURATIONS Release RelWithDebInfo)
+    set_tests_properties("release: the installed folder is complete, and its program starts" PROPERTIES LABELS integration)
 endif()
