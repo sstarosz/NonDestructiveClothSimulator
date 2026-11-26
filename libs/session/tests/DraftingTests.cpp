@@ -8,6 +8,8 @@
 #include "Expect.h"
 #include "clothcad/session/Drafting.h"
 #include "clothcad/session/Locks.h"
+#include "clothcad/sim/Layout.h"
+#include "clothcad/sim/Mesh.h"
 
 using namespace clothcad;
 using namespace clothcad::session;
@@ -852,6 +854,86 @@ TEST_CASE("Add beside makes a copy, an instance or a mirrored instance just righ
     EXPECT((last<Instance>(editor.document(), mirrored).mirrored), "a mirrored instance is its mirror image");
     EXPECT((editor.shapes().ok()), "all of them evaluate");
     EXPECT((editor.undo() && editor.undo() && editor.undo() && editor.document().panels().size() == 1), "each is one undo step");
+}
+
+TEST_CASE("a mirrored instance of a panel at one side stands in space as its mirror image, in the same undo step")
+{
+    Document doc;
+    const PanelId leg = doc.add(Panel{.name = "leg", .x = 40, .y = 3});
+    doc.add(leg, Rect{.width = 30_cm, .height = 50_cm});
+    // Off its middle, and turned every way it can be, so that a wrong sign shows.
+    doc.arrange(leg, Arrangement{.placed = true, .x = 11.5, .y = 60, .z = 20, .turn = 20, .tilt = 10, .roll = 5, .wrap = 180, .anchor = Vec2{9, 31}});
+    Editor editor(doc);
+    Drafting drafting;
+
+    drafting.handle(editor, AddBeside{leg, Follow::MirroredInstance});
+    const PanelId other = editor.document().panels()[1];
+    const Arrangement there = editor.document().get(other).arrangement;
+    EXPECT((there.placed && there.x == -11.5 && there.y == 60.0 && there.z == 20.0), "across the body's middle, as high and as far forward");
+    EXPECT((there.turn == -20.0 && there.tilt == 10.0 && there.roll == -5.0 && there.wrap == 180.0), "turned and rolled the other way, tilted and wrapped the same");
+    EXPECT((there.anchor == Vec2{-9, 31}), "about the mirror image of the same spot");
+
+    // Every corner of the source has its mirror image in the instance, in space too.
+    const sim::ClothMesh mesh = sim::meshOf(editor.document(), editor.shapes(), {.particleDistance = 3_cm});
+    const sim::Placement placed = sim::arranged(editor.document(), mesh);
+    REQUIRE(mesh.panels.size() == 2);
+    const auto at = [&](std::size_t panel, Vec2 own) {
+        const std::vector<Vec2>& points = mesh.panels[panel].points;
+        for (std::size_t i = 0; i < points.size(); ++i)
+            if (std::hypot(points[i].x - own.x, points[i].y - own.y) < 1e-6) return placed[panel][i];
+        FAIL("no particle at that corner");
+        return sim::Vec3{};
+    };
+    for (const Vec2 corner : {Vec2{0, 0}, Vec2{30, 0}, Vec2{30, 50}, Vec2{0, 50}}) {
+        const sim::Vec3 source = at(0, corner), image = at(1, {-corner.x, corner.y});
+        EXPECT((sim::length(image - sim::Vec3{-source.x, source.y, source.z}) < 1e-9), "its mirror image in space");
+    }
+
+    REQUIRE(editor.change([&](Document& d) { d.arrange(leg, Arrangement{.placed = true, .x = 30, .y = 80, .z = 5}); }));
+    EXPECT((editor.document().get(other).arrangement == there), "a first place only: moving the source later leaves the instance where it is");
+    EXPECT((editor.undo() && editor.undo() && editor.document().panels().size() == 1), "the instance and its place are one undo step");
+}
+
+TEST_CASE("a source with no anchor of its own is mirrored about the middle of its outline")
+{
+    Document doc;
+    const PanelId leg = doc.add(Panel{.name = "leg"});
+    doc.add(leg, Rect{.width = 30_cm, .height = 50_cm});
+    doc.arrange(leg, Arrangement{.placed = true, .x = -12, .y = 60, .z = -20, .turn = 180});
+    Editor editor(doc);
+    Drafting drafting;
+
+    drafting.handle(editor, AddBeside{leg, Follow::MirroredInstance});
+    const Arrangement there = editor.document().get(editor.document().panels()[1]).arrangement;
+    EXPECT((there.x == 12.0 && there.z == -20.0 && there.turn == -180.0), "the mirror image");
+    EXPECT((there.anchor == Vec2{-15, 25}), "the middle of the instance's outline");
+}
+
+TEST_CASE("instances of a panel on the body's middle, plain instances and copies stand where the table has them")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front", .x = 10, .y = 60});
+    doc.add(front, Rect{.width = 40_cm, .height = 20_cm});
+    // Less than a quarter of its width to a side: its mirror image would start inside it.
+    doc.arrange(front, Arrangement{.placed = true, .x = 9.9, .y = 104, .z = 14, .wrap = 165, .anchor = Vec2{20, 10}});
+    Editor editor(doc);
+    Drafting drafting;
+    const auto standsFromTheTable = [&](PanelId panel) {
+        const Arrangement in = editor.document().get(panel).arrangement;
+        return in == sim::firstPlace(editor.document().get(panel), editor.shapes()[panel]);
+    };
+
+    drafting.handle(editor, AddBeside{front, Follow::MirroredInstance});
+    EXPECT(standsFromTheTable(editor.document().panels()[1]), "on the middle: from the table, as any new panel");
+
+    REQUIRE(editor.change([&](Document& d) { d.arrange(front, Arrangement{.placed = true, .x = 10, .y = 104, .z = 14, .anchor = Vec2{20, 10}}); }));
+    drafting.handle(editor, AddBeside{front, Follow::MirroredInstance});
+    EXPECT((editor.document().get(editor.document().panels()[2]).arrangement.x == -10.0), "a quarter of its width to a side: mirrored");
+
+    drafting.handle(editor, AddBeside{front, Follow::Instance});
+    EXPECT(standsFromTheTable(editor.document().panels()[3]), "a plain instance: from the table");
+    drafting.handle(editor, AddBeside{front, Follow::Copy});
+    EXPECT(standsFromTheTable(editor.document().panels()[4]), "a copy: from the table");
 }
 
 TEST_CASE("an instance is sewn as its source as it is made, in the same undo step, and says so")

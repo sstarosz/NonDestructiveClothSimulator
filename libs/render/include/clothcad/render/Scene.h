@@ -36,7 +36,11 @@ struct Matrix {
 // Triangles lit from the light's side and from behind alike: cloth has two sides.
 // The front of a surface is the side its triangles run counter-clockwise on.
 // One whose colour lets light through (alpha below 1) is drawn after the
-// others and the lines, so that what is behind it shows.
+// others and the lines, so that what is behind it shows; it hides nothing
+// itself. One that is `nearestOnly` besides comes after those, and only its
+// side nearest the eye is blended in, once: a closed shape (the body) then
+// looks like one sheet of glass, without its far side or its folds showing
+// through it.
 struct Surface {
     std::vector<Point> points;
     std::vector<Point> normals;              // one per point
@@ -45,6 +49,7 @@ struct Surface {
     std::optional<PanelId> panel{};          // the panel it shows, for picking; none for the body
     bool lit = true;                         // false: drawn in its colour alone, without light and shade (the gizmo)
     std::optional<Colour> back{};            // its colour seen from behind; none: the same as from the front
+    bool nearestOnly = false;                // of one that lets light through: only its nearest side is blended in
 };
 
 // Straight lines, blended by their alpha.

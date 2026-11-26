@@ -70,6 +70,22 @@ TEST_CASE("the panel under the mouse is found, unless the body is in front of it
     EXPECT((!panelAt(scene, camera, size, {600, 450}).has_value()), "the overlay is not picked");
 }
 
+TEST_CASE("through a see-through body the cloth behind it is under the mouse")
+{
+    const OrbitCamera camera = level();
+    Scene scene;
+    Surface body = square(40.0f, 30.0f, std::nullopt);  // nearer the camera than the cloth
+    body.colour.alpha = 0.35f;
+    body.nearestOnly = true;
+    scene.surfaces = {body, square(10.0f, 0.0f, PanelId{7})};
+    EXPECT((panelAt(scene, camera, size, {600, 450}) == PanelId{7}), "what shows through the body can be clicked");
+    const std::optional<ClothHit> hit = clothAt(scene, camera, size, {600, 450});
+    EXPECT((hit && hit->panel == PanelId{7}), "and pulled");
+    const std::optional<PicturePoint> bodyAlone = pictureOf(camera, size, {15.0, 100.0, 30.0});
+    REQUIRE(bodyAlone.has_value());
+    EXPECT((!panelAt(scene, camera, size, *bodyAlone) && !clothAt(scene, camera, size, *bodyAlone)), "with no cloth behind it, there is nothing there");
+}
+
 TEST_CASE("the cloth under the mouse gives the spot and the nearest particle")
 {
     const OrbitCamera camera = level();

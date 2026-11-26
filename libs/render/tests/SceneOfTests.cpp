@@ -58,6 +58,23 @@ TEST_CASE("the scene has the body, every panel and the floor")
     EXPECT((bare.surfaces.size() == 2 && bare.lines.size() == 3), "without the body, and with the mesh's sides as lines");
 }
 
+TEST_CASE("a see-through body lets light through, its nearest side alone; the cloth stays solid")
+{
+    TwoPanels start;
+    session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    session.useAvatar(figure(), "figure.obj");
+    session.update();
+    OrbitCamera camera;
+    const Scene solid = sceneOf(session, camera, 1.5, {});
+    const Scene through = sceneOf(session, camera, 1.5, {.seeThroughBody = true});
+    REQUIRE((solid.surfaces.size() == 3 && through.surfaces.size() == 3));
+    EXPECT((solid.surfaces[0].colour.alpha == 1.0f && !solid.surfaces[0].nearestOnly), "the body is solid unless asked");
+    const Surface& body = through.surfaces[0];
+    EXPECT((body.colour.alpha > 0.2f && body.colour.alpha < 0.5f && body.nearestOnly), "see-through, and one sheet of it");
+    EXPECT((body.colour.red == solid.surfaces[0].colour.red && body.triangles == solid.surfaces[0].triangles), "the same body otherwise");
+    EXPECT((through.surfaces[1].colour.alpha == 1.0f && through.surfaces[2].colour.alpha == 1.0f), "the panels are not");
+}
+
 TEST_CASE("every panel has a darker, cooler back; the body has none")
 {
     TwoPanels start;

@@ -33,7 +33,7 @@ In pull requests, in this order:
 | 2 | **Real frame times.** A View switch that shows, in the real window, the time between shown frames, the time of `tick` and of painting, the cloth step and the particle count | #56, #28 (closes #41) | S | Decides what PRs 3 and 4 work on |
 | 3 | **Frames at the screen's pace.** The window ticks once for every picture of its screen, not every 16 ms, and the table is painted only when what it shows changed. On the 240 Hz screen a panel carried in 3D goes from 16 ms a frame to 4 ms; the table's painting was 2-4 ms, so repainting only part of it (#58, #59) waits for 0.2 | #41 | S | PR 2's numbers named it: the work in a frame was small, the frames came too seldom |
 | 4 | **A faster cloth at 2 cm.** A step asks the body only where the cloth may touch it, and the search for cloth touching cloth is cheaper: the trousers' step from 12.6 ms to 9.5 ms, the drape the same. That is within the 16.7 ms a step may take, so a preview quality with fewer sub-steps and a particle distance from the panel's size wait until a garment needs them. The solver on several threads is 0.2 (#104). Then pulling the cloth: it keeps the clock's pace while pulled and carries on at once when let go, and a paused cloth moves as soon as it is held | #54, #107, #106 | M | The cloth's speed is felt on every garment |
-| 5 | **Fitting the trousers.** A see-through body (View menu and the body's row); a mirrored instance stands in space mirrored from its source, so the second leg drapes without arranging it by hand | #53, #69 | S | The last of the trousers list |
+| 5 | **Fitting the trousers.** A see-through body (View menu and the body's row); a mirrored instance of a panel at one side of the body stands in space mirrored from it, so the second leg drapes without arranging it by hand | #53, #69 | S | The last of the trousers list |
 | 6 | **Fixes from 25 November.** Scaling a rectangle in 3D scales it about the gizmo, as on the table; a change of wrap shows after the cloth has run; with the cloth paused, a drag in 3D moves the panel instead of pulling it and running the cloth | #94, #93, #92 | M | Bugs met in ordinary work, better gone before anyone else meets them |
 | 7 | **Never lose work.** Ask before unsaved changes are lost (closing, New, Open, a sample), with "*" in the title. The avatar's path is saved in the file, so a file opens on the body it was made for. A file written by 0.1 is kept in `FileTests` and must open in every later version | #87, #26 (the avatar), #86 | S | Other people's work is at stake from now on. The file holds the avatar before its format is promised |
 | 8 | **Export OBJ.** The garment as it hangs (flat if it was not simulated), in the avatar's units so it lines up with the character, one group per panel, the pattern as UVs, normals smooth across closed seams | #85 | M | Without it the garment cannot be used anywhere else |
@@ -129,6 +129,15 @@ decided when 0.2 is out; their issues are in the milestone "0.x".
 | Curves of several segments per edge | M | | Armholes and necklines need more than one cubic |
 | Mirror across an internal line | S | | Fold lines inside a panel |
 | Positions along an edge in cm, not only as a fraction | S | | "3 cm from the corner" stays 3 cm when the edge grows |
+
+### Fitting tools
+
+Tools that help a pattern fit real body proportions, kept together.
+
+| Step | Size | Issues | Why |
+| --- | --- | --- | --- |
+| A section through the body and the cloth in 3D: a plane put where wanted shows the outline of both, so the edges around an armpit can be made to follow it | M | | The see-through body does not show the body's shape under the cloth |
+| Trousers fitted to a body's proportions: seat height, the curve through the crotch and the crotch widths measured on the avatar, shown beside the pattern's, and put right by parameters | L | | Bodies differ in more than waist and hips |
 
 ### Simulation quality
 

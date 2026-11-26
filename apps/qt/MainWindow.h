@@ -64,6 +64,8 @@ public:
     // The body shown in 3D or hidden; hidden, it is also out of the simulation.
     void showBody(bool shown);
     bool bodyShown() const { return bodyShown_; }
+    void showBodySeeThrough(bool seeThrough);  // the body drawn so that cloth inside it shows
+    bool bodySeeThrough() const { return bodySeeThrough_; }
     const std::vector<CornerRef>& selectedCorners() const { return drafting_.selection.corners; }
 
     // One frame: the session catches up and everything shown follows.
@@ -115,6 +117,7 @@ private:
     void say(const QString& words, bool problem = false);
     void setViewLayout(ViewLayout layout);
     void buildMenus();
+    void showSpace();  // the 3D view as the window has it now, if it is seen
     Outliner::Body bodyNow() const;
     void showMeshCounts();
     // What a gesture on the table changes: decided by the rules both windows share.
@@ -149,6 +152,8 @@ private:
     bool fieldDragTaken_ = false;  // the field being dragged has changed the document
     bool bodyShown_ = true;        // hidden, the body is also out of the simulation
     QAction* bodyAction_ = nullptr;
+    bool bodySeeThrough_ = false;
+    QAction* seeThroughAction_ = nullptr;
     // Looking back: the selected panel shown on the table as of this step, and
     // what it was then. Nothing is reshaped on the table meanwhile.
     std::optional<OpId> viewUntil_;

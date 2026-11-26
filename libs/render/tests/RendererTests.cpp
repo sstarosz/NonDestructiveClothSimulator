@@ -228,6 +228,85 @@ TEST_CASE("a surface that lets light through shows what is behind it, whatever o
     EXPECT(line, "a line behind it shows through too");
 }
 
+TEST_CASE("a see-through surface hides nothing behind it, not even another that lets light through")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    Scene scene = facing();
+    Surface inFront = square(60.0f, 0.0f, {0.0f, 0.0f, 1.0f, 0.5f});
+    Surface further = square(60.0f, -20.0f, {1.0f, 0.0f, 0.0f, 0.5f});
+    inFront.lit = further.lit = false;
+    scene.surfaces = {inFront, further};  // the one in front given first
+    const auto picture = renderer()->draw(scene, 160, 120);
+    REQUIRE(picture);
+    EXPECT((picture->at(80, 52).red > 0.3f), "the far one is blended in too");
+}
+
+TEST_CASE("of a see-through surface drawn nearest only, one layer is blended in, whatever order its triangles are in")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    // A closed shape seen from the front: two squares of one surface, one behind the other.
+    const auto picture = [&](bool farFirst) {
+        Scene scene = facing();
+        Surface shape = square(60.0f, 0.0f, {0.0f, 0.0f, 1.0f, 0.5f});
+        const Surface behind = square(60.0f, -20.0f, {});
+        shape.points.insert(farFirst ? shape.points.begin() : shape.points.end(), behind.points.begin(), behind.points.end());
+        shape.normals.insert(shape.normals.end(), behind.normals.begin(), behind.normals.end());
+        shape.triangles = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7};
+        shape.lit = false;
+        shape.nearestOnly = true;
+        scene.surfaces = {shape};
+        // Behind both its layers, a solid square, given after it.
+        Surface cloth = square(60.0f, -40.0f, {1.0f, 0.0f, 0.0f});
+        cloth.lit = false;
+        scene.surfaces.push_back(cloth);
+        return renderer()->draw(scene, 160, 120);
+    };
+    for (const bool farFirst : {false, true}) {
+        const auto drawn = picture(farFirst);
+        REQUIRE(drawn);
+        EXPECT((near(drawn->at(80, 52), {0.5f, 0.0f, 0.5f})), "half of what is behind, half of one layer of it");
+    }
+}
+
+TEST_CASE("cloth inside a see-through body shows through it, and a deactivated panel before it does not hide it")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    // A panel standing inside the limb, as cloth that has gone into the body.
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "inside"});
+    doc.add(panel, Rect{.width = 14_cm, .height = 40_cm});
+    doc.arrange(panel, Arrangement{.placed = true, .x = 0, .y = 80, .z = 0});
+    session::Session session(doc, session::Threading::OneStepPerAdvance);
+    session.useAvatar(figure(), "figure.obj");
+    session.update();
+    OrbitCamera camera;
+    camera.target = {0.0, 80.0, 0.0};
+    camera.pitch = 0.0;
+    camera.yaw = 0.0;
+    const auto middle = [&](bool seeThrough) {
+        const auto picture = renderer()->draw(sceneOf(session, camera, 4.0 / 3.0, {.seeThroughBody = seeThrough}), 160, 120);
+        REQUIRE(picture);
+        return picture->at(80 + 1, 60);
+    };
+    const Colour solid = middle(false), through = middle(true);
+    const auto bare = renderer()->draw(sceneOf(session, camera, 4.0 / 3.0, {.body = false}), 160, 120);
+    REQUIRE(bare);
+    const Colour cloth = bare->at(80 + 1, 60);
+    EXPECT((cloth.red - solid.red > 0.15f), "the solid body hides the panel");
+    EXPECT((through.red > solid.red + 0.1f && through.red < cloth.red - 0.02f), "see-through, it is the panel's colour tinted by the body's");
+
+    // A deactivated panel (see-through itself) in front of the body: the body still shows through it.
+    const PanelId front = session.editor().document().panels().front();
+    REQUIRE(session.editor().change([&](Document& d) { d.arrange(front, Arrangement{.placed = true, .x = 0, .y = 80, .z = 20}); },
+                                    {.touches = session::Touches::PlacementOnly}));
+    session.setPanelActive(front, false);
+    session.update();
+    const Colour faded = middle(true);
+    const auto without = renderer()->draw(sceneOf(session, camera, 4.0 / 3.0, {.body = false, .seeThroughBody = true}), 160, 120);
+    REQUIRE(without);
+    EXPECT((std::abs(faded.red - without->at(80 + 1, 60).red) > 0.03f), "the body is seen where a deactivated panel is in front of it");
+}
+
 TEST_CASE("the body is in the picture of a session")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());

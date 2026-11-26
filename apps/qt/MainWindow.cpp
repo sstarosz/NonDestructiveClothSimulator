@@ -415,6 +415,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         changeByDrag(phase, [&](Document& doc) { doc.setParticleDistance(panel, distance); });
     });
     connect(outliner_, &Outliner::bodyShownChanged, this, &MainWindow::showBody);
+    connect(outliner_, &Outliner::bodySeeThroughChanged, this, &MainWindow::showBodySeeThrough);
     connect(outliner_, &Outliner::panelShownChanged, this, [this](PanelId panel, bool shown) {
         session_.setPanelShown(panel, shown);
         tick();
@@ -493,6 +494,11 @@ void MainWindow::buildMenus() {
     bodyAction_->setChecked(bodyShown_);
     bodyAction_->setToolTip("Hidden, the body is also taken out of the simulation.");
     connect(bodyAction_, &QAction::triggered, this, &MainWindow::showBody);
+    seeThroughAction_ = view->addAction("See-through body");
+    seeThroughAction_->setObjectName("seeThroughBody");
+    seeThroughAction_->setCheckable(true);
+    seeThroughAction_->setChecked(bodySeeThrough_);
+    connect(seeThroughAction_, &QAction::triggered, this, &MainWindow::showBodySeeThrough);
     QAction* grid = view->addAction("Grid on the table");
     grid->setCheckable(true);
     grid->setChecked(table_->gridShown());
@@ -582,6 +588,23 @@ void MainWindow::showBody(bool shown) {
     tick();
 }
 
+void MainWindow::showBodySeeThrough(bool seeThrough) {
+    bodySeeThrough_ = seeThrough;
+    if (seeThroughAction_) seeThroughAction_->setChecked(seeThrough);
+    outliner_->showBody(bodyNow());
+    tick();
+}
+
+void MainWindow::showSpace() {
+    if (!space_->isVisible()) return;
+    space_->show(session_, drafting_.tool,
+                 {.selected = drafting_.selection.panel,
+                  .body = bodyShown_,
+                  .mesh = shelf_->mesh()->isChecked(),
+                  .seam = drafting_.selection.seam,
+                  .seeThroughBody = bodySeeThrough_});
+}
+
 void MainWindow::setThreading(session::Threading threading) {
     session_.setThreading(threading);
     shelf_->simulate()->setChecked(false);
@@ -589,7 +612,10 @@ void MainWindow::setThreading(session::Threading threading) {
 
 Outliner::Body MainWindow::bodyNow() const {
     const std::string& path = session_.avatarPath();
-    return {.name = path.empty() ? QString() : QFileInfo(QString::fromStdString(path)).fileName(), .shown = bodyShown_, .ready = session_.bodyReady()};
+    return {.name = path.empty() ? QString() : QFileInfo(QString::fromStdString(path)).fileName(),
+            .shown = bodyShown_,
+            .ready = session_.bodyReady(),
+            .seeThrough = bodySeeThrough_};
 }
 
 void MainWindow::startPicking(OpId layer, ReferenceId reference) {
@@ -633,7 +659,7 @@ void MainWindow::tick() {
     if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) say(QString::fromStdString(*problem), true);
     table_->setMesh(meshShown ? session_.mesh() : nullptr);
     if (session_.editor().version() != shownVersion_) refresh();
-    if (space_->isVisible()) space_->show(session_, drafting_.selection.panel, drafting_.tool, meshShown, bodyShown_, drafting_.selection.seam);
+    showSpace();
     space_->showTime(session_.clothShown() ? std::optional<double>(session_.cloth().time) : std::nullopt, session_.clothShown() && session_.cloth().sewing);
     outliner_->showBody(bodyNow());
     outliner_->showPanelStates(session_.hiddenPanels(), session_.inactivePanels());
@@ -740,7 +766,7 @@ void MainWindow::refresh() {
     if (viewUntil_) past_ = evaluateUpTo(doc, *viewUntil_);
     attributes_->show(doc, shapes, selected, viewUntil_);
     table_->show(doc, viewUntil_ ? past_ : shapes, selected, drafting_.selection.corners, drafting_.tool, drafting_.selection.others, seam);
-    if (space_->isVisible()) space_->show(session_, selected, drafting_.tool, shelf_->mesh()->isChecked(), bodyShown_, seam);
+    showSpace();
     // A layer's reference being chosen: offer what that layer could use.
     if (picking_ && (!doc.contains(picking_->operation))) picking_.reset();
     std::optional<TableView::Choice> choice;

@@ -23,6 +23,7 @@ constexpr float threadWidth = 1.0f;                              // the lines fr
 constexpr float threadAlpha = 0.75f;                             // many lie close together: a little of what is behind shows
 constexpr float seamLift = 0.5f;                             // cm
 constexpr float inactiveAlpha = 0.3f;  // a deactivated panel is seen through
+constexpr float seeThroughBodyAlpha = 0.35f;
 // cm: a stitch this short has brought its two sides together, and they are shaded as one.
 constexpr double joinedWithin = 0.5;
 
@@ -204,6 +205,10 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
         surface.triangles.reserve(body.triangles.size() * 3);
         for (const auto& t : body.triangles) surface.triangles.insert(surface.triangles.end(), t.begin(), t.end());
         surface.normals = normalsOf(surface.points, surface.triangles);
+        if (options.seeThroughBody) {
+            surface.colour.alpha = seeThroughBodyAlpha;
+            surface.nearestOnly = true;
+        }
         scene.surfaces.push_back(std::move(surface));
     }
 

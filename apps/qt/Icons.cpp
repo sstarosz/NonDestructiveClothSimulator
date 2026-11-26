@@ -147,6 +147,14 @@ void draw(Icon which, Pen& d) {
         break;
     }
     case Icon::Inactive: p.drawEllipse(QPointF(12, 12), 8, 8); d.line({6.5, 17.5}, {17.5, 6.5}); break;
+    case Icon::Solid:  // the body filled in
+        d.dot({12, 5}, 3);
+        d.filled({{8, 10}, {16, 10}, {15, 21}, {9, 21}});
+        break;
+    case Icon::SeeThrough:  // the body in broken lines
+        d.dashed({8, 10}, {16, 10}); d.dashed({16, 10}, {15, 21}); d.dashed({15, 21}, {9, 21}); d.dashed({9, 21}, {8, 10});
+        { QPen broken = p.pen(); broken.setDashPattern({1.5, 1.5}); p.save(); p.setPen(broken); p.drawEllipse(QPointF(12, 5), 3, 3); p.restore(); }
+        break;
     case Icon::EyeShut: {
         QPainterPath lid; lid.moveTo(2, 11); lid.cubicTo(6, 17, 18, 17, 22, 11); p.drawPath(lid);
         d.line({3, 3}, {21, 21});

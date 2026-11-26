@@ -1808,6 +1808,58 @@ TEST_CASE("a panel's eye hides it in 3D and its other button takes it out of the
     EXPECT(w.window.selected() == front, "and leaves the selection too");
 }
 
+TEST_CASE("View > See-through body and the button on the body's row draw the body see-through, and back", "[qt]")
+{
+    Window w;
+    Outliner& outliner = *w.window.outliner();
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    w.window.tick();
+    auto* action = w.window.findChild<QAction*>("seeThroughBody");
+    REQUIRE(action != nullptr);
+    EXPECT((action->text() == "See-through body" && action->isCheckable() && !action->isChecked()), "in the View menu, off at first");
+    // The body's surface as the view has it: the one that is no panel's.
+    const auto body = [&] {
+        for (const render::Surface& surface : w.window.space()->sceneFor(200, 200).surfaces)
+            if (!surface.panel) return surface;
+        FAIL("no body in the scene");
+        return render::Surface{};
+    };
+    int drawn = 0;
+    QObject::connect(w.window.space(), &SpaceView::drawn, [&] { ++drawn; });
+    EXPECT((body().colour.alpha == 1.0f), "solid");
+
+    // A click with the mouse on the row's button.
+    const auto press = [&] {
+        QTreeWidgetItem* row = outliner.topLevelItem(0);
+        const QPointF at(outliner.columnViewportPosition(Outliner::seeThroughColumn) + outliner.columnWidth(Outliner::seeThroughColumn) / 2.0,
+                         outliner.visualItemRect(row).center().y());
+        REQUIRE(outliner.viewport()->rect().contains(at.toPoint()));
+        send(outliner.viewport(), QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton, {});
+        send(outliner.viewport(), QEvent::MouseMove, at + QPointF(0, 30), Qt::NoButton, Qt::LeftButton, {});  // a hand that slips
+        send(outliner.viewport(), QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton, {});
+        w.window.tick();
+    };
+    press();
+    EXPECT((w.window.bodySeeThrough() && action->isChecked()), "the button and the menu are one thing");
+    EXPECT((body().colour.alpha < 1.0f && body().nearestOnly), "the body is see-through in 3D");
+    EXPECT((outliner.bodySeeThroughHint().startsWith("See-through")), "and its row says so");
+    EXPECT((w.window.selected() == front), "the selection is as it was");
+    EXPECT((w.window.bodyShown()), "the body is still shown, and in the simulation");
+    if (w.window.space()->drawing() != SpaceView::Drawing::Nothing) EXPECT(drawn > 0, "and the 3D view is drawn again");
+
+    drawn = 0;
+    action->trigger();
+    EXPECT((!w.window.bodySeeThrough() && body().colour.alpha == 1.0f), "the menu makes it solid again");
+    EXPECT((outliner.bodySeeThroughHint().startsWith("Solid")), "and the row says that");
+    if (w.window.space()->drawing() != SpaceView::Drawing::Nothing) EXPECT(drawn > 0, "drawn again");
+
+    action->trigger();
+    w.window.open(Document{}, "new");
+    w.window.tick();
+    EXPECT((w.window.bodySeeThrough() && body().colour.alpha < 1.0f), "it is how the window looks, not part of a document: another one keeps it");
+}
+
 TEST_CASE("a seam's eye hides its lines in 3D, and the eye on Seams hides them all; the selection stays", "[qt]")
 {
     Window w;
