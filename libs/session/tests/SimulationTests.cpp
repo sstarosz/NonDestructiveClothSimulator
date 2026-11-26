@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <thread>
 
 #include <catch2/catch_test_macros.hpp>
@@ -99,6 +100,98 @@ TEST_CASE("on its own thread, the cloth moves without being asked")
     EXPECT(news.time >= 0.25, "a quarter of a second of cloth time comes on its own");
     EXPECT((news.time < 2.0), "at about the speed of the clock, not as fast as it can");
     simulation.run(false);
+}
+
+TEST_CASE("pulled by a hand that moves every 2 ms, the cloth keeps the clock's pace, and carries on at once when let go")
+{
+    // #107: every move of the hand woke the cloth's thread, which then
+    // stepped at once and put its next step a sixtieth of a second further
+    // off each time. The cloth ran ahead of the clock while pulled, and when
+    // let go stood still until the clock caught up with it.
+    Document doc;
+    const auto mesh = aSheet(doc);
+    Simulation simulation(Threading::OwnThread);
+    simulation.start(mesh, sim::arranged(doc, *mesh), sim::Body{});
+    simulation.run(true);
+    Simulation::News news;
+    const auto clock = [] { return std::chrono::steady_clock::now(); };
+    const auto until = [&](double seconds, const auto& done) {
+        const auto limit = clock() + std::chrono::duration<double>(seconds);
+        while (clock() < limit && !done()) {
+            simulation.fetch(news);
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        simulation.fetch(news);
+    };
+    until(5.0, [&] { return news.time >= 0.1; });
+    REQUIRE(news.time >= 0.1);
+
+    const sim::Vec3 corner = news.positions.front()[0];
+    const double startTime = news.time;
+    const auto began = clock();
+    for (int i = 0; i < 250; ++i) {  // half a second of a hand moving every 2 ms
+        simulation.hold(0, 0, corner + sim::Vec3{0.0, 0.0, 0.04 * i});
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    simulation.fetch(news);
+    const double pulledFor = std::chrono::duration<double>(clock() - began).count();
+    std::printf("      pulled for %.2f s of the clock: %.2f s of cloth time\n", pulledFor, news.time - startTime);
+    EXPECT((news.time - startTime <= pulledFor + 0.1), "while pulled, the cloth's time moves on no faster than the clock's");
+
+    simulation.letGo();
+    const double letGoAt = news.time;
+    until(0.5, [] { return false; });
+    std::printf("      in the half second after letting go: %.2f s of cloth time\n", news.time - letGoAt);
+    EXPECT((news.time >= letGoAt + 0.3), "let go, it carries on at once instead of standing still until the clock catches up");
+    simulation.run(false);
+}
+
+TEST_CASE("a held cloth runs though it was not told to, and stops again when let go")
+{
+    // #106: so that a paused cloth moves as soon as it is taken hold of, not
+    // at the next frame of the window.
+    Document doc;
+    const auto mesh = aSheet(doc);
+    Simulation simulation(Threading::OwnThread);
+    simulation.start(mesh, sim::arranged(doc, *mesh), sim::Body{});
+    Simulation::News news;
+    simulation.fetch(news);
+    for (int i = 0; i < 200 && !news.mesh; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        simulation.fetch(news);
+    }
+    REQUIRE(news.mesh);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    simulation.fetch(news);
+    EXPECT((news.time == 0.0), "not told to run, it stands still");
+
+    simulation.hold(0, 0, news.positions.front()[0] + sim::Vec3{0.0, 0.0, 5.0});
+    const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < limit && news.time < 0.05) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        simulation.fetch(news);
+    }
+    EXPECT((news.time >= 0.05), "held, it runs at once");
+
+    simulation.letGo();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    simulation.fetch(news);
+    const double stopped = news.time;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    simulation.fetch(news);
+    EXPECT((news.time == stopped), "let go, it stands still again");
+
+    // Stepped frame by frame, the same.
+    Simulation stepped(Threading::OneStepPerAdvance);
+    stepped.start(mesh, sim::arranged(doc, *mesh), sim::Body{});
+    stepped.advance();
+    Simulation::News steppedNews;
+    stepped.fetch(steppedNews);
+    EXPECT((steppedNews.time == 0.0), "stepped on request but not running, it does not move");
+    stepped.hold(0, 0, steppedNews.positions.front()[0] + sim::Vec3{0.0, 0.0, 5.0});
+    stepped.advance();
+    stepped.fetch(steppedNews);
+    EXPECT((steppedNews.time > 0.0), "held, each request is a step");
 }
 
 TEST_CASE("a panel left out stays put in every cloth until it is taken back")
