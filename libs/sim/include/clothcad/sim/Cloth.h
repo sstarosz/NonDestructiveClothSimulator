@@ -21,6 +21,7 @@
 //
 // Lengths are cm, time is seconds, weight is grams.
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -126,6 +127,8 @@ private:
     std::vector<Thread> threads_;
     std::vector<uint32_t> near_, firstNear_;  // per particle: the limbs within reach this step
     std::vector<char> nearScan_;              // per particle: whether the scanned surface is within reach this step
+    std::vector<double> clearance_;           // per particle: how far the body within reach was when this step began
+    std::vector<Vec3> stepFrom_;              // per particle: where it was when this step began
 
     // Cloth against cloth.
     void findClosePairs(double seconds);
@@ -138,6 +141,11 @@ private:
         uint32_t a, b;
     };
     std::vector<Pair> close_;            // the pairs that could touch during this step
+    // The search for them, kept from step to step: each particle's cell, the
+    // first of each slot of the hashed table, the particles by slot, and the
+    // last particle (plus one) whose search looked through each slot.
+    std::vector<std::array<std::int64_t, 3>> cellOf_;
+    std::vector<uint32_t> slotFirst_, bySlot_, lookedBy_;
     Placement positions_;
     double time_ = 0.0;
     struct Held {

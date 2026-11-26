@@ -91,3 +91,23 @@ TEST_CASE("a surface read from OBJ text is a body")
     EXPECT((cloth.sound() && deepest > 0.1), "the cloth never goes inside");
     EXPECT((highest > 20.2 && highest < 21.0 && lowest < 15.0), "it lies on top with its edges hanging over");
 }
+
+TEST_CASE("a surface's grid knows how steeply its distance can change: 1 for one closed surface, more where surfaces overlap")
+{
+    // The cloth skips asking the body while a particle cannot have reached it
+    // (Cloth::step): how far it can have come nearer follows from this.
+    const LoadedSurface cube = readObj("v -10 0 -10\nv 10 0 -10\nv 10 20 -10\nv -10 20 -10\nv -10 0 10\nv 10 0 10\nv 10 20 10\nv -10 20 10\n"
+                                       "f 5 6 7 8\nf 2 1 4 3\nf 6 2 3 7\nf 1 5 8 4\nf 8 7 3 4\nf 1 2 6 5\n");
+    REQUIRE(cube.problem.empty());
+    const double clean = bodyFrom(cube.surface).scanned->steepest();
+    EXPECT((clean > 0.9 && clean < 1.0 + 1e-6), "one closed surface: the distance changes no faster than a point moves");
+
+    // A trunk and an arm, each closed, the arm's end inside the trunk: inside
+    // the trunk, the arm's surface is nearer and says "outside".
+    Body limbs;
+    limbs.parts.push_back({{0, 80, 0}, {0, 120, 0}, 15, 12});
+    limbs.parts.push_back({{0, 115, 0}, {40, 100, 0}, 5, 4});
+    const double overlapping = bodyFrom(surfaceOf(limbs)).scanned->steepest();
+    std::printf("      steepest: %.2f for a cube, %.2f for overlapping limbs\n", clean, overlapping);
+    EXPECT((overlapping > 1.5), "overlapping surfaces: the distance jumps where they cross, and the cloth asks the body every time");
+}

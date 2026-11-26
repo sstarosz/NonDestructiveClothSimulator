@@ -233,6 +233,18 @@ DistanceField::DistanceField(const Surface& surface, double cell, double band) :
     }
     for (float& d : distance_)
         if (std::isnan(d)) d = static_cast<float>(-band_);
+
+    // How much the distance changes from one grid point to the next, at most.
+    double most = 0.0;
+    for (int z = 0; z < nz_; ++z)
+        for (int y = 0; y < ny_; ++y)
+            for (int x = 0; x < nx_; ++x) {
+                const double here = at(x, y, z);
+                if (x + 1 < nx_) most = std::max(most, std::abs(at(x + 1, y, z) - here));
+                if (y + 1 < ny_) most = std::max(most, std::abs(at(x, y + 1, z) - here));
+                if (z + 1 < nz_) most = std::max(most, std::abs(at(x, y, z + 1) - here));
+            }
+    steepest_ = most / cell_;
 }
 
 Contact DistanceField::contact(Vec3 point) const {
