@@ -2,6 +2,8 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCloseEvent>
+#include <QDir>
 #include <QDockWidget>
 #include <QElapsedTimer>
 #include <QFileDialog>
@@ -9,13 +11,17 @@
 #include <QMenu>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLockFile>
 #include <QMenuBar>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QScreen>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTimer>
 #include <QToolBar>
+#include <QUuid>
 
 #include "AttributeEditor.h"
 #include "Outliner.h"
@@ -47,10 +53,18 @@ QDockWidget* makeDock(const QString& title, QWidget* content, QMainWindow* windo
 // package put the project's assets/ beside it (apps/qt/CMakeLists.txt).
 QString assetsFolder() { return QCoreApplication::applicationDirPath() + "/assets"; }
 
+// The avatar in an OBJ file, ready to put into a document; or why there is none.
+std::expected<std::shared_ptr<const Avatar>, QString> readAvatar(const QString& path) {
+    const sim::LoadedSurface loaded = sim::loadObj(path.toStdString());
+    if (!loaded.problem.empty())
+        return std::unexpected(QString::fromStdString(loaded.problem) + ". Choose a Wavefront OBJ file in cm, y up, facing +z.");
+    return std::make_shared<const Avatar>(sim::avatarOf(loaded.surface, QFileInfo(path).fileName().toStdString()));
+}
+
 } // namespace
 
 MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWindow(parent), session_(Document{}, threading) {
-    setWindowTitle("Cloth CAD");
+    showTitle("untitled");
     resize(1600, 940);
     setDockNestingEnabled(true);
 
@@ -444,7 +458,13 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     refresh();
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    // Not closed: a copy of unsaved work stays for the next start.
+    if (!autosave_) return;
+    autosave_.reset();  // waits for a copy being written
+    recoveryLock_.reset();
+    if (!session::hasRecovery(recoveryFolder_.toStdString())) QDir(recoveryFolder_).removeRecursively();
+}
 
 namespace {
 
@@ -461,22 +481,25 @@ QAction* item(QMenu* menu, const QString& text, QKeySequence shortcut, QObject* 
 
 void MainWindow::buildMenus() {
     QMenu* file = menuBar()->addMenu("File");
-    item(file, "New", QKeySequence::New, this, [this] { open(Document{}, "untitled"); });
+    item(file, "New", QKeySequence::New, this, [this] {
+        if (mayDiscard("starting a new pattern")) open(Document{}, "untitled");
+    })->setObjectName("fileNew");
     item(file, "Open…", QKeySequence::Open, this, [this] {
+        if (!mayDiscard("opening another pattern")) return;
         const QString path = QFileDialog::getOpenFileName(this, "Open", {}, "Patterns (*.clothcad)");
         if (!path.isEmpty()) openFile(path);
-    });
-    item(file, "Save", QKeySequence::Save, this, [this] {
-        const QString path = path_.isEmpty() ? QFileDialog::getSaveFileName(this, "Save", title_ + ".clothcad", "Patterns (*.clothcad)") : path_;
-        if (!path.isEmpty()) saveAs(path);
-    });
+    })->setObjectName("fileOpen");
+    item(file, "Save", QKeySequence::Save, this, [this] { save(); })->setObjectName("fileSave");
     item(file, "Save as…", QKeySequence::SaveAs, this, [this] {
+        if (!takeWhatIsTyped()) return;
         const QString path = QFileDialog::getSaveFileName(this, "Save as", title_ + ".clothcad", "Patterns (*.clothcad)");
         if (!path.isEmpty()) saveAs(path);
     });
     QMenu* samples = file->addMenu("Samples");
     for (std::size_t i = 0; i < session::samples().size(); ++i)
-        item(samples, session::samples()[i].name, {}, this, [this, i] { openSample(i); });
+        item(samples, session::samples()[i].name, {}, this, [this, i] {
+            if (mayDiscard("opening a sample")) openSample(i);
+        })->setObjectName(QString("fileSample%1").arg(i));
     file->addSeparator();
     item(file, "Quit", QKeySequence::Quit, this, [this] { close(); });
 
@@ -498,13 +521,13 @@ void MainWindow::buildMenus() {
     view->addSeparator();
     bodyAction_ = view->addAction("Body");
     bodyAction_->setCheckable(true);
-    bodyAction_->setChecked(bodyShown_);
+    bodyAction_->setChecked(session_.bodyPresent());
     bodyAction_->setToolTip("Hidden, the body is also taken out of the simulation.");
     connect(bodyAction_, &QAction::triggered, this, &MainWindow::showBody);
     seeThroughAction_ = view->addAction("See-through body");
     seeThroughAction_->setObjectName("seeThroughBody");
     seeThroughAction_->setCheckable(true);
-    seeThroughAction_->setChecked(bodySeeThrough_);
+    seeThroughAction_->setChecked(session_.bodySeeThrough());
     connect(seeThroughAction_, &QAction::triggered, this, &MainWindow::showBodySeeThrough);
     QAction* grid = view->addAction("Grid on the table");
     grid->setCheckable(true);
@@ -526,69 +549,208 @@ void MainWindow::buildMenus() {
     for (QDockWidget* dock : docks_) windows->addAction(dock->toggleViewAction());
 }
 
-void MainWindow::open(Document document, const QString& title) {
+void MainWindow::open(Document document, const QString& title, SceneState state) {
+    // A document that names no body (a new one, or a file from before avatars were saved) takes the one shown.
+    if (!document.avatar()) document.setAvatar(session_.document().avatar());
     session::layOutOnTheTable(document);
     // A bar for a length of the document that is going has nothing to type into, and the next document may
     // have a layer with the same number.
     table_->closeLength();
     lengthEditFrom_.reset();
     lengthChanged_ = false;
-    session_.open(std::move(document));
+    if (autosave_) autosave_->forget();  // what was there is saved, or thrown away
+    session_.open(std::move(document), std::move(state));
     shelf_->simulate()->setChecked(false);
-    title_ = title;
+    showTitle(title);
     path_.clear();
     drafting_ = {};
     stopPicking();
     table_->cancel();
-    setWindowTitle(title + "  —  Cloth CAD");
     refresh();
     table_->fit();
     if (session_.document().panels().empty()) say("The table is empty: choose Rectangle on the shelf and drag on the table to draw a panel.");
 }
 
 bool MainWindow::openFile(const QString& path) {
-    std::variant<Document, FileError> opened = clothcad::open(path.toStdString());
+    std::variant<SavedScene, FileError> opened = clothcad::open(path.toStdString());
     if (FileError* problem = std::get_if<FileError>(&opened)) {
         say(QString::fromStdString(problem->line ? "Line " + std::to_string(problem->line) + ": " + problem->message : problem->message), true);
         return false;
     }
-    open(std::move(std::get<Document>(opened)), QFileInfo(path).completeBaseName());
+    SavedScene& scene = std::get<SavedScene>(opened);
+    open(std::move(scene.document), QFileInfo(path).completeBaseName(), std::move(scene.state));
     path_ = path;
     return true;
 }
 
 bool MainWindow::saveAs(const QString& path) {
-    const std::string problem = clothcad::save(session_.document(), path.toStdString());
+    const std::string problem = clothcad::save(session_.document(), path.toStdString(), session_.state());
     if (!problem.empty()) {
         say(QString::fromStdString(problem), true);
         return false;
     }
     path_ = path;
+    session_.markSaved();
+    if (autosave_) autosave_->forget();
+    showTitle(QFileInfo(path).completeBaseName());
+    showUnsaved();
     say("Saved.");
     return true;
 }
 
+bool MainWindow::save() {
+    if (!takeWhatIsTyped()) return false;
+    const QString path = path_.isEmpty() ? QFileDialog::getSaveFileName(this, "Save", title_ + ".clothcad", "Patterns (*.clothcad)") : path_;
+    return !path.isEmpty() && saveAs(path);
+}
+
+bool MainWindow::mayDiscard(const QString& before) {
+    if (!takeWhatIsTyped()) return false;
+    if (!session_.unsaved()) return true;
+    QMessageBox box(QMessageBox::Question, "Cloth CAD", QString("Save the changes to %1 before %2?").arg(title_, before),
+                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, this);
+    box.button(QMessageBox::Discard)->setText("Don't Save");
+    box.setDefaultButton(QMessageBox::Save);
+    box.setEscapeButton(QMessageBox::Cancel);
+    const int answer = box.exec();
+    if (answer == QMessageBox::Save) return save();
+    return answer == QMessageBox::Discard;
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (!mayDiscard("closing")) {
+        event->ignore();
+        return;
+    }
+    endRecovery();
+    QMainWindow::closeEvent(event);
+}
+
+bool MainWindow::takeWhatIsTyped() {
+    auto* typing = qobject_cast<QLineEdit*>(QApplication::focusWidget());
+    // The length bar on the table shows what is typed in it already, and leaving it would cancel it.
+    if (!typing || typing == table_->lengthEditor()) return true;
+    const std::uint64_t before = problemsSaid_;
+    typing->clearFocus();
+    return problemsSaid_ == before;
+}
+
+// ---- Recovery copies ----------------------------------------------------------
+
+// Each run keeps its copy in a folder of its own, and holds a lock there while
+// it runs: a folder whose lock can be taken is of a run that has stopped.
+void MainWindow::keepRecoveryIn(const QString& folder, double everySeconds) {
+    const QString own = QDir(folder).absoluteFilePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    auto lock = std::make_unique<QLockFile>(own + "/running");
+    lock->setStaleLockTime(0);  // only a program that has stopped gives its lock up, however old it is
+    if (!QDir().mkpath(own) || !lock->tryLock()) {
+        say("No recovery copies can be kept: " + own + " cannot be written. Save your work often.", true);
+        return;
+    }
+    recoveryFolder_ = own;
+    recoveryLock_ = std::move(lock);
+    autosave_ = std::make_unique<session::Autosave>(own.toStdString(), everySeconds);
+    offerRecovery(folder);
+}
+
+// The copies that stopped runs left, the newest first: each is opened or
+// deleted, or kept to be offered at the next start.
+void MainWindow::offerRecovery(const QString& folder) {
+    const QFileInfoList left = QDir(folder).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+    for (const QFileInfo& run : left) {
+        const QString theirs = run.absoluteFilePath();
+        if (theirs == recoveryFolder_) continue;
+        QLockFile lock(theirs + "/running");
+        lock.setStaleLockTime(0);
+        if (!lock.tryLock()) continue;  // that run is still going
+        const auto remove = [&] {
+            lock.unlock();
+            QDir(theirs).removeRecursively();
+        };
+        if (!session::hasRecovery(theirs.toStdString())) {
+            remove();  // it stopped with nothing unsaved
+            continue;
+        }
+        std::expected<session::Recovery, std::string> copy = session::readRecovery(theirs.toStdString());
+        if (!copy) {
+            say("A recovery copy cannot be read (" + QString::fromStdString(copy.error()) + "). It is left in " + theirs + ".", true);
+            continue;
+        }
+        const QString title = QString::fromStdString(copy->title);
+        QMessageBox box(QMessageBox::Question, "Cloth CAD", QString("Cloth CAD stopped before %1 was saved. Open the recovered copy?").arg(title),
+                        QMessageBox::Open | QMessageBox::Discard | QMessageBox::Cancel, this);
+        box.button(QMessageBox::Discard)->setText("Delete");
+        box.button(QMessageBox::Cancel)->setText("Not Now");
+        box.setDefaultButton(QMessageBox::Open);
+        box.setEscapeButton(QMessageBox::Cancel);
+        const int answer = box.exec();
+        if (answer == QMessageBox::Discard) {
+            remove();
+            continue;
+        }
+        if (answer != QMessageBox::Open) return;
+        open(std::move(copy->scene.document), title, std::move(copy->scene.state));
+        path_ = QString::fromStdString(copy->path);  // Save writes it to its own file, if it had one
+        session_.markUnsaved();
+        // Copied again before the old copy goes, so that there is one all along.
+        autosave_->write(session_, copy->title, copy->path);
+        if (const std::optional<std::string> problem = autosave_->wait()) {
+            say(QString::fromStdString(*problem), true);
+        } else {
+            remove();
+            say("Recovered. Save to keep it.");
+        }
+        showUnsaved();
+        return;
+    }
+}
+
+void MainWindow::finishRecoveryCopy() {
+    if (!autosave_) return;
+    if (const std::optional<std::string> problem = autosave_->wait()) say(QString::fromStdString(*problem), true);
+}
+
+void MainWindow::endRecovery() {
+    if (!autosave_) return;
+    autosave_->forget();
+    autosave_.reset();
+    recoveryLock_.reset();
+    QDir(recoveryFolder_).removeRecursively();
+}
+
+void MainWindow::showTitle(const QString& title) {
+    title_ = title;
+    setWindowTitle(title + "[*]  —  Cloth CAD");  // Qt shows the "*" while the window is marked modified
+}
+
+void MainWindow::showUnsaved() {
+    // Only when it changes: Qt hands the title to the system again each time.
+    const bool unsaved = session_.unsaved();
+    if (isWindowModified() != unsaved) setWindowModified(unsaved);
+}
+
 bool MainWindow::loadAvatar(const QString& path) {
-    sim::LoadedSurface loaded = sim::loadObj(path.toStdString());
-    if (!loaded.problem.empty()) {
-        say(QString::fromStdString(loaded.problem) + ". Choose a Wavefront OBJ file in cm, y up, facing +z.", true);
+    const std::expected<std::shared_ptr<const Avatar>, QString> read = readAvatar(path);
+    if (!read) {
+        say(read.error(), true);
         return false;
     }
-    session_.useAvatar(std::move(loaded.surface), path.toStdString());
-    refresh();
-    return true;
+    const std::shared_ptr<const Avatar>& worn = session_.document().avatar();
+    if (worn && *worn == **read) return true;  // the one that is on: nothing to change
+    shelf_->simulate()->setChecked(false);      // the cloth starts again on another body
+    return change([&](Document& doc) { doc.setAvatar(*read); }, {.touches = session::Touches::PlacementOnly});
 }
 
 void MainWindow::openSample(std::size_t index) {
     const session::Sample& sample = session::samples().at(index);
-    open(sample.build(), sample.name);
-    // The same avatar again is kept: working out how to collide with it takes a moment.
-    const QString avatar = assetsFolder() + "/" + sample.avatar;
-    if (session_.avatarPath() != avatar.toStdString()) loadAvatar(avatar);
+    Document document = sample.build();
+    const std::expected<std::shared_ptr<const Avatar>, QString> avatar = readAvatar(assetsFolder() + "/" + sample.avatar);
+    if (avatar) document.setAvatar(*avatar);
+    open(std::move(document), sample.name);
+    if (!avatar) say(avatar.error(), true);  // opened all the same, on the body that was there
 }
 
 void MainWindow::showBody(bool shown) {
-    bodyShown_ = shown;
     session_.setBodyPresent(shown);
     if (bodyAction_) bodyAction_->setChecked(shown);
     outliner_->showBody(bodyNow());
@@ -596,7 +758,7 @@ void MainWindow::showBody(bool shown) {
 }
 
 void MainWindow::showBodySeeThrough(bool seeThrough) {
-    bodySeeThrough_ = seeThrough;
+    session_.setBodySeeThrough(seeThrough);
     if (seeThroughAction_) seeThroughAction_->setChecked(seeThrough);
     outliner_->showBody(bodyNow());
     tick();
@@ -606,10 +768,10 @@ void MainWindow::showSpace() {
     if (!space_->isVisible()) return;
     space_->show(session_, drafting_.tool,
                  {.selected = drafting_.selection.panel,
-                  .body = bodyShown_,
+                  .body = session_.bodyPresent(),
                   .mesh = shelf_->mesh()->isChecked(),
                   .seam = drafting_.selection.seam,
-                  .seeThroughBody = bodySeeThrough_});
+                  .seeThroughBody = session_.bodySeeThrough()});
 }
 
 void MainWindow::setThreading(session::Threading threading) {
@@ -618,11 +780,11 @@ void MainWindow::setThreading(session::Threading threading) {
 }
 
 Outliner::Body MainWindow::bodyNow() const {
-    const std::string& path = session_.avatarPath();
-    return {.name = path.empty() ? QString() : QFileInfo(QString::fromStdString(path)).fileName(),
-            .shown = bodyShown_,
+    const std::shared_ptr<const Avatar>& avatar = session_.document().avatar();
+    return {.name = avatar ? QString::fromStdString(avatar->name) : QString(),
+            .shown = session_.bodyPresent(),
             .ready = session_.bodyReady(),
-            .seeThrough = bodySeeThrough_};
+            .seeThrough = session_.bodySeeThrough()};
 }
 
 void MainWindow::startPicking(OpId layer, ReferenceId reference) {
@@ -672,6 +834,11 @@ void MainWindow::tick() {
     outliner_->showPanelStates(session_.hiddenPanels(), session_.inactivePanels());
     outliner_->showSeamStates(session_.hiddenSeams());
     showMeshCounts();
+    if (autosave_)
+        if (const std::optional<std::string> problem =
+                autosave_->update(session_, static_cast<double>(clock_.nsecsElapsed()) / 1e9, title_.toStdString(), path_.toStdString()))
+            say(QString::fromStdString(*problem), true);
+    showUnsaved();  // the cloth moves without a change of the document
     frameTimes_.took(session::FrameTimes::Work::Tick, static_cast<double>(took.nsecsElapsed()) / 1e6);
     showFrameTimes();
     paceTicks();
@@ -758,6 +925,11 @@ void MainWindow::refresh() {
     const Document& doc = session_.document();
     if (!gesturing_) closeLengthIfGone();  // (a gesture that took the length away opens the bar again on another)
     const Result& shapes = session_.editor().shapes();
+    // Undo or redo of another avatar ends the cloth, or brings back the one that hung on it: it stands still then.
+    if (doc.avatar() != shownAvatar_) {
+        shownAvatar_ = doc.avatar();
+        shelf_->simulate()->setChecked(false);
+    }
     std::optional<PanelId>& selected = drafting_.selection.panel;
     if (selected && !doc.contains(*selected)) drafting_.forget(doc);
     std::optional<SeamId>& seam = drafting_.selection.seam;
@@ -803,6 +975,9 @@ void MainWindow::refresh() {
     if (choice) table_->setFocus();  // so Esc reaches it
     shelf_->undo()->setEnabled(session_.editor().canUndo());
     shelf_->redo()->setEnabled(session_.editor().canRedo());
+    if (bodyAction_) bodyAction_->setChecked(session_.bodyPresent());  // as the file that was opened has it
+    if (seeThroughAction_) seeThroughAction_->setChecked(session_.bodySeeThrough());
+    showUnsaved();
     shownVersion_ = session_.editor().version();
 }
 
@@ -955,6 +1130,7 @@ void MainWindow::stopPicking() {
 }
 
 void MainWindow::say(const QString& words, bool problem) {
+    if (problem) ++problemsSaid_;
     help_->setText(words);
     help_->setToolTip(words);
     help_->setStyleSheet(QString("color: %1").arg((problem ? theme::error : theme::text).name()));

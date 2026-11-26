@@ -45,8 +45,8 @@ enum class IfItBreaks {
     Allow,   // made anyway: adding or removing things, where a problem is the honest result
 };
 
-// What a change touches. Moving a panel on the table or in space changes no
-// outline, so the outlines are not evaluated again.
+// What a change touches. Moving a panel on the table or in space, or putting on
+// another avatar, changes no outline, so the outlines are not evaluated again.
 enum class Touches { Shapes, PlacementOnly };
 
 // Which way a panel grows when a change reshapes it.
@@ -84,6 +84,16 @@ public:
     // What is kept per state (the session keeps the drape) is kept by it.
     std::uint64_t step() const { return step_; }
 
+    // Whether the document differs from the one last saved. Undo and redo back
+    // to the saved state count as saved. A new or newly opened document starts
+    // saved. Not the same as step(): a continued step changes the document
+    // under the same number, and a save during a drag must not hide that.
+    bool unsaved() const { return content_ != saved_; }
+    // The document as it is now has been written to its file.
+    void markSaved() { saved_ = content_; }
+    // No file holds the document as it is: a recovered copy.
+    void markUnsaved() { saved_ = 0; }
+
     // Changes the document through `verb`. Returns why it was refused, if it
     // was; then the document is as it was. A verb that throws (a handle that
     // no longer exists) is refused with the exception's words.
@@ -114,11 +124,15 @@ private:
     struct Kept {
         Document document;
         std::uint64_t step;
+        std::uint64_t content;
     };
     std::vector<Kept> undo_, redo_;
     std::uint64_t shapesVersion_ = 1;
     std::uint64_t version_ = 1;
     std::uint64_t step_ = 1, lastStep_ = 1;
+    // Which document this is: a new number for every change, continued or not,
+    // while undo and redo come back to the numbers they had.
+    std::uint64_t content_ = 1, lastContent_ = 1, saved_ = 1;
 };
 
 } // namespace clothcad::session

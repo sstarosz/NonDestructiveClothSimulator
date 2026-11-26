@@ -33,7 +33,7 @@ These came up again and again and outrank convenience:
 | --- | --- | --- |
 | `libs/core/` | Document, formulas, operations, evaluation to 2D outlines, files | the standard library only |
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
-| `libs/session/` | One document being edited and all worked out from it: `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table or in the 3D view changes, and the tool in use, from `Tools`), `TableGizmo` (the table's gizmo), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples`, `FrameTimes` (what the window's frames take, for View > Frame times) | `core`, `sim` |
+| `libs/session/` | One document being edited and all worked out from it: `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table or in the 3D view changes, and the tool in use, from `Tools`), `TableGizmo` (the table's gizmo), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples`, `Autosave` (the recovery copy of unsaved work), `Autosave` (the recovery copy of unsaved work), `FrameTimes` (what the window's frames take, for View > Frame times) | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan through Vulkan-Hpp (`vk::raii`, loaded at run time, no VMA): `Scene` is plain data, `Renderer` draws it into a picture (tests) or a window's `Swapchain`; `sceneOf` turns a session into a scene; `Picking` finds what is under the mouse, `Gizmo` is the move, rotate and scale gizmo. Its tests skip where there is no Vulkan | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`, Qt 6 Widgets): `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `TableView`, `SpaceView` only show and report | `session`, `render`, Qt 6 Widgets |
 | `examples/` | Seven garments as small programs; they also run as tests | `core` |
@@ -53,7 +53,16 @@ Never make `core` depend on anything, never put drawing in `core`, `sim` or
 ## Rules that must stay true
 
 - **The document is a value.** Copying it is an undo snapshot. Every change
-  goes through a verb of `Document`; reading gives `const` access.
+  goes through a verb of `Document`; reading gives `const` access. What is big
+  and never changed in place (the avatar's mesh) is shared by the copies.
+- **One file holds the whole scene.** What a pattern needs is saved in its
+  file, never as a path to another file: the avatar's mesh is part of the
+  document (`Document::setAvatar`) and putting on another is an undo step. How
+  the scene is looked at (the body hidden or see-through, panels and seams
+  hidden or deactivated) is view state: not saved, no undo step, no "*".
+- **Files that were saved keep opening.** Never change the texts kept in
+  `core/tests/FileTests.cpp`; a change of the format must pass them, and a new
+  kind of line gets a new case with a text of its own.
 - **`evaluate`, `sim::meshOf`, `sim::Cloth` never throw.** Problems are
   reported where they are (`Result::errors`, `SeamResult::problem`,
   `PanelMesh::problem`). Document verbs throw only for an unknown handle.
@@ -88,9 +97,11 @@ Never make `core` depend on anything, never put drawing in `core`, `sim` or
   draped cloth is carried over by the same anchor. A moved anchor is a change
   of shape, never a reason to place the cloth again. A shape dragged by hand
   on the table (`Grows::WhereDragged`) keeps its own coordinates instead.
-- **Nothing starts a panel's cloth again but Reset.** A panel moved in space
-  takes its drape along (`sim::Motion`); undo and redo bring the drape back
-  (`Session` keeps it per `Editor::step`); pulling the cloth changes no document.
+- **Nothing starts a panel's cloth again but Reset**, and another avatar. A
+  panel moved in space takes its drape along (`sim::Motion`); undo and redo
+  bring the drape back (`Session` keeps it per `Editor::step`), an avatar's
+  drape too; an opened file hangs its saved drape; pulling the cloth changes no
+  document.
 - **The simulation is deterministic**, in cm, seconds and grams.
 - Units: lengths in cm, angles in degrees, with the literals `_cm`, `_mm`,
   `_deg`. Outlines run counter-clockwise. In space y is up, the floor is

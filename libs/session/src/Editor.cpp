@@ -74,9 +74,10 @@ std::expected<void, std::string> Editor::change(const std::function<void(Documen
     placeNewPanels();
     // A continued step adds nothing to undo; with nothing to continue it starts one.
     if (rules.step == Step::New || undo_.empty()) {
-        undo_.push_back({std::move(before), step_});
+        undo_.push_back({std::move(before), step_, content_});
         step_ = ++lastStep_;
     }
+    content_ = ++lastContent_;
     redo_.clear();
     ++version_;
     return {};
@@ -84,7 +85,8 @@ std::expected<void, std::string> Editor::change(const std::function<void(Documen
 
 bool Editor::undo() {
     if (undo_.empty()) return false;
-    redo_.push_back({std::exchange(document_, std::move(undo_.back().document)), std::exchange(step_, undo_.back().step)});
+    const Kept& back = undo_.back();
+    redo_.push_back({std::exchange(document_, std::move(undo_.back().document)), std::exchange(step_, back.step), std::exchange(content_, back.content)});
     undo_.pop_back();
     evaluateAgain();
     ++version_;
@@ -102,7 +104,8 @@ bool Editor::rollBackTo(std::uint64_t step) {
 
 bool Editor::redo() {
     if (redo_.empty()) return false;
-    undo_.push_back({std::exchange(document_, std::move(redo_.back().document)), std::exchange(step_, redo_.back().step)});
+    const Kept& next = redo_.back();
+    undo_.push_back({std::exchange(document_, std::move(redo_.back().document)), std::exchange(step_, next.step), std::exchange(content_, next.content)});
     redo_.pop_back();
     evaluateAgain();
     ++version_;
@@ -114,6 +117,7 @@ void Editor::replace(Document document) {
     undo_.clear();
     redo_.clear();
     step_ = ++lastStep_;
+    content_ = saved_ = ++lastContent_;
     evaluateAgain();
     placeNewPanels();
     ++version_;

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <thread>
 #include <utility>
@@ -34,6 +35,26 @@ struct Skirt {
 
 void frames(Session& session, int count) {
     for (int i = 0; i < count; ++i) session.update();
+}
+
+// An avatar made in memory, as one read from a file is: a ball at chest height.
+std::shared_ptr<const Avatar> ball(double radius) {
+    sim::Body body;
+    body.parts.push_back({{0, 100, 0}, {0, 100, 0}, radius, radius});
+    return std::make_shared<const Avatar>(sim::avatarOf(sim::surfaceOf(body), "ball.obj"));
+}
+
+// Puts another avatar into the document, as loading one does.
+void putOn(Session& session, std::shared_ptr<const Avatar> avatar) {
+    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(avatar); }, {.touches = Touches::PlacementOnly}));
+}
+
+void waitForTheBody(Session& session) {
+    for (int i = 0; i < 500 && !session.bodyReady(); ++i) {
+        session.update();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    REQUIRE(session.bodyReady());
 }
 
 } // namespace
@@ -178,23 +199,227 @@ TEST_CASE("opening another document ends the cloth and the history")
     EXPECT((!session.clothShown() && !session.editor().canUndo() && session.document().panels().empty()), "all of it is gone");
 }
 
-TEST_CASE("an avatar is shown at once and can be collided with a moment later")
+TEST_CASE("the body is the document's avatar: shown at once, and collided with a moment later")
 {
-    // A surface made in memory, as sim::loadObj would hand it over: a ball.
-    sim::Body ball;
-    ball.parts.push_back({{0, 100, 0}, {0, 100, 0}, 15, 15});
-    const sim::Surface surface = sim::surfaceOf(ball);
+    const std::shared_ptr<const Avatar> avatar = ball(15);
     Session session;
-    EXPECT((session.avatarPath().empty() && session.bodySurface().triangles.empty() && session.bodyReady()), "a new session has no body");
+    EXPECT((session.bodySurface().triangles.empty() && session.bodyReady()), "a new session has no body");
     const auto version = session.sceneVersion();
-    session.useAvatar(surface, "ball.obj");
-    EXPECT((session.bodySurface().triangles.size() == surface.triangles.size() && session.avatarPath() == "ball.obj"), "the surface is there at once");
+    putOn(session, avatar);
+    EXPECT((!session.bodyReady()), "a body the session has not seen yet is not ready");
+    session.update();
+    EXPECT((session.bodySurface().triangles.size() == avatar->triangles.size()), "its surface is there at the next frame");
     EXPECT((session.sceneVersion() > version), "and is something new to draw");
-    for (int i = 0; i < 500 && !session.bodyReady(); ++i) {
-        session.update();
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    waitForTheBody(session);
+
+    putOn(session, std::make_shared<const Avatar>(*avatar));
+    session.update();
+    EXPECT((session.bodyReady()), "the same shape read again is the body that is there: nothing is worked out again");
+
+    Document doc;
+    doc.setAvatar(ball(20));
+    session.open(doc);
+    EXPECT((session.bodySurface().points.size() == doc.avatar()->points.size()), "a document that is opened has its body at once");
+    EXPECT((Session(doc).bodySurface().points.size() == doc.avatar()->points.size()), "as has one the session starts with");
+    session.open(Document{});
+    EXPECT((session.bodySurface().triangles.empty() && session.bodyReady()), "and one without an avatar has none");
+}
+
+TEST_CASE("another body ends the cloth; undo and redo bring back the drape that hung on their body")
+{
+    Skirt start;
+    start.doc.setAvatar(ball(15));
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    waitForTheBody(session);
+    session.simulate(true);
+    frames(session, 40);
+    session.simulate(false);
+    session.update();
+    const sim::Placement onFirst = session.cloth().positions;
+    const double firstTime = session.cloth().time;
+    const std::size_t firstBody = session.bodySurface().points.size();
+    const auto asOnFirst = [&] {
+        if (!session.clothShown() || session.cloth().time != firstTime) return false;
+        for (std::size_t i = 0; i < onFirst.front().size(); ++i)
+            if (sim::length(session.cloth().positions.front()[i] - onFirst.front()[i]) > 1e-9) return false;
+        return true;
+    };
+
+    putOn(session, ball(25));
+    session.update();
+    EXPECT((!session.clothShown() && !session.simulating()), "on another body the cloth starts again");
+    waitForTheBody(session);
+    session.simulate(true);
+    frames(session, 10);
+    session.simulate(false);
+    session.update();
+    const double secondTime = session.cloth().time;
+
+    REQUIRE(session.editor().undo());
+    session.update();
+    EXPECT((asOnFirst() && session.bodySurface().points.size() == firstBody), "undone, the first body and the drape on it are back");
+    EXPECT((!session.simulating()), "standing still");
+    REQUIRE(session.editor().redo());
+    session.update();
+    EXPECT((session.clothShown() && session.cloth().time == secondTime), "redone, the drape on the second one");
+
+    // With nothing drawing the cloth (the 3D view hidden), the drape is kept all the same.
+    REQUIRE(session.editor().undo());
+    session.update(false);
+    session.update();
+    EXPECT((asOnFirst()), "undone while the cloth was not looked at, it is back when it is");
+
+    // Reset is not undone: with no cloth there is nothing to bring back.
+    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(45)); }));
+    session.update();
+    session.resetCloth();
+    REQUIRE(session.editor().undo());
+    session.update();
+    EXPECT((!session.clothShown()), "after Reset, undo brings no cloth back");
+}
+
+namespace {
+
+// Two panels sewn along their sides, and a ball under them.
+struct Pair {
+    Skirt start;
+    PanelId other;
+    SeamId seam;
+    Pair() {
+        other = start.doc.add(Panel{.name = "other"});
+        const OpRef<Rect> rect = start.doc.add(other, Rect{.width = 40_cm, .height = 40_cm});
+        start.doc.arrange(other, Arrangement{.placed = true, .x = 0, .y = 140, .z = -40});
+        seam = start.doc.add(Seam{.a = {start.panel, start.rect.right()}, .b = {other, rect.left()}});
     }
-    EXPECT(session.bodyReady(), "and ready to collide with soon after");
+};
+
+double furthest(const sim::Placement& a, const sim::Placement& b) {
+    double most = a.size() == b.size() ? 0.0 : 1e9;
+    for (std::size_t p = 0; p < a.size() && p < b.size(); ++p) {
+        if (a[p].size() != b[p].size()) return 1e9;
+        for (std::size_t i = 0; i < a[p].size(); ++i) most = std::max(most, sim::length(a[p][i] - b[p][i]));
+    }
+    return most;
+}
+
+} // namespace
+
+TEST_CASE("the scene a file keeps comes back as it was left: what is frozen and hidden, the body's looks and the cloth")
+{
+    Pair two;
+    Session session(two.start.doc, Threading::OneStepPerAdvance);
+    session.simulate(true);
+    frames(session, 40);
+    session.setPanelActive(two.other, false);
+    frames(session, 5);
+    session.simulate(false);
+    session.setPanelShown(two.start.panel, false);
+    session.setSeamShown(two.seam, false);
+    session.setBodyPresent(false);
+    session.setBodySeeThrough(true);
+    session.update();
+    const SceneState left = session.state();
+    REQUIRE(left.drape.has_value());
+    EXPECT((left.frozen == std::vector<PanelId>{two.other} && left.hidden == std::vector<PanelId>{two.start.panel} &&
+            left.hiddenSeams == std::vector<SeamId>{two.seam} && left.bodyHidden && left.bodySeeThrough && left.drape->panels.size() == 2),
+           "all of it is in the state");
+
+    for (const Threading threading : {Threading::OneStepPerAdvance, Threading::OwnThread}) {
+        Session again({}, threading);
+        again.open(session.document(), left);
+        EXPECT((again.clothShown() && !again.simulating() && !again.unsaved()), "the cloth is there at once, standing still, and saved");
+        EXPECT((furthest(again.cloth().positions, session.cloth().positions) == 0.0 && again.cloth().time == session.cloth().time),
+               "every particle where it was");
+        for (int i = 0; i < 10; ++i) {
+            again.update();
+            std::this_thread::sleep_for(std::chrono::milliseconds(3));
+        }
+        EXPECT((again.clothShown() && furthest(again.cloth().positions, session.cloth().positions) == 0.0 && !again.unsaved()),
+               "and stays there, as saved");
+        EXPECT((!again.panelActive(two.other) && !again.panelShown(two.start.panel) && !again.seamShown(two.seam) && !again.bodyPresent() &&
+                again.bodySeeThrough()),
+               "frozen, hidden and shown as it was left");
+        EXPECT((again.state() == left), "and it would be saved the same");
+    }
+
+    session.open(session.document(), SceneState{});
+    EXPECT((!session.clothShown() && session.panelActive(two.other) && session.bodyPresent() && !session.bodySeeThrough()),
+           "a state that says nothing shows everything, with no cloth");
+}
+
+TEST_CASE("unsaved is the document, what is hidden and frozen, the body's looks and the cloth, until put back or saved")
+{
+    Pair two;
+    Session session(two.start.doc, Threading::OneStepPerAdvance);
+    session.update();
+    EXPECT((!session.unsaved()), "as it starts, it is saved");
+    session.setPanelShown(two.other, false);
+    EXPECT(session.unsaved(), "a panel hidden");
+    session.setPanelShown(two.other, true);
+    EXPECT((!session.unsaved()), "shown again, nothing has changed");
+    session.setPanelActive(two.other, false);
+    EXPECT(session.unsaved(), "frozen");
+    session.markSaved();
+    EXPECT((!session.unsaved()), "saved");
+    session.setPanelActive(two.other, true);
+    EXPECT(session.unsaved(), "taken back into the cloth");
+    session.markSaved();
+    session.setSeamShown(two.seam, false);
+    EXPECT(session.unsaved(), "a seam hidden");
+    session.setSeamShown(two.seam, true);
+    session.setBodySeeThrough(true);
+    EXPECT(session.unsaved(), "the body see-through");
+    session.setBodySeeThrough(false);
+    session.setBodyPresent(false);
+    EXPECT(session.unsaved(), "or hidden");
+    session.setBodyPresent(true);
+    EXPECT((!session.unsaved()), "put back");
+
+    session.simulate(true);
+    frames(session, 10);
+    session.simulate(false);
+    session.update();
+    EXPECT(session.unsaved(), "cloth where there was none");
+    session.markSaved();
+    EXPECT((!session.unsaved()), "saved as it hangs");
+    REQUIRE(session.editor().change([&](Document& doc) { doc.set(two.start.length, Expr(45)); }));
+    session.update();
+    EXPECT(session.unsaved(), "a change of the pattern");
+    REQUIRE(session.editor().undo());
+    session.update();
+    EXPECT((!session.unsaved()), "undone, with the drape that was saved");
+    session.simulate(true);
+    frames(session, 2);
+    EXPECT(session.unsaved(), "the cloth moved on");
+    session.resetCloth();
+    EXPECT(session.unsaved(), "gone, where the file has one");
+    session.markSaved();
+    session.markUnsaved();
+    EXPECT(session.unsaved(), "and a recovered copy is in no file");
+}
+
+TEST_CASE("a drape saved from a mesh made otherwise is carried over to the one made now")
+{
+    Pair two;
+    two.start.doc.remove(two.seam);  // sewn, a finer panel would remesh its neighbour too
+    Session session(two.start.doc, Threading::OneStepPerAdvance);
+    session.simulate(true);
+    frames(session, 60);
+    const SceneState left = session.state();
+    Document finer = session.document();
+    finer.setParticleDistance(two.start.panel, 1.5);
+    Session again({}, Threading::OneStepPerAdvance);
+    again.open(finer, left);
+    REQUIRE((again.clothShown() && again.cloth().positions.size() == 2));
+    REQUIRE(again.cloth().positions[0].size() > session.cloth().positions[0].size());
+    double furthestFromThen = 0.0;
+    for (const sim::Vec3& at : again.cloth().positions[0]) {
+        double nearest = 1e9;
+        for (const sim::Vec3& was : session.cloth().positions[0]) nearest = std::min(nearest, sim::length(at - was));
+        furthestFromThen = std::max(furthestFromThen, nearest);
+    }
+    EXPECT((furthestFromThen < 2.0), "every new particle hangs where the cloth hung");
+    EXPECT((furthest({again.cloth().positions[1]}, {session.cloth().positions[1]}) == 0.0), "the panel meshed as before is exactly as it was");
 }
 
 TEST_CASE("a draped panel moved in space takes its drape along; nothing starts again")

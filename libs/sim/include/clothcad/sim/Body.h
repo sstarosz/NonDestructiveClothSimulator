@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 
+#include "clothcad/core/Document.h"
 #include "clothcad/core/Units.h"
 #include "clothcad/sim/Vec3.h"
 
@@ -72,8 +73,14 @@ struct LoadedSurface {
 // The vertices and faces of a Wavefront OBJ file's text. Faces with more
 // than three corners are split into triangles.
 LoadedSurface readObj(std::string_view text);
-// The same, read from a file.
+// The same, read from a file; the path is UTF-8.
 LoadedSurface loadObj(const std::string& path);
+
+// ---- The avatar of a document ----------------------------------------------
+// A surface as the avatar a document holds (Document::setAvatar), under a name
+// for people to read; and that avatar as a surface again.
+Avatar avatarOf(const Surface& surface, std::string name);
+Surface surfaceOf(const Avatar& avatar);
 
 // How far any point near a surface is from it, worked out once on a grid so
 // that asking is quick. Exact within `band` of the surface; further away it

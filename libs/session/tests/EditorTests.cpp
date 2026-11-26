@@ -119,6 +119,66 @@ TEST_CASE("another document starts a new history")
     EXPECT((editor.document().panels().empty() && !editor.canUndo() && !editor.canRedo()), "nothing to undo or redo");
 }
 
+TEST_CASE("a changed document is unsaved until it is saved, and undo back to the saved state counts")
+{
+    OnePanel start;
+    Editor editor(start.doc);
+    const auto waist = [&](int value, Step step = Step::New) {
+        REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(value)); }, {.step = step}));
+    };
+    EXPECT(!editor.unsaved(), "a document just made or opened is saved");
+    waist(90);
+    EXPECT(editor.unsaved(), "a change makes it unsaved");
+    editor.undo();
+    EXPECT(!editor.unsaved(), "undone, it is the saved one again");
+    editor.redo();
+    EXPECT(editor.unsaved(), "and redone it is not");
+    editor.markSaved();
+    EXPECT(!editor.unsaved(), "saved now");
+    editor.undo();
+    EXPECT(editor.unsaved(), "undone from the saved state, it differs from the file");
+    editor.redo();
+    EXPECT(!editor.unsaved(), "redone, it is the file's");
+
+    editor.undo();
+    waist(70);
+    EXPECT(editor.unsaved(), "undone past the saved state and changed again, it is never taken for the saved one");
+    editor.undo();
+    EXPECT(editor.unsaved(), "and what was saved cannot be reached by undo any more");
+
+    editor.markSaved();
+    REQUIRE(!editor.change([&](Document& doc) { doc.set(start.waist, Expr(-5)); }));
+    EXPECT(!editor.unsaved(), "a refused change changes nothing");
+
+    editor.replace(Document{});
+    EXPECT(!editor.unsaved(), "another document starts saved");
+}
+
+TEST_CASE("a step continued after a save makes the document unsaved, as a save during a drag must")
+{
+    OnePanel start;
+    Editor editor(start.doc);
+    const auto waist = [&](int value, Step step = Step::New) {
+        REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(value)); }, {.step = step}));
+    };
+    waist(90);
+    const std::uint64_t step = editor.step();
+    editor.markSaved();
+    waist(100, Step::Continue);
+    EXPECT(editor.unsaved(), "the document is not the one that was saved");
+    EXPECT(editor.step() == step, "though it is still the same undo step");
+    editor.undo();
+    EXPECT(editor.unsaved(), "the one undo goes past the saved state");
+    editor.redo();
+    EXPECT(editor.unsaved(), "and redo brings back the end of the drag, not what was saved");
+
+    editor.markSaved();
+    REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(110)); }));
+    waist(120, Step::Continue);
+    EXPECT(editor.rollBackTo(step), "a cancelled edit");
+    EXPECT(!editor.unsaved(), "goes back to the saved state");
+}
+
 TEST_CASE("a panel gets its place in space once; then the table no longer moves it")
 {
     OnePanel start;

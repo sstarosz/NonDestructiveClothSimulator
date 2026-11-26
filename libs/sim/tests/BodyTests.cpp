@@ -51,6 +51,19 @@ TEST_CASE("rounded limbs are a body, and can be drawn")
     EXPECT((outward), "its triangles face outward");
 }
 
+TEST_CASE("a surface goes into a document as its avatar, and comes out the same")
+{
+    Body limb;
+    limb.parts.push_back({{0, 10, 0}, {0, 150, 0}, 10, 12});
+    const Surface surface = surfaceOf(limb);
+    const Avatar avatar = avatarOf(surface, "limb.obj");
+    EXPECT((avatar.name == "limb.obj" && avatar.points.size() == surface.points.size() && avatar.triangles == surface.triangles), "every point and triangle, named");
+    const Surface back = surfaceOf(avatar);
+    bool same = back.points.size() == surface.points.size() && back.triangles == surface.triangles;
+    for (std::size_t i = 0; same && i < back.points.size(); ++i) same = length(back.points[i] - surface.points[i]) == 0.0;
+    EXPECT(same, "and back again, exactly");
+}
+
 TEST_CASE("a surface read from OBJ text is a body")
 {
     // A cube as OBJ text, with quads, like a modelling program writes them.

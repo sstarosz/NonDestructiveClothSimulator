@@ -34,9 +34,24 @@ void Simulation::hand(Change change) {
 
 void Simulation::start(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, sim::Body body) {
     exists_ = true;
-    hand([this, mesh = std::move(mesh), arranged = std::move(arranged), body = std::move(body)]() mutable {
+    hand([this, asked = ++asked_, mesh = std::move(mesh), arranged = std::move(arranged), body = std::move(body)]() mutable {
+        made_ = asked;
         body_ = std::move(body);
         cloth_.emplace(*mesh, arranged);
+        held_.reset();
+        mesh_ = std::move(mesh);
+        leaveThemOut();
+        failed_ = false;
+        publish();
+    });
+}
+
+void Simulation::resume(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement positions, double time, bool sewing, sim::Body body) {
+    exists_ = true;
+    hand([this, asked = ++asked_, mesh = std::move(mesh), positions = std::move(positions), time, sewing, body = std::move(body)]() mutable {
+        made_ = asked;
+        body_ = std::move(body);
+        cloth_.emplace(sim::Cloth::resumed(*mesh, positions, time, !sewing));
         held_.reset();
         mesh_ = std::move(mesh);
         leaveThemOut();
@@ -119,7 +134,8 @@ void Simulation::run(bool on) {
 
 void Simulation::stop() {
     exists_ = false;
-    hand([this] {
+    hand([this, asked = ++asked_] {
+        made_ = asked;
         cloth_.reset();
         held_.reset();
         mesh_.reset();
@@ -132,6 +148,7 @@ void Simulation::publish() {
     const std::lock_guard<std::mutex> hold(lock_);
     ++latest_.version;
     latest_.failed = failed_;
+    latest_.cloth = made_;
     latest_.stepMilliseconds = stepMilliseconds_;
     if (cloth_) {
         latest_.mesh = mesh_;
@@ -172,7 +189,7 @@ void Simulation::advance() {
 
 bool Simulation::fetch(News& into) {
     const std::lock_guard<std::mutex> hold(lock_);
-    if (latest_.version == into.version) return false;
+    if (latest_.version == into.version || latest_.cloth != asked_) return false;
     into = latest_;
     return true;
 }

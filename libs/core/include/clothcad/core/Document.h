@@ -16,7 +16,10 @@
 // Verbs throw std::out_of_range when given a handle the document doesn't
 // hold. They never compute geometry.
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -58,6 +61,24 @@ struct Arrangement {
     // edges, so that a panel grows away from its seams (a skirt at the hem).
     std::optional<Vec2> anchor{};
     friend bool operator==(const Arrangement&, const Arrangement&) = default;
+};
+
+// A point in space, in cm: y points up and the floor is y = 0.
+struct Point3 {
+    double x = 0.0, y = 0.0, z = 0.0;
+    friend bool operator==(const Point3&, const Point3&) = default;
+};
+
+// The body the garment is made on: its surface as triangles, standing on the
+// floor and facing +z, counter-clockwise seen from outside. It is part of the
+// document and saved in its file, so that one file holds the whole scene.
+//
+//   doc.setAvatar(std::make_shared<const Avatar>(Avatar{.name = "me.obj", .points = points, .triangles = triangles}));
+struct Avatar {
+    std::string name;  // display label: the file it was read from
+    std::vector<Point3> points;
+    std::vector<std::array<std::uint32_t, 3>> triangles;  // each names three of the points
+    friend bool operator==(const Avatar&, const Avatar&) = default;
 };
 
 // A pattern piece. Its operations are added with Document::add(panel, op).
@@ -189,7 +210,14 @@ public:
     // if the panel is not an instance.
     std::vector<SeamId> sewAsSource(PanelId instance);
 
+    // ---- The avatar --------------------------------------------------------
+    // The body the garment is made on; none: no body. It is never changed once
+    // made, only replaced, and shared: a copy of the document costs a pointer
+    // however many triangles it has.
+    void setAvatar(std::shared_ptr<const Avatar> avatar);
+
     // ---- Reading -----------------------------------------------------------
+    const std::shared_ptr<const Avatar>& avatar() const { return avatar_; }
     std::vector<Param> parameters() const;
     std::vector<PanelId> panels() const;
     std::vector<OpId> operations(PanelId panel) const;  // in order
@@ -244,6 +272,7 @@ private:
     std::vector<ParameterEntry> parameters_;
     std::vector<PanelEntry> panels_;
     std::vector<SeamEntry> seams_;
+    std::shared_ptr<const Avatar> avatar_;
     uint32_t nextId_ = 1;
 };
 

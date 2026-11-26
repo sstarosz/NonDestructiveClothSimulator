@@ -8,6 +8,14 @@ target_compile_definitions(clothcad_avatar_tests PRIVATE CLOTHCAD_ASSETS_DIR="${
 clothcad_warnings(clothcad_avatar_tests)
 catch_discover_tests(clothcad_avatar_tests TEST_PREFIX "avatar: " PROPERTIES LABELS integration)
 
+# The recovery copy, which is written to disk. Labelled "integration".
+add_executable(clothcad_autosave_tests AutosaveTests.cpp)
+target_link_libraries(clothcad_autosave_tests PRIVATE clothcad::session Catch2::Catch2WithMain)
+target_include_directories(clothcad_autosave_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(clothcad_autosave_tests PRIVATE CLOTHCAD_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/autosave")
+clothcad_warnings(clothcad_autosave_tests)
+catch_discover_tests(clothcad_autosave_tests TEST_PREFIX "autosave: " PROPERTIES LABELS integration)
+
 # Tests that run the whole window: driven through its widgets by mouse and
 # keys, without a screen. Labelled "integration", as the examples are (see
 # examples/).

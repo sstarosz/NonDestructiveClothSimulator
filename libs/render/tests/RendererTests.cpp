@@ -23,6 +23,12 @@ sim::Surface figure() {
     return sim::surfaceOf(body);
 }
 
+// Puts a body made in memory into the session's document, as loading an avatar does.
+void putOn(session::Session& session, const sim::Surface& body) {
+    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(sim::avatarOf(body, "figure.obj"))); },
+                                    {.touches = session::Touches::PlacementOnly}));
+}
+
 // One renderer for all the tests: starting Vulkan takes a moment.
 Renderer* renderer() {
     static std::expected<std::unique_ptr<Renderer>, std::string> made = Renderer::create({});
@@ -277,7 +283,7 @@ TEST_CASE("cloth inside a see-through body shows through it, and a deactivated p
     doc.add(panel, Rect{.width = 14_cm, .height = 40_cm});
     doc.arrange(panel, Arrangement{.placed = true, .x = 0, .y = 80, .z = 0});
     session::Session session(doc, session::Threading::OneStepPerAdvance);
-    session.useAvatar(figure(), "figure.obj");
+    putOn(session, figure());
     session.update();
     OrbitCamera camera;
     camera.target = {0.0, 80.0, 0.0};
@@ -311,7 +317,7 @@ TEST_CASE("the body is in the picture of a session")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
     session::Session session({}, session::Threading::OneStepPerAdvance);
-    session.useAvatar(figure(), "figure.obj");
+    putOn(session, figure());
     session.update();
     OrbitCamera camera;
     const auto box = extentOf(session);

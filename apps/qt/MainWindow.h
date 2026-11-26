@@ -17,16 +17,19 @@
 
 #include <QElapsedTimer>
 #include <QMainWindow>
+#include <memory>
 #include <optional>
 
 #include "Outliner.h"
 #include "Shelf.h"
+#include "clothcad/session/Autosave.h"
 #include "clothcad/session/Drafting.h"
 #include "clothcad/session/FrameTimes.h"
 #include "clothcad/session/Session.h"
 
 class QDockWidget;
 class QLabel;
+class QLockFile;
 class QShortcut;
 class QSplitter;
 class QTimer;
@@ -45,14 +48,25 @@ public:
     explicit MainWindow(session::Threading threading = session::Threading::OwnThread, QWidget* parent = nullptr);
     ~MainWindow() override;
 
-    void open(Document document, const QString& title);
+    // Another document in the window, at once, with its scene as `state` leaves
+    // it: the File menu asks first about unsaved changes, these do not. It
+    // starts saved.
+    void open(Document document, const QString& title, SceneState state = {});
     // A sample, on the body it is draped on (its avatar from assets/).
     void openSample(std::size_t index);
     // What the File and Body menus do once a file is chosen. Each says why in
-    // the help line when it cannot, and then changes nothing.
+    // the help line when it cannot, and then changes nothing. An avatar goes
+    // into the document, as one undo step.
     bool openFile(const QString& path);
     bool saveAs(const QString& path);
     bool loadAvatar(const QString& path);
+    // From now on unsaved work is copied now and then into a folder of its own
+    // under `folder`, and a copy that a run which stopped left there is
+    // offered at once. Closing the window takes the copy away; the program
+    // stopping otherwise leaves it for the next start.
+    void keepRecoveryIn(const QString& folder, double everySeconds = 30.0);
+    // Until a copy that is being written is on disk, for tests.
+    void finishRecoveryCopy();
     void select(std::optional<PanelId> panel);
     std::optional<PanelId> selected() const { return drafting_.selection.panel; }
     // A seam chosen instead of panels, and the one chosen now.
@@ -63,9 +77,9 @@ public:
     std::optional<OpId> viewedStep() const { return viewUntil_; }
     // The body shown in 3D or hidden; hidden, it is also out of the simulation.
     void showBody(bool shown);
-    bool bodyShown() const { return bodyShown_; }
+    bool bodyShown() const { return session_.bodyPresent(); }
     void showBodySeeThrough(bool seeThrough);  // the body drawn so that cloth inside it shows
-    bool bodySeeThrough() const { return bodySeeThrough_; }
+    bool bodySeeThrough() const { return session_.bodySeeThrough(); }
     const std::vector<CornerRef>& selectedCorners() const { return drafting_.selection.corners; }
 
     // One frame: the session catches up and everything shown follows.
@@ -91,7 +105,23 @@ public:
     QString helpLine() const;
     ViewLayout viewLayout() const { return layout_; }
 
+protected:
+    void closeEvent(QCloseEvent* event) override;
+
 private:
+    // Saves to the document's file, asking for one if it has none yet. False if
+    // that was cancelled or the file could not be written.
+    bool save();
+    // Whether the document may be left behind, `before` doing something: yes if
+    // it is saved; otherwise the user is asked to save it, drop it or cancel.
+    bool mayDiscard(const QString& before);
+    // The document's name in the title, with "*" while it has unsaved changes.
+    void showTitle(const QString& title);
+    void showUnsaved();
+    // A field being typed in takes what is typed, as Enter does; false if that was refused.
+    bool takeWhatIsTyped();
+    void offerRecovery(const QString& folder);
+    void endRecovery();  // no copy, and no more of them: the window is closed
     // Makes a change as one undo step; on refusal says why, in `field` too if given.
     bool change(const std::function<void(Document&)>& verb, session::ChangeRules rules = {}, ValueField* field = nullptr);
     // A change from one step of dragging a field: the whole drag is one undo
@@ -150,10 +180,14 @@ private:
 
     session::Drafting drafting_;  // the tool, the selection, and the drags in progress
     bool fieldDragTaken_ = false;  // the field being dragged has changed the document
-    bool bodyShown_ = true;        // hidden, the body is also out of the simulation
+    std::shared_ptr<const Avatar> shownAvatar_;  // the document's, as last shown
     QAction* bodyAction_ = nullptr;
-    bool bodySeeThrough_ = false;
     QAction* seeThroughAction_ = nullptr;
+    std::uint64_t problemsSaid_ = 0;  // how many times the help line has said that something cannot be
+    // Recovery copies: the folder this run keeps them in, held by a lock while it runs.
+    QString recoveryFolder_;
+    std::unique_ptr<QLockFile> recoveryLock_;
+    std::unique_ptr<session::Autosave> autosave_;
     // Looking back: the selected panel shown on the table as of this step, and
     // what it was then. Nothing is reshaped on the table meanwhile.
     std::optional<OpId> viewUntil_;
