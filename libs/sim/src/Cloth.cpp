@@ -1,6 +1,9 @@
 #include "clothcad/sim/Cloth.h"
 
 #include <algorithm>
+#include <array>
+#include <bit>
+#include <cstdint>
 #include <cmath>
 #include <map>
 #include <utility>
@@ -135,25 +138,41 @@ void Cloth::findClosePairs(double seconds) {
     const double cell = range;
 
     // Particles sorted by cell: the classic counting sort into a hashed table.
-    const std::size_t table = at_.size() * 2 + 1;
-    const auto cellOf = [&](double v) { return static_cast<long long>(std::floor(v / cell)); };
-    const auto slot = [&](long long x, long long y, long long z) {
-        const unsigned long long h = static_cast<unsigned long long>(x) * 92837111ull ^ static_cast<unsigned long long>(y) * 689287499ull ^
-                                     static_cast<unsigned long long>(z) * 283923481ull;
-        return static_cast<std::size_t>(h % table);
+    // Its size is a power of two, so that a slot is found with a mask rather
+    // than a division (27 of them for every particle), and it is kept from
+    // step to step.
+    const std::size_t table = std::bit_ceil(at_.size() * 2 + 1);
+    const auto slot = [mask = table - 1](std::int64_t x, std::int64_t y, std::int64_t z) {
+        std::uint64_t h = static_cast<std::uint64_t>(x) * 92837111ull ^ static_cast<std::uint64_t>(y) * 689287499ull ^ static_cast<std::uint64_t>(z) * 283923481ull;
+        h ^= h >> 29;  // the high bits too, which a mask alone would not see
+        return static_cast<std::size_t>(h & mask);
     };
-    std::vector<uint32_t> first(table + 1, 0), sorted(at_.size());
-    for (const Vec3& p : at_) ++first[slot(cellOf(p.x), cellOf(p.y), cellOf(p.z))];
+    cellOf_.resize(at_.size());
+    for (std::size_t i = 0; i < at_.size(); ++i)
+        cellOf_[i] = {static_cast<std::int64_t>(std::floor(at_[i].x / cell)), static_cast<std::int64_t>(std::floor(at_[i].y / cell)),
+                      static_cast<std::int64_t>(std::floor(at_[i].z / cell))};
+    std::vector<uint32_t>& first = slotFirst_;
+    first.assign(table + 1, 0);
+    bySlot_.resize(at_.size());
+    lookedBy_.assign(table, 0);
+    for (const auto& [x, y, z] : cellOf_) ++first[slot(x, y, z)];
     for (std::size_t i = 1; i <= table; ++i) first[i] += first[i - 1];
-    for (std::size_t i = at_.size(); i-- > 0;) sorted[--first[slot(cellOf(at_[i].x), cellOf(at_[i].y), cellOf(at_[i].z))]] = static_cast<uint32_t>(i);
+    for (std::size_t i = at_.size(); i-- > 0;) bySlot_[--first[slot(cellOf_[i][0], cellOf_[i][1], cellOf_[i][2])]] = static_cast<uint32_t>(i);
+    const std::vector<uint32_t>& sorted = bySlot_;
+    const double neighbours = neighbourly * apart_;
 
     for (uint32_t i = 0; i < at_.size(); ++i) {
         if (alone_[i]) continue;
-        const long long cx = cellOf(at_[i].x), cy = cellOf(at_[i].y), cz = cellOf(at_[i].z);
-        for (long long x = cx - 1; x <= cx + 1; ++x)
-            for (long long y = cy - 1; y <= cy + 1; ++y)
-                for (long long z = cz - 1; z <= cz + 1; ++z) {
+        const auto [cx, cy, cz] = cellOf_[i];
+        // Two of the 27 cells around can share a slot of the table: it is
+        // looked through once, so that no pair is listed, and pushed apart, twice.
+        const uint32_t mark = i + 1;
+        for (std::int64_t x = cx - 1; x <= cx + 1; ++x)
+            for (std::int64_t y = cy - 1; y <= cy + 1; ++y)
+                for (std::int64_t z = cz - 1; z <= cz + 1; ++z) {
                     const std::size_t s = slot(x, y, z);
+                    if (lookedBy_[s] == mark) continue;
+                    lookedBy_[s] = mark;
                     for (uint32_t n = first[s]; n < first[s + 1]; ++n) {
                         const uint32_t j = sorted[n];
                         if (j <= i || alone_[j]) continue;
@@ -162,12 +181,15 @@ void Cloth::findClosePairs(double seconds) {
                         if (dot(between, between) > range * range) continue;
                         // Particles this close in the flat pattern are neighbours, held
                         // apart by the mesh itself: an edge joins them, or nearly.
-                        if (panelOf_[i] == panelOf_[j] && distance(flat_[i], flat_[j]) < neighbourly * apart_) continue;
+                        if (panelOf_[i] == panelOf_[j]) {
+                            const double fx = flat_[j].x - flat_[i].x, fy = flat_[j].y - flat_[i].y;
+                            if (fx * fx + fy * fy < neighbours * neighbours) continue;
+                        }
                         close_.push_back({i, j});
                     }
                 }
     }
-    // Two different cells can share a slot of the table, which lists a pair twice now and then; solving it twice does no harm.
+    // A slot can also hold a cell further away: its particles are out of range and left out.
 }
 
 namespace {
@@ -355,15 +377,15 @@ void Cloth::share(std::vector<Link>& links, double compliance, double stepSquare
 void Cloth::solve(const std::vector<Link>& links) {
     Vec3* const at = at_.data();
     for (const Link& link : links) {
-        Vec3& a = at[link.a];
-        Vec3& b = at[link.b];
+        const Link l = link;  // read once: the writes below cannot change it
+        const Vec3 a = at[l.a], b = at[l.b];
         const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
         const double squared = dx * dx + dy * dy + dz * dz;
         if (squared < 1e-18) continue;
-        const double over = 1.0 - link.rest / std::sqrt(squared);  // the part of the link that is too much
-        const double toA = over * link.shareA, toB = over * link.shareB;
-        a.x += dx * toA, a.y += dy * toA, a.z += dz * toA;
-        b.x -= dx * toB, b.y -= dy * toB, b.z -= dz * toB;
+        const double over = 1.0 - l.rest / std::sqrt(squared);  // the part of the link that is too much
+        const double toA = over * l.shareA, toB = over * l.shareB;
+        at[l.a] = {a.x + dx * toA, a.y + dy * toA, a.z + dz * toA};
+        at[l.b] = {b.x - dx * toB, b.y - dy * toB, b.z - dz * toB};
     }
 }
 
@@ -381,12 +403,26 @@ void Cloth::step(const Body& body, double seconds) {
     near_.clear();
     firstNear_.assign(at_.size() + 1, 0);
     nearScan_.assign(at_.size(), 0);
+    clearance_.assign(at_.size(), 0.0);
+    stepFrom_ = at_;
+    // How much nearer the body can come, at most, for each cm a particle
+    // moves: 1 for limbs; for a scanned surface, what its grid allows.
+    const double nearing = body.scanned ? std::max(1.0, std::sqrt(3.0) * body.scanned->steepest()) : 1.0;
     for (std::size_t i = 0; i < at_.size(); ++i) {
         firstNear_[i] = static_cast<uint32_t>(near_.size());
         if (lightness_[i] == 0.0) continue;
+        double nearest = 1e30;
         for (std::size_t limb = 0; limb < body.parts.size(); ++limb)
-            if (contactWith(body.parts[limb], at_[i]).distance < reach) near_.push_back(static_cast<uint32_t>(limb));
-        if (body.scanned && body.scanned->contact(at_[i]).distance < reach) nearScan_[i] = 1;
+            if (const double away = contactWith(body.parts[limb], at_[i]).distance; away < reach) {
+                near_.push_back(static_cast<uint32_t>(limb));
+                nearest = std::min(nearest, away);
+            }
+        if (body.scanned)
+            if (const double away = body.scanned->contact(at_[i]).distance; away < reach) {
+                nearScan_[i] = 1;
+                nearest = std::min(nearest, away);
+            }
+        clearance_[i] = nearest;
     }
     firstNear_[at_.size()] = static_cast<uint32_t>(near_.size());
     share(edges_, fabric_.stretch, h * h);
@@ -463,11 +499,17 @@ void Cloth::step(const Body& body, double seconds) {
                     const double slid = length(sideways);
                     if (slid > 1e-12) at_[i] = at_[i] - sideways * (std::min(slid, friction * depth) / slid);
                 };
-                for (uint32_t n = firstNear_[i]; n < firstNear_[i + 1]; ++n) {
+                // Still clear of the body: since the step began it has not
+                // moved far enough to touch it, so nothing asked here could
+                // push it out. Most of a garment is clear most of the time.
+                const Vec3 moved = at_[i] - stepFrom_[i];
+                const double room = clearance_[i] - thickness;
+                const bool clear = room > 0.0 && nearing * nearing * dot(moved, moved) < room * room;
+                for (uint32_t n = firstNear_[i]; !clear && n < firstNear_[i + 1]; ++n) {
                     const Contact contact = contactWith(body.parts[near_[n]], at_[i]);
                     if (contact.distance < thickness) pushOut(contact.outward, thickness - contact.distance);
                 }
-                if (nearScan_[i]) {
+                if (nearScan_[i] && !clear) {
                     const Contact contact = body.scanned->contact(at_[i]);
                     if (contact.distance < thickness) pushOut(contact.outward, thickness - contact.distance);
                 }

@@ -213,9 +213,9 @@ no screen, an idle machine):
 | A frame while dragging a corner, 3D shown, 1 cm particles | 16 ms | 4-6 ms |
 | The 3D view orbited (drawn off screen and read back) | 60 ms | 5 ms |
 | A frame while the cloth runs on its own thread, 3D shown | 16 ms | 2 ms |
-| A frame with a cloth step in it, 3D shown | 40 ms | 30 ms |
+| A frame with a cloth step in it, 3D shown | 40 ms | 23 ms |
 | One cloth step, 2,800 particles, on a body | 16 ms | 10 ms |
-| One cloth step, the trousers (2,900 particles), on the avatar | 16 ms | 12 ms |
+| One cloth step, the trousers (2,900 particles), on the avatar | 16 ms | 9-10 ms |
 | Meshing a skirt at 2 cm | 25 ms | 8 ms |
 
 What working at 4K and on a T-shirt costs, per frame, mean of 40 frames spaced as a 60 Hz screen
@@ -260,6 +260,14 @@ How it is kept fast:
 - **The cloth runs on a thread of its own** (`libs/session` `Simulation`), so the
   interface never waits for a step; it picks up where the particles are
   whenever there is news.
+- **A step asks the body only where cloth may touch it.** A particle that
+  has not moved far enough since the step began to reach the body is not
+  checked against it in the step's 60 rounds. How far is enough follows from
+  how steeply the body's distance grid changes (`DistanceField::steepest`):
+  on a clean avatar most of a garment is skipped, on overlapping surfaces
+  nothing is, so the drape is the same either way. The search for cloth
+  touching cloth keeps its table from step to step and looks through each
+  slot of it once.
 - **The mesh is made in the background** (`Session`). While a corner is
   dragged the 3D view shows the last mesh made and takes the next one when it
   is done, always made from the newest outlines; a frame never waits for it.

@@ -82,12 +82,18 @@ class DistanceField {
 public:
     explicit DistanceField(const Surface& surface, double cell = 1.0_cm, double band = 4.0_cm);
     Contact contact(Vec3 point) const;
+    // How fast the distance it gives can change, at most, along any of the
+    // grid's axes: cm per cm. About 1 for a clean closed surface, more where
+    // surfaces cross or overlap and the distance jumps. A point that has
+    // moved m cm has come at most m times the root of 3 times this nearer.
+    double steepest() const { return steepest_; }
 
 private:
     float at(int x, int y, int z) const { return distance_[(static_cast<std::size_t>(z) * ny_ + y) * nx_ + x]; }
 
     Vec3 origin_;
     double cell_ = 1.0, band_ = 4.0;
+    double steepest_ = 0.0;
     int nx_ = 0, ny_ = 0, nz_ = 0;
     std::vector<float> distance_;
 };
