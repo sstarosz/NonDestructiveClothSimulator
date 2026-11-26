@@ -252,6 +252,29 @@ TEST_CASE("two edges are sewn once; a locked corner says why, and a length that 
            "once a corner was dragged the length follows the corners: the edge is given a length of its own to type");
 }
 
+TEST_CASE("two edges are sewn so that the ends nearest the two clicks meet")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front"});
+    const OpRef<Rect> frontRect = doc.add(front, Rect{.width = 20_cm, .height = 30_cm});
+    const PanelId back = doc.add(Panel{.name = "back", .x = 30});
+    const OpRef<Rect> backRect = doc.add(back, Rect{.width = 20_cm, .height = 30_cm});
+    // The front's right edge runs up, the back's left edge down: their starts are at opposite heights.
+    const auto sewn = [&](double frontAt, double backAt) {
+        Editor editor(doc);
+        Drafting drafting;
+        drafting.handle(editor, SewEdges{{front, frontRect.right()}, {back, backRect.left()}, frontAt, backAt});
+        REQUIRE(editor.document().seams().size() == 1);
+        return editor.document().get(editor.document().seams().front()).reversed;
+    };
+    EXPECT(!sewn(0.1, 0.9), "both clicked near the bottom: the start of one to the end of the other");
+    EXPECT(!sewn(0.9, 0.1), "both near the top: the same seam");
+    EXPECT(sewn(0.1, 0.1), "one near the bottom, the other near the top: start to start, which twists these two");
+    EXPECT(sewn(0.9, 0.9), "and the other way round");
+    EXPECT((!sewn(0.49, 0.51) && sewn(0.49, 0.49)), "each click counts for the half it is in");
+    EXPECT((sewsReversed(0.2, 0.3) && !sewsReversed(0.2, 0.7)), "which is what a view shows before the second click");
+}
+
 TEST_CASE("the scale gizmo scales a Rect, a Circle or a RingSector itself and adds no layer, one undo step a drag")
 {
     Document doc;

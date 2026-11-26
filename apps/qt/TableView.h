@@ -16,8 +16,9 @@
 // (session/TableGizmo): its arrows move it, its ring turns it about its
 // middle, its handles scale it.
 // The drawing tools work here too: Rectangle and Circle are dragged out,
-// Ring is a click, Point, Curve, Mirror and Sew click edges, Line clicks
-// two points on one outline, Cut and Split click an internal line.
+// Ring is a click, Point, Curve, Mirror and Sew click edges (Sew joins the
+// ends nearest its two clicks, shown by dotted links before the second), Line
+// clicks two points on one outline, Cut and Split click an internal line.
 // Holding Ctrl snaps to the grid; F frames every panel; Esc drops what is
 // half done. Delete removes the selected corners that were added with the
 // Point tool, or, with no corner selected, the selected panel; Ctrl+C
@@ -81,6 +82,9 @@ public:
     QString gridKey() const;
     const std::vector<std::pair<QRectF, EdgeRef>>& lengthLabels() const { return lengthLabels_; }
     const std::vector<std::pair<Vec2, Vec2>>& seamLinks() const { return seamLinks_; }
+    // With the Sew tool, the first edge clicked and the pointer over a second:
+    // the links a click there would make, drawn dimmed. Else empty.
+    std::vector<std::pair<Vec2, Vec2>> previewLinks() const;
     // The edges lit as the selected seam's, as points on the table.
     std::vector<std::vector<Vec2>> litSeamEdges() const;
     void cancel();  // forgets a drag in progress
@@ -198,6 +202,7 @@ private:
         std::optional<LineRef> line{};        // Cut, Split
         Cut::Side keep = Cut::Side::Left;     // Cut: the side that stays
         QString note{};                       // shown by the pointer: "26.0 cm", "40 % along"
+        double along = 0.0;                   // Sew: how far along the edge the pointer is
     };
 
     const Drawn* chosen() const;
@@ -292,7 +297,11 @@ private:
     // A drawing tool's work in progress.
     std::optional<Offer> offer_;          // what the pointer is over
     std::optional<Vec2> drawFrom_;        // Rectangle, Circle: where the drag began, on the table
-    std::optional<SeamSide> sewFrom_;     // Sew: the first edge
+    struct SewStart {
+        SeamSide side;
+        double along;  // where on the edge it was clicked
+    };
+    std::optional<SewStart> sewFrom_;     // Sew: the first edge
     struct LineStart {
         PanelId panel;
         OutlinePoint point;

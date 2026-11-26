@@ -38,7 +38,7 @@ const ToolInfo toolInfo[] = {
     {Tool::Mirror, Icon::Mirror, theme::symmetry, "Mirror", "M", "Click a straight edge."},
     {Tool::Cut, Icon::Cut, theme::text, "Cut", "X", "Click the side to cut away."},
     {Tool::Split, Icon::Split, theme::text, "Split", "", "Click an internal line."},
-    {Tool::Sew, Icon::Sew, theme::seam, "Sew", "S", "Click two edges."},
+    {Tool::Sew, Icon::Sew, theme::seam, "Sew", "S", "Click two edges, each near the end that should meet."},
     {Tool::Pull, Icon::Pull, theme::text, "Pull", "H", "Drag the cloth in 3D, playing or paused."},
 };
 

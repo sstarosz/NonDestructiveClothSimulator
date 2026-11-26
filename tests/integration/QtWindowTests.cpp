@@ -2592,9 +2592,11 @@ TEST_CASE("the ends of a seam's edges that meet are linked; reversing the seam c
     TableView* table = w.table();
     const PanelId plain = w.panel("plain"), driven = w.panel("driven");
     choose(w, Tool::Sew);
-    click(table, table->toScreen(between(w.corner(plain, -1, 1), w.corner(plain, 1, 1), 0.5)));
-    click(table, table->toScreen(between(w.corner(driven, -1, 1), w.corner(driven, 1, 1), 0.5)));
+    // The two top edges, each clicked toward the other end of the table: not reversed.
+    click(table, table->toScreen(between(w.corner(plain, -1, 1), w.corner(plain, 1, 1), 0.3)));
+    click(table, table->toScreen(between(w.corner(driven, -1, 1), w.corner(driven, 1, 1), 0.7)));
     REQUIRE(w.doc().seams().size() == 1);
+    REQUIRE(!w.doc().get(w.doc().seams().front()).reversed);
     REQUIRE(table->seamLinks().size() == 2);
     const Vec2 wentTo = table->seamLinks()[0].second;
     emit w.window.attributes()->seamReversed(w.doc().seams().front(), true);
@@ -2634,6 +2636,60 @@ TEST_CASE("a seam the cloth could not close says so on its card, until the cloth
     w.window.shelf()->reset()->trigger();
     w.window.tick();
     EXPECT((w.window.attributes()->openShown(seam).isEmpty()), "after Reset there is nothing to say");
+}
+
+TEST_CASE("a T-shirt side seam is sewn by two clicks near the hem, without a twist; the links show it before the second", "[qt]")
+{
+    Window w;  // the T-shirt body
+    TableView* table = w.window.table();
+    const PanelId front = w.panel("front"), back = w.panel("back");
+    // The sample's first seam is a side seam; it is taken away, to be sewn by hand.
+    Document doc = w.doc();
+    const SeamId sample = doc.seams().front();
+    const Seam side = doc.get(sample);
+    REQUIRE((side.a.panel == front && side.b.panel == back && !side.reversed));
+    doc.remove(sample);
+    doc.place(back, doc.get(front).x + 90.0, doc.get(front).y);  // clear of the front
+    w.window.open(std::move(doc), "to sew");
+    w.window.tick();
+    table->fit();
+    // A place on a sewn edge, on the table: `up` of the way from its lower end.
+    const auto onEdge = [&](const SeamSide& which, double up) {
+        const Pattern& shape = w.window.session().editor().shapes()[which.panel];
+        const Edge& edge = shape.edge(which.edge);
+        Vec2 low = shape.vertices[edge.start].position, high = shape.vertices[edge.end].position;
+        if (low.y > high.y) std::swap(low, high);
+        const Panel& placed = w.doc().get(which.panel);
+        return Vec2{placed.x + low.x + (high.x - low.x) * up, placed.y + low.y + (high.y - low.y) * up};
+    };
+    const auto near = [](Vec2 a, Vec2 b) { return std::hypot(a.x - b.x, a.y - b.y) < 1e-6; };
+    // Whether the links join the two lower ends, and the two upper.
+    const auto lowToLow = [&](const std::vector<std::pair<Vec2, Vec2>>& links) {
+        if (links.size() != 2) return false;
+        return std::any_of(links.begin(), links.end(), [&](const auto& link) { return near(link.first, onEdge(side.a, 0)) && near(link.second, onEdge(side.b, 0)); }) &&
+               std::any_of(links.begin(), links.end(), [&](const auto& link) { return near(link.first, onEdge(side.a, 1)) && near(link.second, onEdge(side.b, 1)); });
+    };
+
+    w.window.shelf()->action(Tool::Sew)->trigger();
+    click(table, table->toScreen(onEdge(side.a, 0.15)));
+    EXPECT((table->previewLinks().empty()), "over no second edge there are no links to show");
+    send(table, QEvent::MouseMove, table->toScreen(onEdge(side.b, 0.85)), Qt::NoButton, Qt::NoButton, {});
+    EXPECT((table->previewLinks().size() == 2 && !lowToLow(table->previewLinks())), "near the other's upper end, the links cross");
+    send(table, QEvent::MouseMove, table->toScreen(onEdge(side.b, 0.15)), Qt::NoButton, Qt::NoButton, {});
+    EXPECT(lowToLow(table->previewLinks()), "near its hem, hem goes to hem");
+    table->grab();  // painted with the preview
+    click(table, table->toScreen(onEdge(side.b, 0.15)));
+    REQUIRE(w.doc().seams().size() == 4);
+    const Seam sewn = w.doc().get(w.doc().seams().back());
+    EXPECT((sewn.a == side.a && sewn.b == side.b && !sewn.reversed), "sewn as the sample has it: no twist");
+    EXPECT((table->previewLinks().empty()), "sewn, the preview is gone");
+
+    w.window.shelf()->undo()->trigger();
+    w.window.shelf()->action(Tool::Sew)->trigger();
+    click(table, table->toScreen(onEdge(side.a, 0.15)));
+    click(table, table->toScreen(onEdge(side.b, 0.85)));
+    REQUIRE(w.doc().seams().size() == 4);
+    EXPECT((w.doc().get(w.doc().seams().back()).reversed), "clicked near opposite ends, those ends meet: twisted, as asked");
 }
 
 TEST_CASE("a panel is placed in space again where the table has it", "[qt]")

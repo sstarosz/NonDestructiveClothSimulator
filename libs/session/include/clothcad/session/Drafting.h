@@ -151,10 +151,16 @@ struct MirrorAcross {
     PanelId panel;
     EdgeRef edge;
 };
-// Two edges clicked with the Sew tool.
+// Two edges clicked with the Sew tool, and how far along each it was clicked:
+// 0 at its start, 1 at its end. The ends nearest the two clicks are sewn
+// together. Left out, start goes to end.
 struct SewEdges {
     SeamSide a, b;
+    double aAlong = 0.0, bAlong = 1.0;
 };
+// Whether such a seam sews start to start (Seam::reversed): both clicks were in
+// the same half of their edges. A view shows it before the second click.
+bool sewsReversed(double aAlong, double bAlong);
 // The selected panel carried through space by the move gizmo in 3D, or by
 // itself: how far, in cm, since the drag began. It only places the panel.
 struct MoveInSpace {

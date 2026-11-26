@@ -37,6 +37,10 @@ the body follows too.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
   back at.
 - **Seams** between named edges, which follow the edges through every edit.
+  The Sew tool (S) joins the ends nearest your two clicks: click both edges
+  near the ends that should meet. Over the second edge, dotted links show
+  which ends will meet before you click. The twist button on a seam's card
+  swaps them.
 - **Instances come sewn**: an instance (or mirrored instance) is sewn as its
   source is, in the same undo step: a seam within the source is made within
   the instance, and a seam to a neighbour is made once the neighbour has an
@@ -342,8 +346,9 @@ How it is kept fast:
 ## A first garment
 
 1. Rectangle tool: draw two panels of about 46 x 55 cm.
-2. Sew tool: click the right edge of one and the left edge of the other;
-   then the two remaining side edges.
+2. Sew tool: click the right edge of one near its bottom, then the left edge
+   of the other near its bottom; then the two remaining side edges the same
+   way.
 3. Select the first panel. In the Attribute Editor, open "In space" and set
    Position to 0, 95, 24 and Wrap to 110. For the second: Position 0, 95, -24,
    Rotation 0, 180, 0 (the middle number turns it about y), Wrap 110.

@@ -422,8 +422,8 @@ void AttributeEditor::rebuildSeams(const Document& doc, const Result& shapes) {
         reversed->setChecked(row.reversed);
         reversed->setAutoRaise(true);
         reversed->setIcon(icon(Icon::Twist, row.reversed ? theme::seam : theme::quiet));
-        reversed->setToolTip("Reverse: sew start to start instead of start to end, which twists the pieces.\n"
-                             "The dotted links on the table show which ends meet.");
+        reversed->setToolTip("Reverse: swap which ends of the two edges meet.\n"
+                             "The dotted links on the table show which do.");
         const SeamId id = row.id;
         connect(reversed, &QToolButton::clicked, this, [this, id](bool on) { reverseSeam(id, on); });
         grid->addWidget(sew, 0, 0, Qt::AlignVCenter);

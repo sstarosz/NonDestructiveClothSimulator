@@ -38,6 +38,11 @@ struct OutlinePoint {
 };
 std::optional<OutlinePoint> nearestOnOutline(const Pattern& pattern, Vec2 point);
 
+// How far along one edge the point of it nearest to `point` is, by length: 0
+// at its start, 1 at its end. A view uses it to tell which end of an edge was
+// clicked.
+double fractionAlong(const Pattern& pattern, const Edge& edge, Vec2 point);
+
 // A point turned `degrees` counter-clockwise about the origin.
 Vec2 turned(Vec2 point, double degrees);
 

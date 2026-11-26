@@ -61,6 +61,20 @@ std::optional<OutlinePoint> nearestOnOutline(const Pattern& pattern, Vec2 point)
     return OutlinePoint{edge.name, found->along, outline::pointAt(pattern, edge, found->along)};
 }
 
+double fractionAlong(const Pattern& pattern, const Edge& edge, Vec2 point) {
+    const std::vector<Vec2> points = edgePoints(pattern, edge);
+    double whole = 0.0, before = 0.0, nearest = -1.0;
+    for (std::size_t i = 1; i < points.size(); ++i) {
+        const Vec2 a = points[i - 1], b = points[i];
+        const double dx = b.x - a.x, dy = b.y - a.y, length = std::hypot(dx, dy);
+        const double t = length > 0.0 ? std::clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / (length * length), 0.0, 1.0) : 0.0;
+        const double off = std::hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
+        if (nearest < 0.0 || off < nearest) nearest = off, before = whole + length * t;
+        whole += length;
+    }
+    return whole > 0.0 ? before / whole : 0.0;
+}
+
 bool encloses(const Pattern& pattern, Vec2 point) {
     const std::vector<Vec2> polygon = outlinePoints(pattern);
     bool inside = false;

@@ -177,6 +177,8 @@ std::string layerName(const Document& doc, OpId layer) {
 
 Along axisOf(double dx, double dy) { return std::abs(dx) >= std::abs(dy) ? Along::X : Along::Y; }
 
+bool sewsReversed(double aAlong, double bAlong) { return (aAlong < 0.5) == (bAlong < 0.5); }
+
 std::string Drafting::freeName(const Document& doc, const std::string& base) {
     for (int number = 1;; ++number) {
         const std::string name = base + std::to_string(number);
@@ -325,7 +327,7 @@ Outcome Drafting::on(Editor& editor, const SewEdges& g) {
             return outcome;
         }
     }
-    apply(editor, [&](Document& d) { d.add(Seam{.a = g.a, .b = g.b}); }, adding, outcome);
+    apply(editor, [&](Document& d) { d.add(Seam{.a = g.a, .b = g.b, .reversed = sewsReversed(g.aAlong, g.bAlong)}); }, adding, outcome);
     return outcome;
 }
 

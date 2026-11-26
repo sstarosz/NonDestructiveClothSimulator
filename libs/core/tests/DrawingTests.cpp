@@ -35,6 +35,23 @@ TEST_CASE("panels have a place and clicks snap to the outline")
     EXPECT((!nearestOnOutline(Pattern{}, Vec2{}).has_value()), "nothing to snap to on an empty outline");
 }
 
+TEST_CASE("how far along an edge a point is, from its start, straight or curved")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "p"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 40_cm, .height = 20_cm});
+    doc.add(panel, Curve{.edge = rect.right(), .bulge = 5_cm});
+    const Result result = evaluate(doc);
+    const Pattern& shape = result[panel];
+    const Edge& top = shape.edge(rect.top());  // from the right to the left
+    EXPECT_NEAR(fractionAlong(shape, top, {30.0, 23.0}), 0.25, "a quarter from its start, though the point is beside it");
+    EXPECT_NEAR(fractionAlong(shape, top, {70.0, 20.0}), 0.0, "past its start is its start");
+    EXPECT_NEAR(fractionAlong(shape, top, {-70.0, 20.0}), 1.0, "past its end is its end");
+    const Edge& right = shape.edge(rect.right());  // bows out to the right, from the bottom up
+    EXPECT_NEAR(fractionAlong(shape, right, {45.0, 10.0}), 0.5, "the middle of a curve is half way along it");
+    EXPECT((fractionAlong(shape, right, {41.0, 2.0}) < 0.2 && fractionAlong(shape, right, {41.0, 18.0}) > 0.8), "near an end, near that end's number");
+}
+
 TEST_CASE("outlines can be drawn and hit-tested")
 {
     Document doc;
