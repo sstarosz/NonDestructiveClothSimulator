@@ -167,7 +167,7 @@ void Simulation::advance() {
         const std::lock_guard<std::mutex> hold(lock_);
         running = running_;
     }
-    if (running) stepOnce();
+    if (running || held_) stepOnce();  // a held cloth runs, told to or not
 }
 
 bool Simulation::fetch(News& into) {
@@ -178,7 +178,11 @@ bool Simulation::fetch(News& into) {
 }
 
 // The cloth's thread: take what the interface handed over, then a step, at
-// most sixty of them a second so that the cloth's time keeps pace with the clock.
+// most sixty of them a second so that the cloth's time keeps pace with the
+// clock. A held cloth runs, told to or not, so that a paused cloth moves as
+// soon as it is taken hold of. What is handed over between two steps is taken
+// at once, but the next step still waits its turn: a hand that moves every
+// few milliseconds must not make the cloth run ahead of the clock (#107).
 void Simulation::work() {
     auto next = std::chrono::steady_clock::now();
     while (true) {
@@ -186,28 +190,33 @@ void Simulation::work() {
         bool running;
         {
             std::unique_lock<std::mutex> hold(lock_);
-            news_.wait(hold, [&] { return quit_ || !changes_.empty() || running_; });
+            news_.wait(hold, [&] { return quit_ || !changes_.empty() || running_ || held_; });
             if (quit_) return;
             changes.swap(changes_);
             running = running_;
         }
         for (Change& change : changes) change();
-        if (!running || !stepOnce()) {
-            if (running) {
-                // Nothing to step yet: wait for a change instead of spinning.
-                std::unique_lock<std::mutex> hold(lock_);
-                news_.wait_for(hold, std::chrono::milliseconds(5), [&] { return quit_ || !changes_.empty(); });
-            }
+        running = running || held_;
+        if (!running) {
+            next = std::chrono::steady_clock::now();  // started again, the first step comes at once
+            continue;
+        }
+        if (std::chrono::steady_clock::now() < next) {
+            std::unique_lock<std::mutex> hold(lock_);
+            // Something handed over first: it is taken, and the step waits on.
+            // Otherwise the step is due (or as near as the clock's waits get).
+            if (news_.wait_until(hold, next, [&] { return quit_ || !changes_.empty(); })) continue;
+        }
+        if (!stepOnce()) {
+            // Nothing to step yet: wait for a change instead of spinning.
+            std::unique_lock<std::mutex> hold(lock_);
+            news_.wait_for(hold, std::chrono::milliseconds(5), [&] { return quit_ || !changes_.empty(); });
             next = std::chrono::steady_clock::now();
             continue;
         }
         next += std::chrono::microseconds(16667);
         const auto now = std::chrono::steady_clock::now();
         if (next < now) next = now;  // running behind: no catching up, just carry on
-        else {
-            std::unique_lock<std::mutex> hold(lock_);
-            news_.wait_until(hold, next, [&] { return quit_ || !changes_.empty(); });
-        }
     }
 }
 

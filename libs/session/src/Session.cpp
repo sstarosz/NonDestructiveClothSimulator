@@ -252,7 +252,7 @@ std::optional<std::string> Session::update(bool meshWanted) {
         clothPlaced_ = placedNow();
         bodyInUse_ = bodyNow;
     }
-    simulation_->run(simulating_ || held_.has_value());
+    simulation_->run(simulating_);  // and while the cloth is held: the simulation sees to that
     simulation_->advance();
     if (simulation_->fetch(cloth_)) {
         ++sceneVersion_;

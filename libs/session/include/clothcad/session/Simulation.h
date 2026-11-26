@@ -45,7 +45,8 @@ public:
     // where they were carried, drape and all.
     void follow(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placement arranged, std::vector<sim::Moved> moved);
     // Takes hold of a particle and leads it to `to` (see sim::Cloth::hold);
-    // called again, leads it somewhere else. A new mesh ends the hold.
+    // called again, leads it somewhere else. A new mesh ends the hold. While
+    // it is held the cloth runs, though run(false) was said.
     void hold(std::uint32_t panel, std::uint32_t point, sim::Vec3 to);
     void letGo();
     // The cloth as it was before (undo and redo): `positions` on `mesh`,
@@ -55,7 +56,7 @@ public:
     // The panels that take no part (see sim::Cloth::leaveOut); the others do.
     // Kept for every cloth from now on, until told otherwise.
     void leaveOut(std::vector<PanelId> panels);
-    // Lets time pass, or holds the cloth still.
+    // Lets time pass, or holds the cloth still (unless a particle is held).
     void run(bool on);
     // Forgets the cloth.
     void stop();
