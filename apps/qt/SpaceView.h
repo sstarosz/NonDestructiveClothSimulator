@@ -95,6 +95,8 @@ signals:
     void hinted(const QString& next);
     // A key the view does not use itself (Q, W, E, R, Space, Delete, Ctrl+C ...): the window may.
     void keyed(QKeyCombination pressed);
+    // A new picture was drawn, which took that long (View > Frame times).
+    void drawn(double milliseconds);
 
 private:
     void redraw();

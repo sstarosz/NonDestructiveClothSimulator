@@ -1,6 +1,7 @@
 #include "TableView.h"
 
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QFontMetricsF>
 #include <QLineEdit>
 #include <QTimer>
@@ -543,6 +544,8 @@ void TableView::paintFloor(QPainter& painter) {
 }
 
 void TableView::paintEvent(QPaintEvent*) {
+    QElapsedTimer took;
+    took.start();
     QPainter p(this);
     paintFloor(p);
     p.setRenderHint(QPainter::Antialiasing);
@@ -731,7 +734,9 @@ void TableView::paintEvent(QPaintEvent*) {
         }
     }
     paintLengthEdit(p);
+    p.end();
     placeEditor();  // the labels have their places now
+    emit painted(took.nsecsElapsed() / 1e6);
 }
 
 void TableView::mousePressEvent(QMouseEvent* event) {

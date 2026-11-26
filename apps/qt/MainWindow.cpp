@@ -92,10 +92,22 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     docks_ = {outlinerDock, parametersDock, attributesDock};
 
     help_ = new QLabel(this);
-    frameTime_ = new QLabel(this);
-    frameTime_->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
+    help_->setObjectName("helpLine");
+    // The help line gives way to the numbers beside it: cut at its own edge, not
+    // painted over them; the whole of it is in its tooltip.
+    help_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    pointerAt_ = new QLabel(this);
+    pointerAt_->setObjectName("pointerAt");
+    pointerAt_->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
+    frameTimesLine_ = new QLabel(this);
+    frameTimesLine_->setObjectName("frameTimes");
+    frameTimesLine_->setMinimumWidth(1);  // whole where there is room; cut, after the help line, where there is not
+    frameTimesLine_->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
+    frameTimesLine_->hide();
+    clock_.start();
     statusBar()->addWidget(help_, 1);
-    statusBar()->addPermanentWidget(frameTime_);
+    statusBar()->addPermanentWidget(frameTimesLine_);
+    statusBar()->addPermanentWidget(pointerAt_);
     statusBar()->setSizeGripEnabled(false);
     say(hintFor(Tool::Select));
 
@@ -171,7 +183,15 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         say({});
     });
     connect(table_, &TableView::pointerAt, this, [this](Vec2 at) {
-        frameTime_->setText(QString::fromStdString("x " + formatValue(at.x, Unit::Length) + "   y " + formatValue(at.y, Unit::Length)));
+        pointerAt_->setText(QString::fromStdString("x " + formatValue(at.x, Unit::Length) + "   y " + formatValue(at.y, Unit::Length)));
+    });
+    connect(table_, &TableView::painted, this, [this](double milliseconds) {
+        frameTimes_.shown(session::FrameTimes::View::Table, static_cast<double>(clock_.nsecsElapsed()) / 1e6);
+        frameTimes_.took(session::FrameTimes::Work::TablePainting, milliseconds);
+    });
+    connect(space_, &SpaceView::drawn, this, [this](double milliseconds) {
+        frameTimes_.shown(session::FrameTimes::View::Space, static_cast<double>(clock_.nsecsElapsed()) / 1e6);
+        frameTimes_.took(session::FrameTimes::Work::SpaceDrawing, milliseconds);
     });
 
     connect(parameters_, &ParametersPanel::valueTyped, this, [this](Param parameter, QString text) {
@@ -476,6 +496,16 @@ void MainWindow::buildMenus() {
     grid->setChecked(table_->gridShown());
     connect(grid, &QAction::triggered, this, [this](bool on) { table_->setGridShown(on); });
     view->addAction(shelf_->mesh());
+    view->addSeparator();
+    // For finding what is slow: the frames as this window and this screen have them.
+    QAction* frameTimes = view->addAction("Frame times");
+    frameTimes->setObjectName("showFrameTimes");
+    frameTimes->setCheckable(true);
+    connect(frameTimes, &QAction::toggled, this, [this](bool on) {
+        frameTimesLine_->setVisible(on);
+        frameTimesShownAt_.reset();  // at once, not at the next quarter second
+        showFrameTimes();
+    });
 
     QMenu* windows = menuBar()->addMenu("Windows");
     for (QDockWidget* dock : docks_) windows->addAction(dock->toggleViewAction());
@@ -598,7 +628,26 @@ void MainWindow::tick() {
     outliner_->showPanelStates(session_.hiddenPanels(), session_.inactivePanels());
     outliner_->showSeamStates(session_.hiddenSeams());
     showMeshCounts();
-    (void)took;
+    frameTimes_.took(session::FrameTimes::Work::Tick, static_cast<double>(took.nsecsElapsed()) / 1e6);
+    showFrameTimes();
+}
+
+void MainWindow::showFrameTimes() {
+    if (frameTimesLine_->isHidden()) return;
+    const double now = static_cast<double>(clock_.nsecsElapsed()) / 1e6;
+    if (frameTimesShownAt_ && now - *frameTimesShownAt_ < 250.0) return;
+    frameTimesShownAt_ = now;
+    std::optional<session::FrameTimes::Cloth> cloth;
+    if (session_.clothShown()) {
+        std::size_t particles = 0;
+        for (const sim::PanelMesh& panel : session_.cloth().mesh->panels) particles += panel.points.size();
+        cloth = session::FrameTimes::Cloth{.stepMilliseconds = session_.cloth().stepMilliseconds,
+                                           .particles = particles,
+                                           .running = session_.simulating(),
+                                           .sewing = session_.cloth().sewing};
+    }
+    frameTimesLine_->setText(QString::fromStdString(frameTimes_.text(cloth)));
+    frameTimesLine_->setToolTip(frameTimesLine_->text());
 }
 
 // What the selected panel's cloth came to. Worked out again only when a new
@@ -627,6 +676,8 @@ bool MainWindow::changeByDrag(session::DragPhase phase, const std::function<void
 }
 
 bool MainWindow::change(const std::function<void(Document&)>& verb, session::ChangeRules rules, ValueField* field) {
+    QElapsedTimer took;
+    took.start();
     const std::expected<void, std::string> done = session_.editor().change(verb, rules);
     if (!done) {
         const QString why = QString::fromStdString(done.error());
@@ -637,6 +688,7 @@ bool MainWindow::change(const std::function<void(Document&)>& verb, session::Cha
     }
     say({});
     refresh();
+    frameTimes_.took(session::FrameTimes::Work::Change, static_cast<double>(took.nsecsElapsed()) / 1e6);
     return true;
 }
 
@@ -799,11 +851,14 @@ void MainWindow::on(const session::Gesture& gesture) {
         lengthEditFrom_ = session_.editor().step();
         lengthChanged_ = false;
     }
+    QElapsedTimer took;  // a drag's every step is a change, shown again in every dock
+    took.start();
     const session::Outcome done = drafting_.handle(session_.editor(), gesture);
     if (!done.notice.empty()) say(QString::fromStdString(done.notice), done.refused);
     else if (std::holds_alternative<session::MoveCorner>(gesture) || std::holds_alternative<session::MovePanel>(gesture)) say({});
     shelf_->setTool(drafting_.tool);  // a drawing tool that has done its work is back to Select
     refresh();
+    frameTimes_.took(session::FrameTimes::Work::Change, static_cast<double>(took.nsecsElapsed()) / 1e6);
     if (done.typeLength) {
         // The length is a field of a layer, but it is typed on the table, where the edge is: the
         // Attribute Editor is the back end of this, not the way to work.
@@ -856,6 +911,7 @@ void MainWindow::stopPicking() {
 
 void MainWindow::say(const QString& words, bool problem) {
     help_->setText(words);
+    help_->setToolTip(words);
     help_->setStyleSheet(QString("color: %1").arg((problem ? theme::error : theme::text).name()));
 }
 

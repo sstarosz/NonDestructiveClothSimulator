@@ -234,8 +234,16 @@ read back here, which the real window does not do):
 | Dragging a length parameter on the T-shirt | 16 ms | 8-9 ms |
 
 A drag also reports its slowest 1 frame in 20 (held to twice the limit) and its
-worst frame, because what a drag feels like is its slow frames. Not measured
-yet: the real window (#56).
+worst frame, because what a drag feels like is its slow frames.
+
+**In the real window**, View > Frame times shows the same in the status bar,
+four times a second, over the last 60 of each: how far apart the 3D view's
+and the table's pictures are (a gap of more than a quarter second is a pause,
+not a frame), and how long a change of the document, the window's tick, the
+table's painting and the 3D view's drawing take, then the cloth's latest step,
+its particles and whether it runs, sews or is paused. These are the numbers to
+read on the 4K screen while dragging; the benchmarks run without a screen and
+read the 3D picture back, which the real window does not do.
 
 How it is kept fast:
 

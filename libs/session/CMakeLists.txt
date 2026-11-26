@@ -6,6 +6,7 @@ clothcad_library(session
     SOURCES
         src/Drafting.cpp
         src/Editor.cpp
+        src/FrameTimes.cpp
         src/Lengths.cpp
         src/Locks.cpp
         src/Offers.cpp

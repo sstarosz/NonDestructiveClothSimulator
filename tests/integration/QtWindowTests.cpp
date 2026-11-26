@@ -11,11 +11,13 @@
 #include <QDockWidget>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLayout>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QShortcut>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <QScrollBar>
 #include <QToolBar>
@@ -2993,4 +2995,64 @@ TEST_CASE("the length in the bar is typed or dragged sideways, as in the Attribu
     QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     QApplication::sendEvent(field, &escape);
     EXPECT((table->lengthEditor() == nullptr && std::abs(bottom() - 30.0) < 1e-9 && !w.window.shelf()->undo()->isEnabled()), "and Escape takes it all back");
+}
+
+TEST_CASE("View > Frame times shows how long the views' frames, a frame's work and the cloth's step take; it is off at first", "[qt]")
+{
+    Window w;
+    auto* line = w.window.findChild<QLabel*>("frameTimes");
+    auto* frameTimes = w.window.findChild<QAction*>("showFrameTimes");
+    REQUIRE((line != nullptr && frameTimes != nullptr));
+    EXPECT((line->isHidden() && !frameTimes->isChecked()), "it is off at first, for users have no need of it");
+
+    // The table drawn again and again, as during a drag; a panel dragged on it; the cloth running.
+    w.window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 6; ++i) {
+        w.window.table()->grab();  // paints it
+        w.window.tick();
+    }
+    const PanelId front = w.panel("front");
+    const std::optional<Bounds> box = bounds(w.window.session().editor().shapes()[front]);
+    REQUIRE(box.has_value());
+    const Panel& placed = w.doc().get(front);
+    const QPointF middle = w.window.table()->toScreen({placed.x + (box->min.x + box->max.x) / 2, placed.y + box->min.y + (box->max.y - box->min.y) / 4});
+    drag(w.window.table(), middle, middle + QPointF(30, 0));
+    frameTimes->trigger();
+    const std::string shown = line->text().toStdString();
+    INFO(shown);
+    EXPECT((!line->isHidden()), "switched on, the line is in the status bar");
+    EXPECT((shown.find("table still") == std::string::npos && shown.find("  ·  table ") != std::string::npos && shown.find(" ms a frame") != std::string::npos),
+           "how far apart the table's pictures are");
+    EXPECT((shown.find("tick ") != std::string::npos && shown.find("table painting ") != std::string::npos), "what a frame's work takes");
+    EXPECT((shown.find("change ") != std::string::npos), "a drag's change of the document too");
+    EXPECT((shown.find("cloth step ") != std::string::npos && shown.find(" particles, ") != std::string::npos), "and the cloth's step and size");
+    frameTimes->trigger();
+    EXPECT((line->isHidden()), "switched off, it is gone");
+    w.window.shelf()->simulate()->setChecked(false);
+}
+
+TEST_CASE("the status bar's help line gives way to the frame times, and both to the pointer's place; nothing overlaps", "[qt]")
+{
+    Window w;
+    w.window.findChild<QAction*>("showFrameTimes")->trigger();
+    auto* help = w.window.findChild<QLabel*>("helpLine");
+    auto* times = w.window.findChild<QLabel*>("frameTimes");
+    auto* pointer = w.window.findChild<QLabel*>("pointerAt");
+    REQUIRE((help != nullptr && times != nullptr && pointer != nullptr));
+    pointer->setText("x -248.72 cm   y 56.09 cm");
+    const auto at = [&](int width) {
+        w.window.resize(width, 800);
+        w.window.statusBar()->layout()->activate();
+        QApplication::processEvents();
+        INFO("width " << width << ": help " << help->geometry().left() << ".." << help->geometry().right() << ", times " << times->geometry().left()
+                      << ".." << times->geometry().right() << ", pointer " << pointer->geometry().left() << ".." << pointer->geometry().right());
+        EXPECT((help->geometry().right() < times->geometry().left() && times->geometry().right() < pointer->geometry().left()), "the three stand side by side");
+        EXPECT((pointer->width() >= pointer->sizeHint().width()), "the pointer's place is shown whole");
+    };
+    at(2400);  // as wide as the owner's window
+    EXPECT((times->width() >= times->sizeHint().width()), "with room, the frame times are shown whole");
+    EXPECT((help->fontMetrics().horizontalAdvance(help->text()) > help->width()), "and the Select tool's hint is what is cut");
+    at(1100);
+    EXPECT((times->toolTip() == times->text() && help->toolTip() == help->text()), "what is cut is whole in its tooltip");
+    w.window.findChild<QAction*>("showFrameTimes")->trigger();
 }

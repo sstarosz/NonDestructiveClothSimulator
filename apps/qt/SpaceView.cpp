@@ -1,5 +1,6 @@
 #include "SpaceView.h"
 
+#include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QLabel>
 #include <QMouseEvent>
@@ -109,9 +110,12 @@ private:
             }
             swapchain_ = std::move(*made);
         }
+        QElapsedTimer took;
+        took.start();
         const qreal scale = devicePixelRatio();
         const int width = static_cast<int>(std::lround(this->width() * scale)), height = static_cast<int>(std::lround(this->height() * scale));
         if (const auto shown = swapchain_->present(view_.sceneFor(width, height), width, height); !shown) problem = QString::fromStdString(shown.error());
+        else emit view_.drawn(took.nsecsElapsed() / 1e6);
 #endif
     }
 
@@ -131,12 +135,15 @@ public:
         const qreal scale = devicePixelRatioF();
         const int width = static_cast<int>(std::lround(this->width() * scale)), height = static_cast<int>(std::lround(this->height() * scale));
         if (!view_.renderer() || width <= 0 || height <= 0) return;
+        QElapsedTimer took;
+        took.start();
         auto drawn = view_.renderer()->draw(view_.sceneFor(width, height), width, height);
         if (!drawn) return;
         picture = std::move(*drawn);
         image_ = QImage(picture->pixels.data(), picture->width, picture->height, picture->width * 4, QImage::Format_RGBA8888);
         image_.setDevicePixelRatio(scale);
         update();
+        emit view_.drawn(took.nsecsElapsed() / 1e6);
     }
     std::optional<render::Picture> picture;
 
