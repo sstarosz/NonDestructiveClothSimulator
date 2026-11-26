@@ -36,7 +36,7 @@ In pull requests, in this order:
 | 6 | **Fixes from 25 November.** Scaling a rectangle in 3D keeps its middle where it is, as on the table; a change of wrap bends cloth that is already draped, keeping how it hangs; with the cloth paused, a drag in 3D moves the selected panel (Move) instead of pulling it and running the cloth, which is for a playing cloth or the Pull tool. Then, found on the way: the 3D gizmo follows the draped cloth | #94, #93, #92, #115 | M | Bugs met in ordinary work, better gone before anyone else meets them |
 | 7 | **Never lose work.** Ask before unsaved changes are lost (closing, New, Open, a sample), with "*" in the title. One file holds the whole scene and opens as it was left, on any computer: the avatar itself, the draped cloth, what is deactivated and hidden, and the body's looks. A save that fails leaves the old file, names may use any letters, and unsaved work is copied now and then and offered again after a crash. A file written by 0.1 is kept in `FileTests` and must open in every later version | #87, #26 (the avatar), #86 | S | Other people's work is at stake from now on. The file holds the avatar before its format is promised |
 | 8 | **Export OBJ.** File > Export OBJ… writes the garment as it hangs (as it is arranged if it was not simulated), in the avatar's units so it lines up with the character, one group per panel, the pattern as it lies on the table as UVs, normals smooth across closed seams. Hidden panels are left out | #85 | M | Without it the garment cannot be used anywhere else |
-| 9 | **A first user is not left stuck.** Say when a seam could not close, on its card and its lines in 3D, and what to do. Sew the way the clicks say, so that a seam is not reversed by surprise. Parameter names show their start. A copy keeps the turn of the panel it copies | #14, #11, #75, #62 | M | A seam that silently stays open is the worst first impression |
+| 9 | **A first user is not left stuck.** Say when a seam could not close, on its card and its lines in 3D, and what to do. Sew the way the clicks say, so that a seam is not reversed by surprise. Parameter names show their start. A copy keeps the turn of the panel it copies. Found on the way: on pieces that do not fit, the cloth mostly stretches and the seam closes, so telling the user of a misfit needs more than the open seam (#129, in 0.2) | #14, #11, #75, #62 | M | A seam that silently stays open is the worst first impression |
 | 10 | **The release.** The MIT licence, and the notices of what the zip ships (Qt under LGPL 3, CDT under MPL 2.0, the MSVC runtime, the avatar). Help > About and `clothcad --version`. A tag `v0.1.0` makes CI build and test, install into a folder, start the installed program once, zip it, and draft a GitHub Release; I publish it. `CHANGELOG.md`, and a README part for users: Windows 10 or 11 (x64), a graphics card with Vulkan 1.1, how to start, a first garment on the trousers sample | #84, #83, #82, #81 | M | Last, so the first zip has everything. The `LICENSE` file goes in at once, though: the code is public already, and without a licence nobody may use it |
 
 **Before the tag**, checked by hand on the 4K display:
@@ -77,8 +77,8 @@ first and may push steps out.
 | 6 | Pins: click particles in 3D to hold them while the rest drapes | S | |
 | 7 | Several panels selected in the 3D view and the Outliner, as on the table | M | #89 |
 | 8 | Hide and deactivate the selected panels with a key; the table shows a deactivated panel faded; pulling reaches the cloth behind it | S | #77, #76 |
-| 9 | A copy or an instance of a draped panel starts with its source's drape, mirrored for a mirrored instance | M | #91 |
-| 10 | Stretch shown as colour on the cloth, to see where a garment is tight | S | |
+| 9 | A copy or an instance of a draped panel starts with its source's drape, mirrored for a mirrored instance. A copy keeps its wrap and turn in space, and an instance of a turned panel is turned on the table | M | #91, #128, #127 |
+| 10 | Stretch shown as colour on the cloth, to see where a garment is tight, and a word when the pieces do not fit though their seams closed | M | #129 |
 | 11 | Avatars that are not one closed surface (game characters, scans), since the point is to dress one's own character | M | |
 | 12 | Show which way a panel will grow before a parameter changes it (an arrow on the edges that move) | S | |
 
@@ -98,7 +98,7 @@ first and may push steps out.
 | 17 | A copy of the document saved every few minutes and offered after a crash; recent files in the File menu | S | |
 | 18 | The window opens as it was left; one key folds the docks away | S | #37, #27 |
 | 19 | The shelf's Sew and Simulate tabs get what belongs to them (seam actions, fabric, Reset), or go | S | #32 |
-| 20 | Number fields drag past the screen's edge; long names end in "…"; Delete on a shape's corner opens that layer | S | #5, #35, #61 |
+| 20 | Number fields drag past the screen's edge; long names end in "…", and parameter names get more room; Delete on a shape's corner opens that layer | S | #5, #35, #61, #126 |
 | 21 | The table repaints only the part a change touched, and its last thick lines get square caps, if View > Frame times shows its painting slow on a garment (2-4 ms at 4K in 0.1) | M | #58, #59 |
 
 ### Taking a garment out
