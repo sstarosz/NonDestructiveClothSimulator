@@ -3005,12 +3005,18 @@ TEST_CASE("View > Frame times shows how long the views' frames, a frame's work a
     REQUIRE((line != nullptr && frameTimes != nullptr));
     EXPECT((line->isHidden() && !frameTimes->isChecked()), "it is off at first, for users have no need of it");
 
-    // The table drawn again and again, as during a drag; the cloth running.
+    // The table drawn again and again, as during a drag; a panel dragged on it; the cloth running.
     w.window.shelf()->simulate()->setChecked(true);
     for (int i = 0; i < 6; ++i) {
         w.window.table()->grab();  // paints it
         w.window.tick();
     }
+    const PanelId front = w.panel("front");
+    const std::optional<Bounds> box = bounds(w.window.session().editor().shapes()[front]);
+    REQUIRE(box.has_value());
+    const Panel& placed = w.doc().get(front);
+    const QPointF middle = w.window.table()->toScreen({placed.x + (box->min.x + box->max.x) / 2, placed.y + box->min.y + (box->max.y - box->min.y) / 4});
+    drag(w.window.table(), middle, middle + QPointF(30, 0));
     frameTimes->trigger();
     const std::string shown = line->text().toStdString();
     INFO(shown);
@@ -3018,6 +3024,7 @@ TEST_CASE("View > Frame times shows how long the views' frames, a frame's work a
     EXPECT((shown.find("table still") == std::string::npos && shown.find("  ·  table ") != std::string::npos && shown.find(" ms a frame") != std::string::npos),
            "how far apart the table's pictures are");
     EXPECT((shown.find("tick ") != std::string::npos && shown.find("table painting ") != std::string::npos), "what a frame's work takes");
+    EXPECT((shown.find("change ") != std::string::npos), "a drag's change of the document too");
     EXPECT((shown.find("cloth step ") != std::string::npos && shown.find(" particles, ") != std::string::npos), "and the cloth's step and size");
     frameTimes->trigger();
     EXPECT((line->isHidden()), "switched off, it is gone");

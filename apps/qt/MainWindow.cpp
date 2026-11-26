@@ -851,11 +851,14 @@ void MainWindow::on(const session::Gesture& gesture) {
         lengthEditFrom_ = session_.editor().step();
         lengthChanged_ = false;
     }
+    QElapsedTimer took;  // a drag's every step is a change, shown again in every dock
+    took.start();
     const session::Outcome done = drafting_.handle(session_.editor(), gesture);
     if (!done.notice.empty()) say(QString::fromStdString(done.notice), done.refused);
     else if (std::holds_alternative<session::MoveCorner>(gesture) || std::holds_alternative<session::MovePanel>(gesture)) say({});
     shelf_->setTool(drafting_.tool);  // a drawing tool that has done its work is back to Select
     refresh();
+    frameTimes_.took(session::FrameTimes::Work::Change, static_cast<double>(took.nsecsElapsed()) / 1e6);
     if (done.typeLength) {
         // The length is a field of a layer, but it is typed on the table, where the edge is: the
         // Attribute Editor is the back end of this, not the way to work.
