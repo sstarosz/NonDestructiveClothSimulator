@@ -149,6 +149,7 @@ private:
         struct Sewn {
             SeamId seam;
             std::vector<Vec2> along;
+            friend bool operator==(const Sewn&, const Sewn&) = default;
         };
         std::vector<Sewn> sewn;
         std::vector<std::pair<Vec2, Vec2>> axes;
@@ -162,6 +163,7 @@ private:
         std::vector<std::pair<std::string, std::string>> handleLocks;
         // Selected panel only: its edges' lengths, each with the formula that sets it, if one does.
         std::vector<session::EdgeLength> lengths;
+        friend bool operator==(const Drawn&, const Drawn&) = default;
     };
 
     // What the pointer would take hold of on the selected panel.
@@ -282,6 +284,7 @@ private:
         PanelId panel;
         Choice::Kind kind;
         Pattern candidates;
+        friend bool operator==(const Choosing&, const Choosing&) = default;
     };
     std::optional<Choosing> choosing_;
     std::optional<Reference> choiceOffered_;

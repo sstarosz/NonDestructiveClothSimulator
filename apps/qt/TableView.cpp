@@ -263,6 +263,16 @@ Pattern placedOnTable(const Pattern& own, double angle, Vec2 place) {
 
 void TableView::show(const Document& doc, const Result& shapes, std::optional<PanelId> selected, const std::vector<CornerRef>& corners, Tool tool,
                      const std::vector<PanelId>& others, std::optional<SeamId> chosenSeam) {
+    // Painted again only if something drawn here changed: a panel carried in
+    // space, or a change in a dock that the table does not show, leaves it be.
+    const std::optional<SeamId> seamBefore = seam_;
+    const std::optional<PanelId> selectedBefore = selected_;
+    const std::vector<CornerRef> cornersBefore = corners_;
+    const std::vector<PanelId> othersBefore = others_;
+    const Vec2 groupPivotBefore = groupPivot_;
+    const std::vector<Drawn> drawnBefore = std::move(drawn_);
+    const std::vector<std::pair<Vec2, Vec2>> seamLinksBefore = std::move(seamLinks_);
+    const std::optional<std::size_t> litLinksBefore = litLinks_;
     seam_ = chosenSeam;
     if (tool != tool_) {
         tool_ = tool;
@@ -318,7 +328,9 @@ void TableView::show(const Document& doc, const Result& shapes, std::optional<Pa
         seamLinks_.push_back({lineA.back(), seam.reversed ? lineB.back() : lineB.front()});
     }
     if (!fitted_ && !drawn_.empty()) fit();
-    update();
+    if (seam_ != seamBefore || selected_ != selectedBefore || corners_ != cornersBefore || others_ != othersBefore || !(groupPivot_ == groupPivotBefore) ||
+        drawn_ != drawnBefore || seamLinks_ != seamLinksBefore || litLinks_ != litLinksBefore)
+        update();
 }
 
 std::vector<std::vector<Vec2>> TableView::litSeamEdges() const {
@@ -1214,9 +1226,11 @@ void TableView::paintTool(QPainter& p) const {
 }
 
 void TableView::choose(std::optional<Choice> choice) {
-    choosing_.reset();
+    std::optional<Choosing> now;
     if (choice)
-        if (const Drawn* d = drawnOf(choice->panel)) choosing_ = Choosing{choice->panel, choice->kind, placedOnTable(choice->candidates, d->angle, d->place)};
+        if (const Drawn* d = drawnOf(choice->panel)) now = Choosing{choice->panel, choice->kind, placedOnTable(choice->candidates, d->angle, d->place)};
+    if (now == choosing_) return;  // offered again after every change: painted only when it is another choice
+    choosing_ = std::move(now);
     if (!choosing_) choiceOffered_.reset();
     update();
 }

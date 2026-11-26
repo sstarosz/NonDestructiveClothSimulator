@@ -4,11 +4,13 @@
 // each view shows are, and how long the work in a frame takes. The last
 // `kept` of each are kept, and give their mean and the time that one frame in
 // twenty is slower than, as the benchmarks judge a drag
-// (tests/benchmarks/Perf.h). The window measures; this only keeps the count.
+// (tests/benchmarks/Perf.h). The window measures; this only keeps the count,
+// and says how often the window should tick on its screen.
 //
 //   times.shown(FrameTimes::View::Table, clock.nsecsElapsed() / 1e6);
 //   times.took(FrameTimes::Work::Tick, milliseconds);
 //   label->setText(QString::fromStdString(times.text(cloth)));
+//   timer->setInterval(FrameTimes::tickMilliseconds(screen->refreshRate()));
 
 #include <array>
 #include <cstddef>
@@ -33,6 +35,14 @@ public:
     // Pictures further apart than this are not frames of one motion: the view
     // had nothing new to show in between.
     static constexpr double pause = 250.0;
+
+    // How often the window ticks on a screen that shows `hertz` pictures a
+    // second: once a refresh, so that a panel carried in 3D or the cloth's new
+    // state is shown at the screen's next picture, not a fixed 16 ms tick's
+    // (on a 240 Hz screen that showed one picture in four). Whole milliseconds,
+    // rounded down so that every refresh has a tick; 2 to 16 ms. A screen that
+    // gives no rate is taken as 60 Hz.
+    static int tickMilliseconds(double hertz);
 
     // A view showed a new picture at `atMilliseconds`, on any steady clock.
     void shown(View view, double atMilliseconds);

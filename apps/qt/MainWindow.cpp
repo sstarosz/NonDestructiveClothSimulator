@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenuBar>
+#include <QScreen>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
@@ -429,8 +430,9 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
 
     buildMenus();
     timer_ = new QTimer(this);
+    timer_->setTimerType(Qt::PreciseTimer);  // a tick late is a picture of the screen missed
     connect(timer_, &QTimer::timeout, this, &MainWindow::tick);
-    timer_->start(16);
+    timer_->start(session::FrameTimes::tickMilliseconds(screen()->refreshRate()));
     refresh();
 }
 
@@ -611,8 +613,17 @@ void MainWindow::selectSeam(std::optional<SeamId> seam) {
 }
 
 void MainWindow::setTicking(bool running) {
-    if (running) timer_->start(16);
+    if (running) timer_->start(session::FrameTimes::tickMilliseconds(screen()->refreshRate()));
     else timer_->stop();
+}
+
+int MainWindow::tickMilliseconds() const { return timer_->interval(); }
+
+// Once for each picture of the screen the window is on now: it may have been
+// moved to another screen, or the screen's rate changed, since the last tick.
+void MainWindow::paceTicks() {
+    const int every = session::FrameTimes::tickMilliseconds(screen()->refreshRate());
+    if (timer_->isActive() && timer_->interval() != every) timer_->setInterval(every);
 }
 
 void MainWindow::tick() {
@@ -630,6 +641,7 @@ void MainWindow::tick() {
     showMeshCounts();
     frameTimes_.took(session::FrameTimes::Work::Tick, static_cast<double>(took.nsecsElapsed()) / 1e6);
     showFrameTimes();
+    paceTicks();
 }
 
 void MainWindow::showFrameTimes() {

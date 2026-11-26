@@ -1,6 +1,7 @@
 #include "clothcad/session/FrameTimes.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace clothcad::session {
@@ -40,6 +41,11 @@ FrameTimes::Times FrameTimes::Latest::times() const {
     // As Perf.h's Frames: the time that one in twenty is slower than.
     const double slowest = sorted[static_cast<std::size_t>(static_cast<double>(count_ - 1) * 0.95)];
     return {.mean = sum / static_cast<double>(count_), .slowest = slowest, .count = count_};
+}
+
+int FrameTimes::tickMilliseconds(double hertz) {
+    if (!(hertz > 0.0)) hertz = 60.0;
+    return std::clamp(static_cast<int>(std::floor(1000.0 / hertz)), 2, 16);
 }
 
 void FrameTimes::shown(View view, double atMilliseconds) {
