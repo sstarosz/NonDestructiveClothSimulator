@@ -64,13 +64,20 @@ std::string firstFreeName(const Document& doc, const std::string& wanted) {
         if (!panelNamed(doc, wanted + " " + std::to_string(n))) return wanted + " " + std::to_string(n);
 }
 
+// The box a panel that follows `source` takes up about its own origin: a copy
+// is turned on the table as its source is, an instance is not.
+std::optional<Bounds> boxOfOneLike(const Editor& editor, PanelId source, Follow how) {
+    const Pattern& outline = editor.shapes()[source];
+    return how == Follow::Copy ? bounds(turned(outline, editor.document().get(source).angle)) : bounds(outline);
+}
+
 // Where a panel that follows `source` goes: just right of it, with room to
 // spare. A mirrored panel's own left edge is the source's right one.
 Vec2 besideSource(const Editor& editor, PanelId source, Follow how) {
     const Panel& from = editor.document().get(source);
     const Result& shapes = editor.shapes();
     double x = from.x + 30_cm;
-    if (const std::optional<Bounds> box = bounds(shapes[source])) {
+    if (const std::optional<Bounds> box = boxOfOneLike(editor, source, how)) {
         const double newLeft = how == Follow::MirroredInstance ? -box->max.x : box->min.x;
         const std::optional<Bounds> placed = bounds(turned(shapes[source], from.angle));
         x = from.x + (placed ? placed->max.x : box->max.x) + 12_cm - newLeft;
@@ -114,8 +121,12 @@ std::vector<PanelId> addLike(Editor& editor, const std::vector<Placed>& wanted, 
         for (const Placed& one : wanted) {
             const std::string name = firstFreeName(doc, doc.get(one.source).name + suffix);
             if (how == Follow::Copy) {
-                const auto particleDistance = doc.get(one.source).particleDistance;
-                added.push_back(doc.copy(one.source, Panel{.name = name, .x = one.at.x, .y = one.at.y, .particleDistance = particleDistance}));
+                // As its source in all but its name and where it is. In space it has no place yet: it would stand inside the source.
+                Panel like = doc.get(one.source);
+                like.name = name;
+                like.x = one.at.x, like.y = one.at.y;
+                like.arrangement = {};
+                added.push_back(doc.copy(one.source, std::move(like)));
             } else {
                 const PanelId panel = doc.add(Panel{.name = name, .x = one.at.x, .y = one.at.y});
                 doc.add(panel, Instance{.source = one.source, .mirrored = how == Follow::MirroredInstance});
@@ -142,7 +153,7 @@ std::vector<Placed> groupPlaces(const Editor& editor, const std::vector<PanelId>
     Vec2 low{1e300, 1e300}, high{-1e300, -1e300};
     for (PanelId source : sources) {
         const Panel& from = doc.get(source);
-        const std::optional<Bounds> box = bounds(editor.shapes()[source]);
+        const std::optional<Bounds> box = boxOfOneLike(editor, source, how);
         const Bounds own = box ? *box : Bounds{};
         low = {std::min(low.x, from.x + own.min.x), std::min(low.y, from.y + own.min.y)};
         high = {std::max(high.x, from.x + own.max.x), std::max(high.y, from.y + own.max.y)};
@@ -1074,7 +1085,7 @@ Outcome Drafting::on(Editor& editor, const PastePanel& g) {
         Vec2 place = besideSource(editor, source, Follow::Copy);
         if (g.at) {
             // The copy's middle goes under the pointer.
-            const std::optional<Bounds> box = bounds(editor.shapes()[source]);
+            const std::optional<Bounds> box = boxOfOneLike(editor, source, Follow::Copy);
             const Vec2 middle = box ? Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0} : Vec2{};
             place = {g.at->x - middle.x, g.at->y - middle.y};
         }

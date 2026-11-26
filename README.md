@@ -118,7 +118,8 @@ the body follows too.
   the selected panels, or, with corners selected, the ones added with the
   Point tool; Ctrl+C remembers the panels, Ctrl+V pastes copies with their
   middle under the pointer, each in its place in the group (a copy follows the
-  same parameters), Ctrl+D duplicates the selected panels just right of them.
+  same parameters and is turned on the table as its panel is), Ctrl+D
+  duplicates the selected panels just right of them.
   Each is one undo step. The table's origin is drawn
   with its grid: the x axis in red, the y axis in green. The keys work while
   the table (or the 3D view) has the focus, so typing in a field or in the
@@ -426,7 +427,8 @@ holds and hands it what the user did.
   cannot be stretched one way together (the help line says so). The 3D view
   and the Outliner show the shown panel only. The instance buttons and "Sew as
   source" work on all the selected panels. A paste or Ctrl+D does not copy
-  seams, and a copy or an instance of a turned panel is not turned.
+  seams, nor a panel's place and wrap in space. An instance of a turned panel
+  is not turned.
 - An instance's seams are copied when it is made, or by "Sew as source"; they
   do not follow later changes: a seam removed, reversed or moved on the source
   stays as it was on the instances. A plain and a mirrored instance are never

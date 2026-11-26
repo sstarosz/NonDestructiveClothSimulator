@@ -681,6 +681,77 @@ TEST_CASE("pasting without a place goes beside the original; a copied panel that
     EXPECT((drafting.copied().empty()), "and nothing stays copied");
 }
 
+TEST_CASE("a copy keeps its source's turn on the table: pasted under the pointer, duplicated clear of it")
+{
+    Document doc;
+    const PanelId front = doc.add(Panel{.name = "front", .x = 5, .y = 5, .angle = 30.0});
+    doc.add(front, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    // The box a panel takes up on the table, turned as it is.
+    const auto onTable = [&](PanelId panel) {
+        const Panel& placed = editor.document().get(panel);
+        const Bounds own = *bounds(turned(editor.shapes()[panel], placed.angle));
+        return Bounds{{own.min.x + placed.x, own.min.y + placed.y}, {own.max.x + placed.x, own.max.y + placed.y}};
+    };
+    drafting.handle(editor, SelectPanel{front});
+    drafting.handle(editor, CopySelection{});
+    drafting.handle(editor, PastePanel{Vec2{100, 40}});
+    REQUIRE(editor.document().panels().size() == 2);
+    const PanelId pasted = editor.document().panels()[1];
+    EXPECT(editor.document().get(pasted).angle == 30.0, "the paste is turned as its source is");
+    const Bounds under = onTable(pasted);
+    EXPECT_NEAR((under.min.x + under.max.x) / 2.0, 100.0, "and its middle, as it stands, is under the pointer in x");
+    EXPECT_NEAR((under.min.y + under.max.y) / 2.0, 40.0, "and in y");
+
+    drafting.handle(editor, SelectPanel{front});
+    drafting.handle(editor, DuplicateSelection{});
+    REQUIRE(editor.document().panels().size() == 3);
+    const PanelId duplicated = editor.document().panels()[2];
+    EXPECT(editor.document().get(duplicated).angle == 30.0, "so is a duplicate");
+    EXPECT_NEAR(onTable(duplicated).min.x, onTable(front).max.x + 12.0, "12 cm clear of the source, as they stand");
+    EXPECT_NEAR(onTable(duplicated).min.y, onTable(front).min.y, "beside it");
+}
+
+TEST_CASE("a group of turned panels is copied with their turns, its middle under the pointer or clear of the originals")
+{
+    Document doc;
+    const PanelId a = doc.add(Panel{.name = "a", .angle = 90.0});
+    doc.add(a, Rect{.width = 20_cm, .height = 10_cm});
+    const PanelId b = doc.add(Panel{.name = "b", .construction = true, .x = 40, .angle = -45.0});
+    doc.add(b, Rect{.width = 20_cm, .height = 10_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    const auto box = [&](PanelId first, PanelId second) {
+        Bounds all{{1e300, 1e300}, {-1e300, -1e300}};
+        for (PanelId panel : {first, second}) {
+            const Panel& placed = editor.document().get(panel);
+            const Bounds own = *bounds(turned(editor.shapes()[panel], placed.angle));
+            all.min = {std::min(all.min.x, own.min.x + placed.x), std::min(all.min.y, own.min.y + placed.y)};
+            all.max = {std::max(all.max.x, own.max.x + placed.x), std::max(all.max.y, own.max.y + placed.y)};
+        }
+        return all;
+    };
+    drafting.handle(editor, SelectPanels{{a, b}, Pick::Replace});
+    drafting.handle(editor, CopySelection{});
+    drafting.handle(editor, PastePanel{Vec2{200, 50}});
+    std::vector<PanelId> panels = editor.document().panels();
+    REQUIRE(panels.size() == 4);
+    const Panel& first = editor.document().get(panels[2]);
+    const Panel& second = editor.document().get(panels[3]);
+    EXPECT((first.angle == 90.0 && second.angle == -45.0), "each keeps its turn");
+    EXPECT((!first.construction && second.construction), "and a base stays a base, not a piece to cut");
+    const Bounds under = box(panels[2], panels[3]);
+    EXPECT_NEAR((under.min.x + under.max.x) / 2.0, 200.0, "the middle of the group as it stands is under the pointer in x");
+    EXPECT_NEAR((under.min.y + under.max.y) / 2.0, 50.0, "and in y");
+
+    drafting.handle(editor, SelectPanels{{a, b}, Pick::Replace});
+    drafting.handle(editor, DuplicateSelection{});
+    panels = editor.document().panels();
+    REQUIRE(panels.size() == 6);
+    EXPECT_NEAR(box(panels[4], panels[5]).min.x, box(a, b).max.x + 12.0, "a duplicated group is 12 cm clear of the originals");
+}
+
 namespace {
 
 // Three panels in a row: 20 by 10 cm each, at x = 0, 40 and 80.
