@@ -299,6 +299,34 @@ TEST_CASE("the gizmo stands where a panel's arrangement places it, turned as the
     EXPECT((!gizmoOf(session, PanelId{999}, GizmoMode::Move, 1.0).has_value()), "an unknown panel has none");
 }
 
+TEST_CASE("the gizmo of cloth that has fallen stands on the cloth, at the spot the arrangement places")
+{
+    Document doc;
+    const PanelId sheet = doc.add(Panel{.name = "sheet"});
+    doc.add(sheet, Rect{.width = 40_cm, .height = 60_cm});
+    doc.arrange(sheet, Arrangement{.placed = true, .x = 5, .y = 150, .z = 25, .turn = 90, .anchor = Vec2{20, 30}});
+    session::Session session(doc, session::Threading::OneStepPerAdvance);
+    session.simulate(true);
+    for (int i = 0; i < 30; ++i) session.update();  // no body: it falls
+    session.simulate(false);
+    session.update();
+    const std::optional<Gizmo> shown = gizmoOf(session, sheet, GizmoMode::Move, 1.0);
+    REQUIRE(shown.has_value());
+    // The particle that was nearest the anchor in the flat pattern.
+    const sim::PanelMesh& mesh = session.shownMesh().panels.front();
+    std::size_t nearest = 0;
+    const auto away = [&](std::size_t i) { return std::hypot(mesh.points[i].x - mesh.anchor.x, mesh.points[i].y - mesh.anchor.y); };
+    for (std::size_t i = 1; i < mesh.points.size(); ++i)
+        if (away(i) < away(nearest)) nearest = i;
+    EXPECT((session.shownPositions().front()[nearest].y < 130.0), "the cloth has fallen a good way");
+    EXPECT(near(shown->centre, session.shownPositions().front()[nearest], 1e-9), "and the gizmo with it");
+    EXPECT(near(shown->ownX, {0.0, 0.0, -1.0}, 1e-9), "turned as the panel is arranged");
+
+    session.resetCloth();
+    session.update();
+    EXPECT(near(gizmoOf(session, sheet, GizmoMode::Move, 1.0)->centre, {5.0, 150.0, 25.0}, 1e-9), "after Reset it is back at the arrangement");
+}
+
 TEST_CASE("the axes in the corner stay in the bottom left, x red, y green, z blue, however the camera turns")
 {
     for (const double yaw : {0.0, 90.0, -135.0}) {

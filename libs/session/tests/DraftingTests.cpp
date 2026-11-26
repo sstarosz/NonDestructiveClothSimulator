@@ -491,6 +491,23 @@ TEST_CASE("a panel carried and turned in space is placed, not reshaped, one undo
     EXPECT((!editor.canUndo()), "and nothing else was changed");
 }
 
+TEST_CASE("a turn in space about a point, as a gizmo on fallen cloth asks for, carries the anchor round it")
+{
+    Document doc;
+    const PanelId box = doc.add(Panel{.name = "box"});
+    doc.add(box, Rect{.width = 20_cm, .height = 10_cm});
+    doc.arrange(box, Arrangement{.placed = true, .x = 10, .y = 100, .z = 20});
+    Editor editor(doc);
+    Drafting drafting;
+    const sim::Vec3 about{10, 60, 20};  // 40 cm below the anchor
+    drafting.handle(editor, TurnInSpace{box, {0, 0, 1}, 30.0, DragPhase::Begin, about});
+    drafting.handle(editor, TurnInSpace{box, {0, 0, 1}, 90.0, DragPhase::End, about});
+    const Arrangement now = editor.document().get(box).arrangement;
+    EXPECT((std::abs(now.x + 30.0) < 1e-9 && std::abs(now.y - 60.0) < 1e-9 && std::abs(now.z - 20.0) < 1e-9), "the anchor went a quarter of the way round the point");
+    EXPECT((std::abs(now.roll - 90.0) < 1e-9), "and the panel turned with it, by the angle since the drag began");
+    EXPECT((editor.undo() && editor.document().get(box).arrangement.y == 100.0 && !editor.canUndo()), "one undo step");
+}
+
 TEST_CASE("Drafting keeps the tool in use; a drawing tool that has done its work goes back to Select")
 {
     Document doc;

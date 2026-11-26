@@ -164,12 +164,15 @@ struct MoveInSpace {
 };
 // The selected panel turned in space by the rotate gizmo: about which axis,
 // how many degrees since the drag began (counter-clockwise looking down the
-// axis), about its anchor. It only places the panel.
+// axis), about an axis through `about` (where the gizmo stands, which on
+// draped cloth may be away from the anchor), else through its anchor. It only
+// places the panel.
 struct TurnInSpace {
     PanelId panel;
     sim::Vec3 axis;
     double degrees;
     DragPhase phase;
+    std::optional<sim::Vec3> about{};
 };
 // A double-click on an edge's length: the user wants to type it. With
 // `ownLength` (the Length tool's click) the edge gets a length of its own even

@@ -171,3 +171,17 @@ TEST_CASE("an arrangement turned about any axis keeps its anchor and turns every
         EXPECT(near(inSpace(flat, own), v * 0.0 + cross(k, v) + k * dot(k, v)), "and each of its own axes points where the quarter turn takes it");
     }
 }
+
+TEST_CASE("a panel turned about a point away from its anchor keeps whatever is at that point where it is")
+{
+    const Arrangement was{.placed = true, .x = 10, .y = 120, .z = 20, .turn = 30, .tilt = 15, .roll = -40, .wrap = 90, .anchor = Vec2{4, 7}};
+    const Vec3 through{18, 90, 35}, axis{0.3, 1.0, -0.2};
+    const Arrangement now = turnedAbout(was, axis, 70.0, through);
+    const Motion motion{.before = was, .after = now};
+    EXPECT((length(motion(through) - through) < 1e-9), "the point it is turned about stays");
+    EXPECT((length(Vec3{now.x, now.y, now.z} - Vec3{was.x, was.y, was.z}) > 5.0), "so the anchor goes round it");
+    const Arrangement atTheAnchor = turnedAbout(was, axis, 70.0);
+    EXPECT((now.turn == atTheAnchor.turn && now.tilt == atTheAnchor.tilt && now.roll == atTheAnchor.roll && now.wrap == was.wrap && now.anchor == was.anchor),
+           "it is turned by as much as about its anchor");
+    EXPECT((turnedAbout(was, axis, 70.0, {was.x, was.y, was.z}) == atTheAnchor), "about the anchor it is the same turn");
+}

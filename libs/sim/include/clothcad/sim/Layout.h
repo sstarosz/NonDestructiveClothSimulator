@@ -89,6 +89,10 @@ Vec3 inSpace(const Arrangement& arrangement, Vec3 own);
 //   doc.arrange(panel, sim::turnedAbout(was, {0, 1, 0}, 30.0));  // as a turn of 30°
 Arrangement turnedAbout(const Arrangement& arrangement, Vec3 axis, double degrees);
 
+// The same about an axis through `through`, a point in space: the anchor goes
+// round it, so that what a draped panel has there stays where it is.
+Arrangement turnedAbout(const Arrangement& arrangement, Vec3 axis, double degrees, Vec3 through);
+
 // A panel and how it was moved.
 struct Moved {
     PanelId panel;

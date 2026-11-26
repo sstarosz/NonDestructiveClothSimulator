@@ -540,7 +540,9 @@ Outcome Drafting::on(Editor& editor, const MoveInSpace& g) {
 }
 
 Outcome Drafting::on(Editor& editor, const TurnInSpace& g) {
-    return arrangeByDrag(editor, g.panel, g.phase, [&](const Arrangement& was) { return sim::turnedAbout(was, g.axis, g.degrees); });
+    return arrangeByDrag(editor, g.panel, g.phase, [&](const Arrangement& was) {
+        return g.about ? sim::turnedAbout(was, g.axis, g.degrees, *g.about) : sim::turnedAbout(was, g.axis, g.degrees);
+    });
 }
 
 Outcome Drafting::arrangeByDrag(Editor& editor, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now) {

@@ -265,8 +265,24 @@ std::optional<Gizmo> gizmoOf(const session::Session& session, PanelId panel, Giz
     const sim::PanelMesh* mesh = session.mesh()->find(panel);
     if (!mesh) return std::nullopt;
     const Arrangement place = sim::arrangementOf(session.document(), *mesh);
+    sim::Vec3 centre{place.x, place.y, place.z};
+    // Cloth hangs away from where it is arranged: then the gizmo stands on it,
+    // at the particle that is nearest the anchor in the flat pattern.
+    if (session.clothShown()) {
+        const std::vector<sim::PanelMesh>& panels = session.shownMesh().panels;
+        for (std::size_t p = 0; p < panels.size() && p < session.shownPositions().size(); ++p) {
+            if (!(panels[p].panel == panel) || session.shownPositions()[p].size() != panels[p].points.size()) continue;
+            double nearest = 1e300;
+            for (std::size_t i = 0; i < panels[p].points.size(); ++i) {
+                const double dx = panels[p].points[i].x - panels[p].anchor.x, dy = panels[p].points[i].y - panels[p].anchor.y;
+                if (dx * dx + dy * dy >= nearest) continue;
+                nearest = dx * dx + dy * dy;
+                centre = session.shownPositions()[p][i];
+            }
+        }
+    }
     return Gizmo{.mode = mode,
-                 .centre = {place.x, place.y, place.z},
+                 .centre = centre,
                  .ownX = sim::inSpace(place, {1.0, 0.0, 0.0}),
                  .ownY = sim::inSpace(place, {0.0, 1.0, 0.0}),
                  .pixel = pixel};
