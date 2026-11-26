@@ -33,7 +33,8 @@ the body follows too.
   screen): a click on one says which end stays where it is, and the end
   that stays is marked on the edge.
 - **Parameters and formulas**: `waist / 4 + ease`, with limits per field;
-  an edit that would break something is refused and says why.
+  an edit that would break something is refused and says why. A name too long
+  for the Parameters dock shows its start, and whole in its tooltip.
 - **Timeline**: every step of a panel can be changed, switched off, or looked
   back at.
 - **Seams** between named edges, which follow the edges through every edit.

@@ -1,5 +1,6 @@
 #include "ParametersPanel.h"
 
+#include <QFocusEvent>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -11,6 +12,22 @@
 #include "ValueField.h"
 
 namespace clothcad::ui {
+
+namespace {
+
+// A parameter's name: one too long for the box shows its start, not its end.
+class NameField : public QLineEdit {
+public:
+    using QLineEdit::QLineEdit;
+
+protected:
+    void focusOutEvent(QFocusEvent* event) override {
+        QLineEdit::focusOutEvent(event);
+        if (event->reason() != Qt::PopupFocusReason) setCursorPosition(0);  // its menu works on what is selected
+    }
+};
+
+} // namespace
 
 ParametersPanel::ParametersPanel(QWidget* parent) : QWidget(parent) {
     setObjectName("parameters");
@@ -47,10 +64,9 @@ void ParametersPanel::show(const Document& doc, const Result& shapes) {
         rows_.clear();
         int row = 0;
         for (Param parameter : parameters) {
-            auto* name = new QLineEdit(this);
+            auto* name = new NameField(this);
             name->setObjectName("parameterName");
             name->setFrame(false);
-            name->setToolTip("The name formulas use: letters, digits and underscores, starting with a letter.");
             connect(name, &QLineEdit::editingFinished, this, [this, parameter, name] {
                 if (name->isModified()) emit renamed(parameter, name->text().trimmed());
                 name->setModified(false);
@@ -78,7 +94,12 @@ void ParametersPanel::show(const Document& doc, const Result& shapes) {
         }
     }
     for (const Row& row : rows_) {
-        if (!row.name->hasFocus()) row.name->setText(QString::fromStdString(doc.get(row.parameter).name));
+        const QString name = QString::fromStdString(doc.get(row.parameter).name);
+        if (!row.name->hasFocus()) {
+            row.name->setText(name);
+            row.name->setCursorPosition(0);  // setText leaves it at the end, scrolled there
+        }
+        row.name->setToolTip(name + "\nThe name formulas use: letters, digits and underscores, starting with a letter.");
         row.field->show(doc.get(row.parameter).value, doc, shapes);
         QString words;
         for (const Error& error : shapes.errors)

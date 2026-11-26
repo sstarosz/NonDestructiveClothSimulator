@@ -11,6 +11,7 @@
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
+#include <QFocusEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLayout>
@@ -2690,6 +2691,38 @@ TEST_CASE("a T-shirt side seam is sewn by two clicks near the hem, without a twi
     click(table, table->toScreen(onEdge(side.b, 0.85)));
     REQUIRE(w.doc().seams().size() == 4);
     EXPECT((w.doc().get(w.doc().seams().back()).reversed), "clicked near opposite ends, those ends meet: twisted, as asked");
+}
+
+TEST_CASE("a parameter's name that does not fit shows its start, and whole in its tooltip", "[qt]")
+{
+    Window w;
+    w.window.resize(900, 700);  // narrow docks
+    const Param armhole = w.parameter("armhole_depth");
+    QLineEdit* name = w.window.parameters()->nameField(armhole);
+    REQUIRE(name != nullptr);
+    name->setFixedWidth(40);  // too narrow for the name, whatever the font
+    // At the start: the cursor is before the first letter, and the box is scrolled so that it is in sight at the left.
+    const auto atStart = [&] {
+        name->grab();  // painted, so that it is scrolled as it will be seen
+        return name->cursorPosition() == 0 && name->inputMethodQuery(Qt::ImCursorRectangle).toRectF().left() < name->width() / 3.0;
+    };
+    EXPECT((atStart()), "the start of the name is shown");
+    EXPECT((name->toolTip().startsWith("armhole_depth")), "and the whole name is in the tooltip");
+
+    name->end(false);  // typing at its end scrolls it
+    // Then left. Off screen no window has the focus, so the box is told as Qt would tell it.
+    QFocusEvent left(QEvent::FocusOut, Qt::MouseFocusReason);
+    QApplication::sendEvent(name, &left);
+    EXPECT((atStart()), "left, it shows its start again");
+
+    name->setFocus();
+    name->selectAll();
+    name->insert("a_much_longer_name_for_the_depth");  // as typed: the box knows it was changed
+    emit name->editingFinished();
+    name->clearFocus();
+    REQUIRE(w.doc().get(armhole).name == "a_much_longer_name_for_the_depth");
+    EXPECT((w.window.parameters()->nameField(armhole)->toolTip().startsWith("a_much_longer_name_for_the_depth")), "renamed, the tooltip follows");
+    EXPECT((atStart()), "and the new name shows its start");
 }
 
 TEST_CASE("a panel is placed in space again where the table has it", "[qt]")
