@@ -1,10 +1,10 @@
-#include "clothcad/render/Camera.h"
+#include "twintailor/render/Camera.h"
 
 #include <algorithm>
 #include <cmath>
 #include <numbers>
 
-namespace clothcad::render {
+namespace twintailor::render {
 
 namespace {
 
@@ -94,4 +94,4 @@ Matrix OrbitCamera::viewProjection(double aspect) const {
     return perspective(fieldOfView, std::max(aspect, 0.01), nearPlane, farPlane) * lookAt(eye(), target, {0.0, 1.0, 0.0});
 }
 
-} // namespace clothcad::render
+} // namespace twintailor::render

@@ -12,14 +12,14 @@
 
 #include "Damaged.h"
 #include "Expect.h"
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/core/Fields.h"
-#include "clothcad/core/File.h"
-#include "clothcad/core/Text.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/core/File.h"
+#include "twintailor/core/Text.h"
 
-using namespace clothcad;
+using namespace twintailor;
 
 TEST_CASE("documents round-trip through text")
 {
@@ -79,10 +79,10 @@ TEST_CASE("documents round-trip through text")
     const auto bad = [](const char* file) { return std::holds_alternative<FileError>(fromText(file)); };
     EXPECT((bad("")), "an empty file is refused");
     EXPECT((bad("hello")), "so is another kind of file");
-    EXPECT((bad("clothcad 2\n")), "and a newer version");
-    std::variant<SavedScene, FileError> broken = fromText("clothcad 1\npanel 1 \"a\" 0 0 0 0\nop 2 Rect 1 2 n 5 oops 0 0\n");
+    EXPECT((bad("twintailor 2\n")), "and a newer version");
+    std::variant<SavedScene, FileError> broken = fromText("twintailor 1\npanel 1 \"a\" 0 0 0 0\nop 2 Rect 1 2 n 5 oops 0 0\n");
     EXPECT((std::holds_alternative<FileError>(broken) && std::get<FileError>(broken).line == 3), "a bad line is reported by number");
-    EXPECT((bad("clothcad 1\npanel 1 \"a\" 0 0 0 0\npanel 1 \"b\" 0 0 0 0\n")), "an id used twice is refused");
+    EXPECT((bad("twintailor 1\npanel 1 \"a\" 0 0 0 0\npanel 1 \"b\" 0 0 0 0\n")), "an id used twice is refused");
 }
 
 TEST_CASE("the avatar is saved in the file: one file holds the whole scene")
@@ -112,7 +112,7 @@ TEST_CASE("the avatar is saved in the file: one file holds the whole scene")
     const std::variant<SavedScene, FileError> none = fromText(toText(without));
     EXPECT((std::holds_alternative<SavedScene>(none) && !std::get<SavedScene>(none).document.avatar()), "a file without an avatar opens with none");
 
-    const std::string start = "clothcad 1\n";
+    const std::string start = "twintailor 1\n";
     const auto problem = [&](const std::string& lines) {
         const std::variant<SavedScene, FileError> broken = fromText(start + lines);
         return std::holds_alternative<FileError>(broken) ? std::get<FileError>(broken) : FileError{};
@@ -146,7 +146,7 @@ TEST_CASE("how the avatar's file was read is saved with it; one read as it is sa
     EXPECT((*std::get<SavedScene>(read).document.avatar() == made), "the unit, the scale, the axes and the shift, to the last digit");
     EXPECT((toText(std::get<SavedScene>(read).document) == text), "and it writes the same text again");
 
-    const std::string start = "clothcad 1\n";
+    const std::string start = "twintailor 1\n";
     const std::string avatar = "avatar \"a\" 3 1\n";
     const std::string rest = "v 0 0 0\nv 1 0 0\nv 0 1 0\nt 0 1 2\n";
     // As written, and so as every later version has to read it.
@@ -210,7 +210,7 @@ TEST_CASE("how the scene was left is saved beside the pattern")
     const std::variant<SavedScene, FileError> plain = fromText(toText(doc));
     EXPECT((std::holds_alternative<SavedScene>(plain) && std::get<SavedScene>(plain).state == SceneState{}), "a file that says nothing of it has none");
 
-    const std::string start = "clothcad 1\npanel 1 \"a\" 0 0 0 0\n";
+    const std::string start = "twintailor 1\npanel 1 \"a\" 0 0 0 0\n";
     const auto problem = [&](const std::string& lines) {
         const std::variant<SavedScene, FileError> broken = fromText(start + lines);
         return std::holds_alternative<FileError>(broken) ? std::get<FileError>(broken) : FileError{};
@@ -254,7 +254,7 @@ TEST_CASE("a number that is no number is refused wherever it stands, with its li
     }
     for (const Place& place : places) {
         const auto with = [&](const char* number) {
-            std::string text = "clothcad 1\n" + place.lines;
+            std::string text = "twintailor 1\n" + place.lines;
             text.replace(text.find('?'), 1, number);
             return fromText(text);
         };
@@ -272,7 +272,7 @@ TEST_CASE("a number that is no number is refused wherever it stands, with its li
 
 TEST_CASE("a particle distance outside its limits is refused: the window never writes one")
 {
-    const auto read = [](const char* distance) { return fromText(std::string("clothcad 1\npanel 1 \"a\" 0 0 0 0 ") + distance + "\n"); };
+    const auto read = [](const char* distance) { return fromText(std::string("twintailor 1\npanel 1 \"a\" 0 0 0 0 ") + distance + "\n"); };
     for (const char* distance : {"0.5", "2", "5"}) EXPECT((std::holds_alternative<SavedScene>(read(distance))), distance);
     for (const char* distance : {"0.01", "0.499", "5.001", "500", "0", "-2"}) {
         INFO(distance);
@@ -482,6 +482,14 @@ t 0 3 2
 t 1 2 3
 )file";
 
+// A band, as Save wrote it once the program was called Twintailor.
+constexpr const char* bandAsWrittenByTwintailor = R"file(twintailor 1
+next 4
+parameter 1 "waist" n 76
+panel 2 "band" 0 0 0 0
+op 3 Rect 1 2 / p 1 n 2 n 4 0 0
+)file";
+
 SavedScene scene(const char* text) {
     std::variant<SavedScene, FileError> read = fromText(text);
     if (const FileError* problem = std::get_if<FileError>(&read)) FAIL("line " << problem->line << ": " << problem->message);
@@ -490,6 +498,15 @@ SavedScene scene(const char* text) {
 Document opened(const char* text) { return scene(text).document; }
 
 } // namespace
+
+TEST_CASE("a file says that Twintailor wrote it, and one that does opens")
+{
+    const Document doc = opened(bandAsWrittenByTwintailor);
+    const Result shapes = evaluate(doc);
+    REQUIRE(shapes.errors.empty());
+    EXPECT_NEAR((shapes[PanelId{2}].length(OpRef<Rect>(OpId{3}).top())), (38.0), "half the waist");
+    EXPECT((toText(doc).starts_with("twintailor 1\n")), "a file is written under the program's name");
+}
 
 TEST_CASE("the trousers saved by 0.1 open, with the same lengths and their avatar")
 {

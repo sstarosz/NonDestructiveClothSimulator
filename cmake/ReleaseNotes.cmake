@@ -17,7 +17,7 @@ endforeach()
 get_filename_component(root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 file(READ "${root}/CMakeLists.txt" lists)
-if(NOT lists MATCHES "project\\(NonDestructiveClothCad VERSION ([0-9]+\\.[0-9]+\\.[0-9]+)")
+if(NOT lists MATCHES "project\\(Twintailor VERSION ([0-9]+\\.[0-9]+\\.[0-9]+)")
     message(FATAL_ERROR "CMakeLists.txt names no version in project().")
 endif()
 set(version "${CMAKE_MATCH_1}")

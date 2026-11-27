@@ -1,9 +1,9 @@
-#include "clothcad/session/Samples.h"
+#include "twintailor/session/Samples.h"
 
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Evaluate.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Evaluate.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
@@ -246,4 +246,4 @@ void layOutOnTheTable(Document& doc) {
     }
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

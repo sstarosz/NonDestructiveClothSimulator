@@ -1,4 +1,4 @@
-#include "clothcad/render/Renderer.h"
+#include "twintailor/render/Renderer.h"
 
 #include <algorithm>
 #include <array>
@@ -11,7 +11,7 @@
 // loads the library), so nothing is linked against Vulkan.
 #include <vulkan/vulkan_raii.hpp>
 
-namespace clothcad::render {
+namespace twintailor::render {
 
 namespace {
 
@@ -235,7 +235,7 @@ std::expected<std::unique_ptr<Renderer>, std::string> Renderer::create(Options o
         for (const vk::ExtensionProperties& have : in.context.enumerateInstanceExtensionProperties())
             for (const char* wanted : windowExtensions)
                 if (std::strcmp(have.extensionName, wanted) == 0) extensions.push_back(wanted);
-    const vk::ApplicationInfo application("Cloth CAD", 1, "Cloth CAD", 1, VK_API_VERSION_1_1);
+    const vk::ApplicationInfo application("Twintailor", 1, "Twintailor", 1, VK_API_VERSION_1_1);
     in.instance = vk::raii::Instance(in.context, vk::InstanceCreateInfo({}, &application, {}, extensions));
 
     // The first card that draws; a real one before a software one.
@@ -636,4 +636,4 @@ std::expected<void, std::string> Swapchain::present(const Scene& scene, int widt
     return std::unexpected(std::string("The 3D view could not be shown: ") + problem.what());
 }
 
-} // namespace clothcad::render
+} // namespace twintailor::render

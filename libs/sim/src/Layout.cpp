@@ -1,13 +1,13 @@
-#include "clothcad/sim/Layout.h"
+#include "twintailor/sim/Layout.h"
 
 #include <algorithm>
 #include <cmath>
 #include <utility>
 
 #include "Arranging.h"
-#include "clothcad/core/Drawing.h"
+#include "twintailor/core/Drawing.h"
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 namespace {
 
@@ -225,4 +225,4 @@ Placement arranged(const Document& doc, const ClothMesh& cloth) {
     return placement;
 }
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

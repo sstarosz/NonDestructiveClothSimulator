@@ -55,15 +55,15 @@
 #include "TableView.h"
 #include "Theme.h"
 #include "ValueField.h"
-#include "clothcad/core/Fields.h"
-#include "clothcad/core/File.h"
-#include "clothcad/core/Text.h"
-#include "clothcad/session/Samples.h"
-#include "clothcad/sim/AvatarImport.h"
-#include "clothcad/sim/Layout.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/core/File.h"
+#include "twintailor/core/Text.h"
+#include "twintailor/session/Samples.h"
+#include "twintailor/sim/AvatarImport.h"
+#include "twintailor/sim/Layout.h"
 
-using namespace clothcad;
-using namespace clothcad::ui;
+using namespace twintailor;
+using namespace twintailor::ui;
 
 // How the system's wheel comes into Qt: declared here as Qt's own test headers
 // declare it (QtTest/qtestwheel.h).
@@ -79,7 +79,7 @@ namespace {
 // as the program ends (seen with Qt 6.2), after every test has passed.
 Application& application() {
     static int argc = 1;
-    static char name[] = "clothcad_qt_window_tests";
+    static char name[] = "twintailor_qt_window_tests";
     static char* argv[] = {name, nullptr};
     if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     static Application& app = *new Application(argc, argv);
@@ -3228,9 +3228,9 @@ TEST_CASE("every sample saves and opens unchanged; a file that cannot be read sa
     // A folder of its own to write in, beside the program: a place that is
     // certainly writable (some machines keep programs from writing in the
     // system's temp folder), and gone again when the test is done.
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-samples-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-samples-XXXXXX");
     REQUIRE(folder.isValid());
-    const QString path = folder.filePath("sample.clothcad");
+    const QString path = folder.filePath("sample.twintail");
     for (std::size_t i = 0; i < session::samples().size(); ++i) {
         w.window.openSample(i);
         const std::string before = toText(w.doc());
@@ -3240,9 +3240,9 @@ TEST_CASE("every sample saves and opens unchanged; a file that cannot be read sa
         EXPECT((w.window.session().editor().shapes().errors.empty()), "and evaluates without a problem");
     }
     const std::string kept = toText(w.doc());
-    EXPECT((!w.window.openFile(folder.filePath("no such file.clothcad")) && !w.window.helpLine().isEmpty()), "a missing file is refused, with why");
+    EXPECT((!w.window.openFile(folder.filePath("no such file.twintail")) && !w.window.helpLine().isEmpty()), "a missing file is refused, with why");
     EXPECT((toText(w.doc()) == kept), "and the open document stays");
-    EXPECT((!w.window.saveAs(folder.filePath("no such folder/x.clothcad")) && !w.window.helpLine().isEmpty()), "a place that cannot be written says why");
+    EXPECT((!w.window.saveAs(folder.filePath("no such folder/x.twintail")) && !w.window.helpLine().isEmpty()), "a place that cannot be written says why");
 }
 
 TEST_CASE("each sample opens on its avatar, found from any folder; one that cannot be read leaves the body", "[qt]")
@@ -3286,6 +3286,7 @@ public:
                 else box->reject();  // a box without that button: the test sees what did not happen
             } else if (auto* files = qobject_cast<QFileDialog*>(modal)) {
                 ++fileDialogs;
+                fileFilters = files->nameFilters();
                 files->reject();
             }
         });
@@ -3293,6 +3294,7 @@ public:
     }
     QStringList questions;
     int fileDialogs = 0;
+    QStringList fileFilters;  // of the last file dialog
 
 private:
     QTimer timer_;
@@ -3355,12 +3357,43 @@ TEST_CASE("a changed pattern shows '*' and is asked about before New, Open, a sa
     }
 }
 
+TEST_CASE("a pattern saved under the program's earlier name is offered by Open, opens, and is saved where it is", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-earlier-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString path = folder.filePath("mine.clothcad");
+    setChest(w, "104 cm");
+    std::string text = toText(w.doc(), w.window.session().state());
+    REQUIRE(text.starts_with("twintailor 1\n"));
+    text.replace(0, std::string("twintailor").size(), "clothcad");
+    {
+        QFile file(path);
+        REQUIRE(file.open(QIODevice::WriteOnly));
+        REQUIRE(file.write(text.data(), static_cast<qint64>(text.size())) == static_cast<qint64>(text.size()));
+    }
+    {
+        Answering answer(QMessageBox::Discard);
+        choose(w, "fileOpen");
+        EXPECT((answer.fileDialogs == 1 && answer.fileFilters == QStringList{"Patterns (*.twintail *.clothcad)"}), "Open offers files of both names");
+    }
+    w.window.openSample(0);
+    REQUIRE(w.window.openFile(path));
+    EXPECT((asNumber(w.doc().get(w.parameter("chest")).value) == 104.0 && w.window.windowTitle().startsWith("mine[*]")), "it opens as it was saved");
+
+    setChest(w, "108 cm");
+    choose(w, "fileSave");
+    QFile saved(path);
+    REQUIRE(saved.open(QIODevice::ReadOnly));
+    EXPECT((!w.window.isWindowModified() && saved.readLine().trimmed() == "twintailor 1"), "Save writes to the same file, under the new name");
+}
+
 TEST_CASE("saved as a file, the pattern takes its name and loses the '*'; Save in the question writes it before going on", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-saving-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-saving-XXXXXX");
     REQUIRE(folder.isValid());
-    const QString path = folder.filePath("mine.clothcad");
+    const QString path = folder.filePath("mine.twintail");
     setChest(w, "100 cm");
     REQUIRE(w.window.saveAs(path));
     EXPECT((!w.window.isWindowModified() && w.window.windowTitle().startsWith("mine[*]")), "saved, and named after its file");
@@ -3385,7 +3418,7 @@ TEST_CASE("saved as a file, the pattern takes its name and loses the '*'; Save i
 
     // A file that cannot be written keeps the '*', and the pattern.
     setChest(w, "110 cm");
-    EXPECT((!w.window.saveAs(folder.filePath("no such folder/x.clothcad")) && w.window.isWindowModified()), "not saved, still unsaved");
+    EXPECT((!w.window.saveAs(folder.filePath("no such folder/x.twintail")) && w.window.isWindowModified()), "not saved, still unsaved");
     Answering answer(QMessageBox::Discard);
     EXPECT((w.window.close() && !w.window.isVisible()), "Don't Save closes");
     QCoreApplication::processEvents();
@@ -3411,7 +3444,7 @@ QString cubeFile(const QTemporaryDir& folder) {
 TEST_CASE("another avatar is an undo step; Ctrl+Z brings back the one before, and the drape on it", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-avatars-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-avatars-XXXXXX");
     REQUIRE(folder.isValid());
     const QString cube = cubeFile(folder);
     const std::size_t points = w.window.session().bodySurface().points.size();
@@ -3432,7 +3465,7 @@ TEST_CASE("another avatar is an undo step; Ctrl+Z brings back the one before, an
            "one undo goes back, the cube loaded twice being one step");
     EXPECT((w.window.session().clothShown() && w.window.session().cloth().time == time), "with the drape that hung on that body");
     EXPECT((w.window.isWindowModified()), "which was never saved");
-    REQUIRE(w.window.saveAs(folder.filePath("draped.clothcad")));
+    REQUIRE(w.window.saveAs(folder.filePath("draped.twintail")));
     REQUIRE(w.window.loadAvatar(cube));
     w.waitForTheBody();
     w.window.shelf()->undo()->trigger();
@@ -3452,7 +3485,7 @@ TEST_CASE("another avatar is an undo step; Ctrl+Z brings back the one before, an
 TEST_CASE("Play pressed while a new avatar is worked out says so, and the cloth starts by itself when it is ready", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-waiting-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-waiting-XXXXXX");
     REQUIRE(folder.isValid());
     // A box 4 m across, under the panels: large, so that working it out takes a moment.
     const QString path = folder.filePath("large.obj");
@@ -3498,10 +3531,10 @@ TEST_CASE("Play pressed while a new avatar is worked out says so, and the cloth 
 TEST_CASE("the file holds the avatar: it opens on its body wherever it is, with the OBJ file gone", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-onefile-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-onefile-XXXXXX");
     REQUIRE(folder.isValid());
     const QString cube = cubeFile(folder);
-    const QString onCube = folder.filePath("on a cube.clothcad"), onAvatar = folder.filePath("on the avatar.clothcad");
+    const QString onCube = folder.filePath("on a cube.twintail"), onAvatar = folder.filePath("on the avatar.twintail");
     REQUIRE(w.window.saveAs(onAvatar));
     const Avatar project = *w.doc().avatar();
     REQUIRE(w.window.loadAvatar(cube));
@@ -3524,7 +3557,7 @@ TEST_CASE("the file holds the avatar: it opens on its body wherever it is, with 
     EXPECT((w.doc().avatar() == shown && !w.window.isWindowModified()), "New keeps the body");
     Document old;
     old.add(old.add(Panel{.name = "old"}), Rect{.width = 10_cm, .height = 10_cm});
-    const QString older = folder.filePath("older.clothcad");
+    const QString older = folder.filePath("older.twintail");
     REQUIRE(save(old, older.toStdString()).empty());
     REQUIRE(w.window.openFile(older));
     EXPECT((w.doc().avatar() == shown && !w.window.isWindowModified()), "so does a file that names none, and it opens saved");
@@ -3598,7 +3631,7 @@ std::pair<double, double> shown(Window& w) { return reachOf(w.window.session().s
 TEST_CASE("choosing an avatar's file shows it in 3D beside a dialog with a guess; Cancel changes nothing, OK is one undo step", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-import-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-import-XXXXXX");
     REQUIRE(folder.isValid());
     const QString file = metresFile(folder);
     const std::shared_ptr<const Avatar> before = w.doc().avatar();
@@ -3643,7 +3676,7 @@ TEST_CASE("choosing an avatar's file shows it in 3D beside a dialog with a guess
 TEST_CASE("in the avatar dialog the unit is how the file is read; a scale or a height resizes the body and leaves the unit", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-scale-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-scale-XXXXXX");
     REQUIRE(folder.isValid());
     const std::shared_ptr<const Avatar> before = w.doc().avatar();
     w.window.chooseAvatar(metresFile(folder));
@@ -3704,7 +3737,7 @@ TEST_CASE("in the avatar dialog the unit is how the file is read; a scale or a h
 TEST_CASE("while an avatar is chosen only the dialog and the 3D camera take the hand; closing it gives the window back", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-held-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-held-XXXXXX");
     REQUIRE(folder.isValid());
     const QString file = metresFile(folder);
     const PanelId front = w.panel("front");
@@ -3756,7 +3789,7 @@ TEST_CASE("while an avatar is chosen only the dialog and the 3D camera take the 
 TEST_CASE("each file dialog starts in the folder of the last file of its kind, also the next time the program runs", "[qt]")
 {
     application();  // the folders below are beside the program
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-folder-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-folder-XXXXXX");
     REQUIRE(folder.isValid());
     const QString settings = folder.filePath("settings.ini");
     for (const char* name : {"patterns", "bodies", "exports"}) REQUIRE(QDir(folder.path()).mkdir(name));
@@ -3794,10 +3827,10 @@ TEST_CASE("each file dialog starts in the folder of the last file of its kind, a
         w.window.chooseAvatar("no/such/folder/avatar.obj");
         EXPECT(startOf(w, "bodyAvatar").folder == bodies, "a folder that is not there is not kept");
 
-        REQUIRE(w.window.saveAs(patterns + "/shirt.clothcad"));
+        REQUIRE(w.window.saveAs(patterns + "/shirt.twintail"));
         EXPECT(startOf(w, "fileOpen").folder == patterns, "Open starts where the pattern was saved");
         const Start again = startOf(w, "fileSaveAs");
-        EXPECT((again.folder == patterns && again.name == "shirt.clothcad"), "and so does Save as, with the pattern's name");
+        EXPECT((again.folder == patterns && again.name == "shirt.twintail"), "and so does Save as, with the pattern's name");
         const Start beside = startOf(w, "fileExportObj");
         EXPECT((beside.folder == patterns && beside.name == "shirt.obj"), "a first export is offered beside the pattern");
         REQUIRE(w.window.exportObj(exports + "/shirt.obj"));
@@ -3812,8 +3845,8 @@ TEST_CASE("each file dialog starts in the folder of the last file of its kind, a
         // A new pattern's first Save is offered in the patterns' folder.
         choose(w, "fileNew");
         const Start first = startOf(w, "fileSave");
-        EXPECT((first.folder == patterns && first.name == "untitled.clothcad"), "with its name");
-        REQUIRE(w.window.openFile(patterns + "/shirt.clothcad"));
+        EXPECT((first.folder == patterns && first.name == "untitled.twintail"), "with its name");
+        REQUIRE(w.window.openFile(patterns + "/shirt.twintail"));
         EXPECT(startOf(w, "fileOpen").folder == patterns, "opening keeps it");
     }
     {
@@ -3893,9 +3926,9 @@ TEST_CASE("the '*' follows what the file holds: looking leaves it saved; the bod
 TEST_CASE("a file opens as it was left: the drape, what is frozen and hidden, and the body's looks", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-left-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-left-XXXXXX");
     REQUIRE(folder.isValid());
-    const QString path = folder.filePath("left.clothcad");
+    const QString path = folder.filePath("left.twintail");
     const session::Session& session = w.window.session();
     const PanelId front = w.panel("front"), back = w.panel("back");
     const SeamId seam = w.doc().seams().front();
@@ -3949,9 +3982,9 @@ TEST_CASE("a file opens as it was left: the drape, what is frozen and hidden, an
 TEST_CASE("what is typed in a field is saved, without Enter; what cannot be taken stops the save", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-typed-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-typed-XXXXXX");
     REQUIRE(folder.isValid());
-    const QString path = folder.filePath("typed.clothcad");
+    const QString path = folder.filePath("typed.twintail");
     REQUIRE(w.window.saveAs(path));
     w.window.activateWindow();
     QCoreApplication::processEvents();
@@ -3967,7 +4000,7 @@ TEST_CASE("what is typed in a field is saved, without Enter; what cannot be take
         REQUIRE((QApplication::focusWidget() == field && field->text() == text));
     };
     const auto inFile = [&] {
-        std::variant<SavedScene, FileError> read = clothcad::open(path.toStdString());
+        std::variant<SavedScene, FileError> read = twintailor::open(path.toStdString());
         REQUIRE(std::holds_alternative<SavedScene>(read));
         const Document& doc = std::get<SavedScene>(read).document;
         return asNumber(doc.get(doc.parameters().front()).value);
@@ -3992,11 +4025,11 @@ TEST_CASE("what is typed in a field is saved, without Enter; what cannot be take
 TEST_CASE("names with any letters are saved and opened as they are; a save that fails leaves the old file", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-names-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-names-XXXXXX");
     REQUIRE(folder.isValid());
     const QString letters = QString::fromUtf8("zażółć 衣");
     REQUIRE(QDir(folder.path()).mkdir(letters));
-    const QString path = folder.filePath(letters + "/" + letters + ".clothcad");
+    const QString path = folder.filePath(letters + "/" + letters + ".twintail");
     const QString cube = folder.filePath(letters + "/" + letters + ".obj");
     REQUIRE(QFile::copy(cubeFile(folder), cube));
 
@@ -4017,10 +4050,10 @@ TEST_CASE("names with any letters are saved and opened as they are; a save that 
     };
     const QByteArray old = bytes();
     w.window.openSample(5);
-    REQUIRE(QDir(folder.filePath(letters)).mkdir(letters + ".clothcad.saving"));  // in the way of the new file
+    REQUIRE(QDir(folder.filePath(letters)).mkdir(letters + ".twintail.saving"));  // in the way of the new file
     EXPECT((!w.window.saveAs(path) && w.window.helpLine().contains("could not")), "the save fails, and says so");
     EXPECT((bytes() == old), "the old file is as it was");
-    REQUIRE(QDir(folder.filePath(letters)).rmdir(letters + ".clothcad.saving"));
+    REQUIRE(QDir(folder.filePath(letters)).rmdir(letters + ".twintail.saving"));
     EXPECT((w.window.saveAs(path) && bytes() != old), "out of the way, it is written");
     EXPECT((QDir(folder.filePath(letters)).entryList(QDir::AllEntries | QDir::NoDotAndDotDot).size() == 2), "with nothing left beside it");
 }
@@ -4030,13 +4063,13 @@ TEST_CASE("names with any letters are saved and opened as they are; a save that 
 TEST_CASE("unsaved work is copied, and what a run that stopped left is offered at the next start", "[qt]")
 {
     application();
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-recovery-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-recovery-XXXXXX");
     REQUIRE(folder.isValid());
-    const QString recovery = folder.filePath("recovery"), mine = folder.filePath("mine.clothcad");
+    const QString recovery = folder.filePath("recovery"), mine = folder.filePath("mine.twintail");
     const auto runs = [&] { return QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(); };
     const auto copies = [&] {
         int found = 0;
-        for (const QString& run : QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) found += QFile::exists(recovery + "/" + run + "/pattern.clothcad");
+        for (const QString& run : QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) found += QFile::exists(recovery + "/" + run + "/pattern.twintail");
         return found;
     };
     // A run that changes the saved pattern and stops without being closed.
@@ -4082,7 +4115,7 @@ TEST_CASE("unsaved work is copied, and what a run that stopped left is offered a
         EXPECT((recover.fileDialogs == 0 && !w.window.isWindowModified() && copies() == 0), "Save writes it to its own file, and the copy goes");
         EXPECT((w.window.close() && runs() == 0), "a closed run leaves nothing");
     }
-    std::variant<SavedScene, FileError> saved = clothcad::open(mine.toStdString());
+    std::variant<SavedScene, FileError> saved = twintailor::open(mine.toStdString());
     REQUIRE(std::holds_alternative<SavedScene>(saved));
     EXPECT((std::get<SavedScene>(saved).state.drape.has_value()), "the recovered work is in the file");
 
@@ -4158,7 +4191,7 @@ void breakAfter(QLineEdit* field) {
 TEST_CASE("an error in a change nothing handles copies the unsaved work at once, says so, and the window is to end", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-broken-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-broken-XXXXXX");
     REQUIRE(folder.isValid());
     const QString recovery = folder.filePath("recovery");
     w.window.keepRecoveryIn(recovery, 3600.0);  // no copy is due for an hour
@@ -4183,7 +4216,7 @@ TEST_CASE("an error in a change nothing handles copies the unsaved work at once,
     REQUIRE(boxes.size() == 1);
     const QString said = boxes.front()->text();
     INFO(said.toStdString());
-    EXPECT((boxes.front()->isVisible() && said.contains("something broke") && said.contains("was copied") && said.contains("Start Cloth CAD again")),
+    EXPECT((boxes.front()->isVisible() && said.contains("something broke") && said.contains("was copied") && said.contains("Start Twintailor again")),
            "what happened, and where the work is");
 
     enter(field, "108 cm");  // another error: told once is enough
@@ -4192,13 +4225,13 @@ TEST_CASE("an error in a change nothing handles copies the unsaved work at once,
     EXPECT((!w.window.close() && ended == 0), "the window does not close as if all were well");
     boxes.front()->button(QMessageBox::Close)->click();
     EXPECT((ended == 1), "closing the message ends the program");
-    EXPECT((QFile::exists(recovery + "/" + runs.front() + "/pattern.clothcad")), "and the copy stays for the next start");
+    EXPECT((QFile::exists(recovery + "/" + runs.front() + "/pattern.twintail")), "and the copy stays for the next start");
 }
 
 TEST_CASE("an error with nothing unsaved, or with no copy to be had, says which", "[qt]")
 {
     application();
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-broken-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-broken-XXXXXX");
     REQUIRE(folder.isValid());
     const auto said = [](Window& w) {
         QCoreApplication::processEvents();
@@ -4225,7 +4258,7 @@ TEST_CASE("an error with nothing unsaved, or with no copy to be had, says which"
         setChest(w, "100 cm");
         const QStringList runs = QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         REQUIRE(runs.size() == 1);
-        REQUIRE(QDir(recovery + "/" + runs.front()).mkdir("pattern.clothcad.saving"));  // in the way of the copy
+        REQUIRE(QDir(recovery + "/" + runs.front()).mkdir("pattern.twintail.saving"));  // in the way of the copy
         w.window.cannotGoOn("something broke");
         EXPECT((said(w).contains("could not be copied") && said(w).contains("earlier copy")), "the copy failed, and why");
     }
@@ -4784,7 +4817,7 @@ TEST_CASE("Enter in the Outliner's rename box renames and closes it; Escape clos
 TEST_CASE("File > Export OBJ writes the garment, says how many panels went where, and why when it cannot", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-export-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-export-XXXXXX");
     REQUIRE(folder.isValid());
     auto* item = w.window.findChild<QAction*>("fileExportObj");
     REQUIRE(item != nullptr);
@@ -4827,7 +4860,7 @@ TEST_CASE("File > Export OBJ writes the garment, says how many panels went where
 TEST_CASE("Export OBJ replaces a file that another program holds for a moment; one that stays held is left, and why is said", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-held-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-held-XXXXXX");
     REQUIRE(folder.isValid());
     const QString path = folder.filePath("shirt.obj");
     const auto bytes = [&] {
@@ -4869,7 +4902,7 @@ TEST_CASE("Export OBJ replaces a file that another program holds for a moment; o
 TEST_CASE("Export OBJ writes the pattern as it is, also with only the table shown; with nothing to export it is greyed", "[qt]")
 {
     Window w;
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-export-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-export-XXXXXX");
     REQUIRE(folder.isValid());
     const QString path = folder.filePath("wide.obj");
     w.window.shelf()->layout(ViewLayout::TableOnly)->trigger();
@@ -4900,7 +4933,7 @@ TEST_CASE("Help > About names the version, the commit and the licences", "[qt]")
     REQUIRE(about != nullptr);
     EXPECT(about->isVisible(), "it is shown, and the window goes on");
     const QString text = about->text();
-    EXPECT(text.startsWith("Cloth CAD " CLOTHCAD_PROJECT_VERSION " ("), "the version CMakeLists.txt names, and the commit");
+    EXPECT(text.startsWith("Twintailor " TWINTAILOR_PROJECT_VERSION " ("), "the version CMakeLists.txt names, and the commit");
     EXPECT((text.contains("MIT") && text.contains("LGPL 3") && text.contains("THIRD-PARTY.md")), "the licences, and where the rest is said");
     about->close();
 }
@@ -4921,7 +4954,7 @@ TEST_CASE("the README's first garment: the trousers drape, take a wider waist, a
     EXPECT(w.window.parameters()->field(w.parameter("waist"))->text() == "80 cm", "a waist of 80 cm is taken");
     EXPECT((session.editor().shapes().errors.empty() && session.cloth().open.empty()), "and the trousers still close");
 
-    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-readme-XXXXXX");
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-readme-XXXXXX");
     REQUIRE(folder.isValid());
     EXPECT(w.window.exportObj(folder.filePath("trousers.obj")), "and it is exported");
 }

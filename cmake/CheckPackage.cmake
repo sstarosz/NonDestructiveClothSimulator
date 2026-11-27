@@ -26,7 +26,7 @@ endif()
 
 # The program is at the top of the folder: it is what a user looks for.
 set(needed
-    clothcad.exe
+    twintailor.exe
     Qt6Core.dll
     Qt6Gui.dll
     Qt6Widgets.dll
@@ -51,7 +51,7 @@ endforeach()
 # Every kind of file the package may hold. Something new that ships needs its
 # notice in THIRD-PARTY.md first, and then a line here.
 set(allowed
-    "clothcad\\.exe"
+    "twintailor\\.exe"
     "Qt6(Core|Gui|Widgets)\\.dll"
     "qt\\.conf"
     "plugins/platforms/qwindows\\.dll"
@@ -81,7 +81,7 @@ endforeach()
 set(path "$ENV{PATH}")
 set(ENV{PATH} "$ENV{SystemRoot}\\System32;$ENV{SystemRoot}")
 execute_process(
-    COMMAND "${FOLDER}/clothcad.exe" --version
+    COMMAND "${FOLDER}/twintailor.exe" --version
     WORKING_DIRECTORY "${FOLDER}"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors TIMEOUT 60)
 set(ENV{PATH} "${path}")
@@ -89,7 +89,7 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "The installed program did not start (${result}). ${errors}")
 endif()
 string(REPLACE "." "\\." pattern "${VERSION}")
-if(NOT output MATCHES "Cloth CAD ${pattern} \\(([0-9a-f]+|unknown)\\)")
+if(NOT output MATCHES "Twintailor ${pattern} \\(([0-9a-f]+|unknown)\\)")
     message(FATAL_ERROR "The installed program says '${output}', not version ${VERSION}.")
 endif()
 

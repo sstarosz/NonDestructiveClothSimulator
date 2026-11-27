@@ -1,4 +1,4 @@
-# Non-Destructive Cloth CAD 0.1
+# Twintailor 0.1
 
 A pattern CAD for clothing in which nothing is ever baked in. Every panel is
 a short list of operations (rectangle, curve, added point, set length, cut, mirror ...) whose values
@@ -6,7 +6,7 @@ can be numbers or formulas over named parameters. Change the waist and every
 panel, copy, instance and seam that depends on it follows, and the cloth on
 the body follows too.
 
-## Using Cloth CAD
+## Using Twintailor
 
 ### What you need
 
@@ -17,10 +17,10 @@ the body follows too.
 
 ### Start it
 
-1. Download `ClothCad-<version>-windows-x64.zip` from the
-   [Releases page](https://github.com/sstarosz/NonDestructiveClothSimulator/releases).
+1. Download `Twintailor-<version>-windows-x64.zip` from the
+   [Releases page](https://github.com/sstarosz/Twintailor/releases).
 2. Unpack it: right-click the zip and choose "Extract All".
-3. Open `clothcad.exe` in the unpacked folder. There is no installer.
+3. Open `twintailor.exe` in the unpacked folder. There is no installer.
 
 The program is not signed, so Windows warns the first time ("Windows
 protected your PC"): choose "More info", then "Run anyway". Help > About
@@ -226,7 +226,7 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   Ctrl as well, the free one is put on the grid.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
-- **Files**: save and open (`.clothcad`, plain text), undo. One file holds
+- **Files**: save and open (`.twintail`, plain text), undo. One file holds
   the whole scene, so it opens the same on another computer: the pattern, where
   its panels stand, the avatar itself (its points and triangles, not a path to
   the OBJ file, and how that file was read), and the scene as you left it: the
@@ -235,9 +235,10 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   carries on from there. A new pattern, or a file saved without an avatar,
   takes the body that is shown. With the shipped avatar a file is about 650 kB,
   about 950 kB with the trousers draped. Names of files and folders may use any
-  letters. Files saved by 0.1 open in every later version. A file with a line
-  that cannot be right (a number that is not one, a particle distance outside
-  0.5 to 5 cm) is not opened, and the line is named.
+  letters. Files saved by 0.1 open in every later version, as do the
+  `.clothcad` files saved while the program was called Cloth CAD. A file with a
+  line that cannot be right (a number that is not one, a particle distance
+  outside 0.5 to 5 cm) is not opened, and the line is named.
 - **Unsaved work is not lost by accident**: the title shows "*" while the
   file differs from what you see, and closing the window, New, Open and a
   sample ask first (Save, Don't Save, Cancel). Whatever the file holds counts,
@@ -250,7 +251,7 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   that the file could not be written, and the old one is as it was.
 - **After a crash**: while there are unsaved changes a recovery copy is
   written about every 30 seconds (on Windows in
-  `%LOCALAPPDATA%\Cloth CAD\recovery`); your file changes only when you save.
+  `%LOCALAPPDATA%\Twintailor\recovery`); your file changes only when you save.
   If the program stopped before the work was saved, the next start offers the
   copy: Open (Save then writes it to the pattern's own file), Delete, or Not
   Now, which asks again at the next start.
@@ -279,7 +280,7 @@ which comes with Qt) and the Vulkan SDK (its headers, with Vulkan-Hpp, and
 `glslangValidator` for the shaders); CMake finds the SDK through the
 `VULKAN_SDK` variable its installer sets. Without them, everything but the
 window is built. The program is
-`clothcad`; on Windows Qt's libraries are copied next to it when it is built,
+`twintailor`; on Windows Qt's libraries are copied next to it when it is built,
 and the avatars (the OBJ files in `assets/`) go in an `assets/` folder beside
 it, where the window looks for them.
 
@@ -297,9 +298,9 @@ sets):
     ctest --preset x64-win-msvc2026-benchmarks     # benchmarks, with their tables
 
 Without the presets: `cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake`.
-`-DCLOTHCAD_WINDOW=OFF` builds everything but the program that opens a
+`-DTWINTAILOR_WINDOW=OFF` builds everything but the program that opens a
 window, for machines without a display. A warning stops the build;
-`-DCLOTHCAD_WARNINGS_AS_ERRORS=OFF` lets it through, only for trying
+`-DTWINTAILOR_WARNINGS_AS_ERRORS=OFF` lets it through, only for trying
 something out with another compiler.
 
 A package to hand out, with the program, Qt's libraries, the compiler's
@@ -348,8 +349,8 @@ drawing changed.
 ## Performance
 
 What a frame and a cloth step may cost is checked by two benchmark programs,
-`clothcad_core_and_sim_benchmarks` (core, meshing, cloth) and
-`clothcad_qt_window_benchmarks` (whole frames of the window, 1600 x 900,
+`twintailor_core_and_sim_benchmarks` (core, meshing, cloth) and
+`twintailor_qt_window_benchmarks` (whole frames of the window, 1600 x 900,
 without a screen: there the 3D view is drawn off screen and read back, which
 costs more than showing it). Each measurement is held to a limit in
 milliseconds and to its own baseline (`tests/benchmarks/baselines/`): a test fails
@@ -369,8 +370,8 @@ a real slowdown fails each time, a moment of load on the machine rarely does.
 After a change that makes something faster, or a deliberate trade, write new
 baselines from an optimised build and commit them with the change:
 
-    clothcad_core_and_sim_benchmarks tests/benchmarks/baselines/CoreAndSim.txt --update
-    clothcad_qt_window_benchmarks    tests/benchmarks/baselines/QtWindow.txt --update
+    twintailor_core_and_sim_benchmarks tests/benchmarks/baselines/CoreAndSim.txt --update
+    twintailor_qt_window_benchmarks    tests/benchmarks/baselines/QtWindow.txt --update
 
 The budgets, and the times measured on 26 November 2026 (Windows 11, MSVC,
 no screen, an idle machine):
@@ -465,7 +466,7 @@ How it is kept fast:
   summary, an Outliner row and a field are made or set again only when what
   they say changed, not when only a number moved.
 
-`-DCLOTHCAD_WINDOW=OFF` builds everything but the window program;
+`-DTWINTAILOR_WINDOW=OFF` builds everything but the window program;
 `libs/core` alone has no dependencies.
 
 ## Export
@@ -506,7 +507,7 @@ metre, so files in cm need Scale 0.01 to get their real size.
 | `libs/sim/` | Meshing, arrangement in space, bodies (an avatar's file read in its unit and axes), the cloth solver, the garment as OBJ text | `core`, CDT |
 | `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use; the recovery copy of unsaved work (`Autosave`) | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
-| `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
+| `apps/qt/` | The window (`twintailor`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
 | `examples/` | Seven small garments as programs, the sixth a T-shirt body, the seventh trousers | `core` |
 | `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` and read and write no files (bodies are made in memory); tests on the project's avatar are in `tests/integration/AvatarTests.cpp` | everything |
 

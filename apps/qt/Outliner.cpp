@@ -8,9 +8,9 @@
 #include <algorithm>
 
 #include "Icons.h"
-#include "clothcad/core/Fields.h"
+#include "twintailor/core/Fields.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -350,4 +350,4 @@ void Outliner::choose(PanelId panel) {
         if (panels_->child(i)->data(0, panelRole).toUInt() == panel.value) setCurrentItem(panels_->child(i));
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

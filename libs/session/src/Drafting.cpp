@@ -1,14 +1,14 @@
-#include "clothcad/session/Drafting.h"
+#include "twintailor/session/Drafting.h"
 
 #include <algorithm>
 #include <cmath>
 
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/session/Lengths.h"
-#include "clothcad/session/Locks.h"
-#include "clothcad/sim/Layout.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/session/Lengths.h"
+#include "twintailor/session/Locks.h"
+#include "twintailor/sim/Layout.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
@@ -1141,4 +1141,4 @@ Outcome Drafting::on(Editor& editor, const SewAsSource&) {
     return outcome;
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

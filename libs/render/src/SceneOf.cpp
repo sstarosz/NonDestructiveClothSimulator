@@ -1,11 +1,11 @@
-#include "clothcad/render/SceneOf.h"
+#include "twintailor/render/SceneOf.h"
 
 #include <algorithm>
 #include <cmath>
 
-#include "clothcad/sim/Normals.h"
+#include "twintailor/sim/Normals.h"
 
-namespace clothcad::render {
+namespace twintailor::render {
 
 namespace {
 
@@ -216,4 +216,4 @@ std::optional<Box> extentOf(const session::Session& session, const BodyShape* bo
     return box;
 }
 
-} // namespace clothcad::render
+} // namespace twintailor::render

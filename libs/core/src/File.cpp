@@ -1,4 +1,4 @@
-#include "clothcad/core/File.h"
+#include "twintailor/core/File.h"
 
 #include <algorithm>
 #include <array>
@@ -18,7 +18,7 @@
 #include "internal/ExprNode.h"
 #include "internal/FieldAccess.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 
@@ -281,7 +281,10 @@ EdgeRef readEdge(Words& words) {
     throw Problem{"an edge was expected"};
 }
 
-const char* const firstLine = "clothcad 1";
+// A file says what wrote it, and the version of its format. The program was
+// first called Cloth CAD, and the files it wrote then say "clothcad".
+const char* const firstLine = "twintailor 1";
+bool isNameOfTheProgram(const std::string& word) { return word == "twintailor" || word == "clothcad"; }
 constexpr long long mostOfAnAvatar = 10'000'000;  // points, or triangles
 
 // The avatar's lines come last: its name and how many points and triangles
@@ -458,7 +461,7 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
             if (words.done()) continue;
             const std::string what = words.word();
             if (!started) {
-                if (what != "clothcad") throw Problem{"this is not a cloth CAD file"};
+                if (!isNameOfTheProgram(what)) throw Problem{"this is not a Twintailor file"};
                 if (words.whole() != 1) throw Problem{"this file was written by a newer version"};
                 started = true;
                 continue;
@@ -668,4 +671,4 @@ std::variant<SavedScene, FileError> open(const std::string& path) {
     return fromText(text.str());
 }
 
-} // namespace clothcad
+} // namespace twintailor

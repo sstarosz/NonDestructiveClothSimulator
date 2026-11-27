@@ -6,12 +6,12 @@
 #include <set>
 #include <utility>
 
-#include "clothcad/sim/Body.h"
-#include "clothcad/sim/Cloth.h"
-#include "clothcad/sim/Layout.h"
-#include "clothcad/sim/Mesh.h"
+#include "twintailor/sim/Body.h"
+#include "twintailor/sim/Cloth.h"
+#include "twintailor/sim/Layout.h"
+#include "twintailor/sim/Mesh.h"
 
-namespace clothcad::sim::testing {
+namespace twintailor::sim::testing {
 
 // Every side of every triangle is used by one triangle (outline) or two (inside).
 inline bool watertight(const PanelMesh& mesh) {
@@ -50,4 +50,4 @@ inline void run(Cloth& cloth, const Body& body, double seconds) {
     for (int i = 0; i < static_cast<int>(seconds * 60.0); ++i) cloth.step(body);
 }
 
-} // namespace clothcad::sim::testing
+} // namespace twintailor::sim::testing

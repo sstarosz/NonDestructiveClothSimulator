@@ -9,12 +9,12 @@
 
 #include "Damaged.h"
 #include "Expect.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/core/File.h"
-#include "clothcad/session/Samples.h"
-#include "clothcad/sim/Mesh.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/core/File.h"
+#include "twintailor/session/Samples.h"
+#include "twintailor/sim/Mesh.h"
 
-using namespace clothcad;
+using namespace twintailor;
 
 TEST_CASE("what opens of the damaged trousers evaluates and meshes")
 {

@@ -1,10 +1,10 @@
-#include "clothcad/session/FrameTimes.h"
+#include "twintailor/session/FrameTimes.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
@@ -77,4 +77,4 @@ std::string FrameTimes::text(const std::optional<Cloth>& cloth) const {
     return line;
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

@@ -6,12 +6,12 @@
 
 #include <vector>
 
-#include "clothcad/sim/Layout.h"
+#include "twintailor/sim/Layout.h"
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 // A position for each of the mesh's points: the panel flat about its anchor,
 // bent by the wrap, rolled, tilted, turned and put at the arrangement's place.
 std::vector<Vec3> arrangedPanel(const Arrangement& in, const PanelMesh& mesh);
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

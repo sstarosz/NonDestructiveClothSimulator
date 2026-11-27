@@ -1,4 +1,4 @@
-#include "clothcad/session/Simulation.h"
+#include "twintailor/session/Simulation.h"
 
 #include <algorithm>
 #include <chrono>
@@ -6,7 +6,7 @@
 #include <future>
 #include <utility>
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 Simulation::Simulation(Threading threading) : threading_(threading) {
     if (threading_ == Threading::OwnThread) thread_ = std::thread([this] { work(); });
@@ -278,4 +278,4 @@ void Simulation::work() {
     }
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

@@ -14,12 +14,12 @@
 
 #include <QDialog>
 
-#include "clothcad/core/Document.h"
-#include "clothcad/sim/Vec3.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/sim/Vec3.h"
 
 class QComboBox;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class ValueField;
 
@@ -37,7 +37,7 @@ public:
 
 signals:
     // Something else is chosen now.
-    void changed(const clothcad::AvatarImport& choice);
+    void changed(const twintailor::AvatarImport& choice);
 
 private:
     double fileHeight() const;  // in the file's units, with the chosen axis up
@@ -58,4 +58,4 @@ private:
     QComboBox* facing_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

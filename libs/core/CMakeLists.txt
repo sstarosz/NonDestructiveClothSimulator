@@ -1,6 +1,6 @@
 # The document model: parameters, panels, operations, seams; formulas;
 # evaluation to 2D outlines; files. Uses nothing but the standard library.
-clothcad_library(core SOURCES
+twintailor_library(core SOURCES
     src/Document.cpp
     src/Drawing.cpp
     src/Evaluate.cpp
@@ -12,6 +12,6 @@ clothcad_library(core SOURCES
     src/References.cpp
     src/Text.cpp
 )
-if(CLOTHCAD_BUILD_TESTS)
+if(TWINTAILOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

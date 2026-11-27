@@ -15,9 +15,9 @@
 #include "Lists.h"
 #include "Theme.h"
 #include "ValueField.h"
-#include "clothcad/core/Text.h"
+#include "twintailor/core/Text.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 LengthCard::LengthCard(QWidget* parent) : QFrame(parent) {
     setObjectName("lengthCard");
@@ -192,4 +192,4 @@ bool LengthCard::eventFilter(QObject* watched, QEvent* event) {
     return QFrame::eventFilter(watched, event);
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

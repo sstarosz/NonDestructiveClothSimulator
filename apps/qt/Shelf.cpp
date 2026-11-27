@@ -10,7 +10,7 @@
 
 #include "Icons.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -215,4 +215,4 @@ QAction* Shelf::layout(ViewLayout which) const {
 
 int Shelf::tabCount() const { return tabs_->count(); }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

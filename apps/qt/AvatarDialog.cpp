@@ -7,10 +7,10 @@
 #include <QSignalBlocker>
 
 #include "ValueField.h"
-#include "clothcad/core/Text.h"
-#include "clothcad/sim/AvatarImport.h"
+#include "twintailor/core/Text.h"
+#include "twintailor/sim/AvatarImport.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -132,4 +132,4 @@ void AvatarDialog::accept() {
     QDialog::accept();
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

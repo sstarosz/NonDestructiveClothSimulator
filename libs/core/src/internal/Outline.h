@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "clothcad/core/Pattern.h"
+#include "twintailor/core/Pattern.h"
 
-namespace clothcad::outline {
+namespace twintailor::outline {
 
 using Problem = std::optional<std::string>;  // empty: it worked
 
@@ -75,4 +75,4 @@ Problem mirror(Pattern& pattern, const EdgeRef& axis, OpId mirrorOp);
 // Flips the whole pattern left-to-right about the vertical axis.
 void flip(Pattern& pattern);
 
-} // namespace clothcad::outline
+} // namespace twintailor::outline

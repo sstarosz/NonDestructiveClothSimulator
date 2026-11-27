@@ -14,9 +14,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/session/Autosave.h"
-#include "clothcad/session/Session.h"
-#include "clothcad/sim/Body.h"
+#include "twintailor/session/Autosave.h"
+#include "twintailor/session/Session.h"
+#include "twintailor/sim/Body.h"
 
 namespace {
 
@@ -45,8 +45,8 @@ void* operator new(std::size_t size) {
 void operator delete(void* made) noexcept { std::free(made); }
 void operator delete(void* made, std::size_t) noexcept { std::free(made); }
 
-using namespace clothcad;
-using namespace clothcad::session;
+using namespace twintailor;
+using namespace twintailor::session;
 
 namespace {
 
@@ -157,7 +157,7 @@ TEST_CASE("an error on the cloth's thread drops the cloth and is said; the cloth
 
 TEST_CASE("a recovery copy that runs out of memory is a copy that could not be written")
 {
-    const std::filesystem::path folder = filePath(CLOTHCAD_TEST_FOLDER);
+    const std::filesystem::path folder = filePath(TWINTAILOR_TEST_FOLDER);
     std::filesystem::create_directories(folder);
     const std::u8string utf8 = folder.generic_u8string();
     Square start;

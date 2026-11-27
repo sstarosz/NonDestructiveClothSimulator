@@ -1,7 +1,7 @@
-// The Qt window of Non-Destructive Cloth CAD.
+// The Qt window of Twintailor.
 //
-//   clothcad            opens the window
-//   clothcad --version  says which build it is, and ends
+//   twintailor            opens the window
+//   twintailor --version  says which build it is, and ends
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <cstdlib>
@@ -49,18 +49,18 @@ void print(const std::string& line) {
 int main(int argc, char** argv) {
     // Before Qt: no window, and nothing that needs a screen.
     if (argc == 2 && std::string_view(argv[1]) == "--version") {
-        print(clothcad::ui::versionLine().toStdString());
+        print(twintailor::ui::versionLine().toStdString());
         return 0;
     }
-    clothcad::ui::Application app(argc, argv);
-    QApplication::setApplicationName("Cloth CAD");
+    twintailor::ui::Application app(argc, argv);
+    QApplication::setApplicationName("Twintailor");
     try {
-        clothcad::ui::theme::apply(app);
-        clothcad::ui::MainWindow window;
+        twintailor::ui::theme::apply(app);
+        twintailor::ui::MainWindow window;
         // An error nothing else handles: the work is copied, the window says so,
         // and the program ends. At once: what may be broken is not closed down
         // in order, and the copy stays for the next start.
-        QObject::connect(&window, &clothcad::ui::MainWindow::mustEnd, &window, [] { std::_Exit(EXIT_FAILURE); });
+        QObject::connect(&window, &twintailor::ui::MainWindow::mustEnd, &window, [] { std::_Exit(EXIT_FAILURE); });
         app.handleErrors([&window](const QString& error) { window.cannotGoOn(error); });
         try {
             window.openSample(5);  // the T-shirt body
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
         app.handleErrors({});  // the window it goes to is about to go
         return ended;
     } catch (const std::exception& problem) {
-        QMessageBox::critical(nullptr, "Cloth CAD", QString("Cloth CAD could not start (%1).").arg(QString::fromUtf8(problem.what())));
+        QMessageBox::critical(nullptr, "Twintailor", QString("Twintailor could not start (%1).").arg(QString::fromUtf8(problem.what())));
         return EXIT_FAILURE;
     }
 }

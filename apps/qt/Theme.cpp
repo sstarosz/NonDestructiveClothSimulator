@@ -4,7 +4,7 @@
 #include <QPalette>
 #include <QStyleFactory>
 
-namespace clothcad::ui::theme {
+namespace twintailor::ui::theme {
 
 void apply(QApplication& app) {
     app.setStyle(QStyleFactory::create("Fusion"));
@@ -33,11 +33,11 @@ void apply(QApplication& app) {
         QToolBar#shelfRow QToolButton { border-radius: 6px; padding: 4px; }
         QToolBar#shelfRow QToolButton:checked { background: #4a3d1f; border: 1px solid #ffbf45; }
         QLineEdit { border: 1px solid #3a3d44; border-radius: 3px; padding: 1px 6px; }
-        QLineEdit[formula="true"] { color: #6edbc7; border-color: #2e6b62; }
+        QLineEdit[formula="true"] { color: #39c5bb; border-color: #1f635e; }
         QLineEdit[refused="true"] { border-color: #ff6b61; }
         QPushButton#sectionHeader { text-align: left; background: #26282c; border: 0; border-top: 1px solid #1a1b1e; padding: 4px 8px; font-weight: 600; }
         QStatusBar { background: #121315; }
     )");
 }
 
-} // namespace clothcad::ui::theme
+} // namespace twintailor::ui::theme

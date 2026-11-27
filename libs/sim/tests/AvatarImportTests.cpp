@@ -8,10 +8,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/sim/AvatarImport.h"
+#include "twintailor/sim/AvatarImport.h"
 
-using namespace clothcad;
-using namespace clothcad::sim;
+using namespace twintailor;
+using namespace twintailor::sim;
 
 namespace {
 

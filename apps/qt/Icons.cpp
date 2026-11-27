@@ -4,7 +4,7 @@
 #include <QPainterPath>
 #include <QPixmap>
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -192,4 +192,4 @@ QIcon icon(Icon which, QColor colour) {
     return made;
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

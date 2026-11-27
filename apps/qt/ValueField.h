@@ -17,11 +17,11 @@
 #include <QLineEdit>
 #include <optional>
 
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/session/Drafting.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/session/Drafting.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class ValueField : public QLineEdit {
     Q_OBJECT
@@ -45,7 +45,7 @@ signals:
     // The user typed something different from what was shown.
     void typed(QString text);
     // The number was dragged to `value`; one drag goes Begin, Continue ..., End.
-    void dragged(double value, clothcad::session::DragPhase phase);
+    void dragged(double value, twintailor::session::DragPhase phase);
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -74,4 +74,4 @@ private:
     std::optional<Drag> drag_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

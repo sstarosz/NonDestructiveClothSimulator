@@ -2,7 +2,7 @@
 # show: editing with undo, the mesh and arrangement, the body, the cloth on
 # its own thread. Knows nothing of windows.
 find_package(Threads REQUIRED)
-clothcad_library(session
+twintailor_library(session
     SOURCES
         src/Autosave.cpp
         src/Drafting.cpp
@@ -15,8 +15,8 @@ clothcad_library(session
         src/Session.cpp
         src/Simulation.cpp
         src/TableGizmo.cpp
-    DEPENDS clothcad::core clothcad::sim Threads::Threads
+    DEPENDS twintailor::core twintailor::sim Threads::Threads
 )
-if(CLOTHCAD_BUILD_TESTS)
+if(TWINTAILOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

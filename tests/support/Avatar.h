@@ -1,7 +1,7 @@
 #pragma once
 // The project's avatar (assets/avatarV1.obj), for the integration tests and
 // benchmarks that drape cloth on it; the unit tests read no files. The build
-// says where the project's assets are (CLOTHCAD_ASSETS_DIR).
+// says where the project's assets are (TWINTAILOR_ASSETS_DIR).
 //
 //   const sim::Body& body = project::avatar();
 //   window.loadAvatar(QString::fromStdString(project::avatarPath()));
@@ -12,11 +12,11 @@
 
 #include <string>
 
-#include "clothcad/sim/Body.h"
+#include "twintailor/sim/Body.h"
 
-namespace clothcad::project {
+namespace twintailor::project {
 
-inline std::string avatarPath() { return std::string(CLOTHCAD_ASSETS_DIR) + "/avatarV1.obj"; }
+inline std::string avatarPath() { return std::string(TWINTAILOR_ASSETS_DIR) + "/avatarV1.obj"; }
 
 // Read and made ready to collide with once in a test program: that takes a moment.
 inline const sim::Body& avatar() {
@@ -28,4 +28,4 @@ inline const sim::Body& avatar() {
 inline constexpr double avatarHips = 78.0;
 inline constexpr double avatarWaist = 102.0;
 
-} // namespace clothcad::project
+} // namespace twintailor::project

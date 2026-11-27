@@ -8,11 +8,11 @@
 #include <cmath>
 #include <cstdio>
 
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
 #include "Expect.h"
 
-using namespace clothcad;
+using namespace twintailor;
 
 int main() {
     Document doc;

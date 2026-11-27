@@ -37,15 +37,15 @@
 #include "Theme.h"
 #include "ValueField.h"
 #include "Version.h"
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/File.h"
-#include "clothcad/core/Text.h"
-#include "clothcad/session/Samples.h"
-#include "clothcad/sim/AvatarImport.h"
-#include "clothcad/sim/Body.h"
-#include "clothcad/sim/Layout.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/File.h"
+#include "twintailor/core/Text.h"
+#include "twintailor/session/Samples.h"
+#include "twintailor/sim/AvatarImport.h"
+#include "twintailor/sim/Body.h"
+#include "twintailor/sim/Layout.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -537,14 +537,15 @@ void MainWindow::buildMenus() {
     })->setObjectName("fileNew");
     item(file, "Open…", QKeySequence::Open, this, [this] {
         if (!mayDiscard("opening another pattern")) return;
-        const QString path = QFileDialog::getOpenFileName(this, "Open", folderFor(Files::Patterns), "Patterns (*.clothcad)");
+        const QString path = QFileDialog::getOpenFileName(this, "Open", folderFor(Files::Patterns),
+                                                          "Patterns (*.twintail *.clothcad)");  // the second: saved as Cloth CAD
         if (!path.isEmpty()) openFile(path);
     })->setObjectName("fileOpen");
     item(file, "Save", QKeySequence::Save, this, [this] { save(); })->setObjectName("fileSave");
     item(file, "Save as…", QKeySequence::SaveAs, this, [this] {
         if (!takeWhatIsTyped()) return;
         const QString path =
-            QFileDialog::getSaveFileName(this, "Save as", inFolder(folderFor(Files::Patterns), title_ + ".clothcad"), "Patterns (*.clothcad)");
+            QFileDialog::getSaveFileName(this, "Save as", inFolder(folderFor(Files::Patterns), title_ + ".twintail"), "Patterns (*.twintail)");
         if (!path.isEmpty()) saveAs(path);
     })->setObjectName("fileSaveAs");
     exportAction_ = item(file, "Export OBJ…", QKeySequence("Ctrl+E"), this, [this] {
@@ -609,8 +610,8 @@ void MainWindow::buildMenus() {
     for (QDockWidget* dock : docks_) windows->addAction(dock->toggleViewAction());
 
     QMenu* help = menuBar()->addMenu("Help");
-    item(help, "About Cloth CAD", {}, this, [this] {
-        auto* about = new QMessageBox(QMessageBox::NoIcon, "About Cloth CAD", aboutText(), QMessageBox::Ok, this);
+    item(help, "About Twintailor", {}, this, [this] {
+        auto* about = new QMessageBox(QMessageBox::NoIcon, "About Twintailor", aboutText(), QMessageBox::Ok, this);
         about->setObjectName("about");
         about->setAttribute(Qt::WA_DeleteOnClose);
         about->setTextInteractionFlags(Qt::TextSelectableByMouse);  // so that a report can copy the version
@@ -645,7 +646,7 @@ bool MainWindow::openFile(const QString& path) {
     rememberFolder(Files::Patterns, path);
     sayAtOnce("Opening " + QFileInfo(path).fileName() + "…");
     const Waiting waiting;  // a pattern with a detailed avatar takes seconds
-    std::variant<SavedScene, FileError> opened = clothcad::open(path.toStdString());
+    std::variant<SavedScene, FileError> opened = twintailor::open(path.toStdString());
     if (FileError* problem = std::get_if<FileError>(&opened)) {
         say(QString::fromStdString(problem->line ? "Line " + std::to_string(problem->line) + ": " + problem->message : problem->message), true);
         return false;
@@ -661,7 +662,7 @@ bool MainWindow::saveAs(const QString& path) {
     rememberFolder(Files::Patterns, path);
     sayAtOnce("Saving " + QFileInfo(path).fileName() + "…");
     const Waiting waiting;
-    const std::string problem = clothcad::save(session_.document(), path.toStdString(), session_.state());
+    const std::string problem = twintailor::save(session_.document(), path.toStdString(), session_.state());
     if (!problem.empty()) {
         say(QString::fromStdString(problem), true);
         return false;
@@ -684,7 +685,7 @@ bool MainWindow::exportObj(const QString& path) {
     }
     // Written beside the file and then put in its place: one that fails leaves the old file.
     // Another program may hold the file for a moment, so a replacing that fails is tried
-    // again after growing waits, about half a second in all, as clothcad::save does.
+    // again after growing waits, about half a second in all, as twintailor::save does.
     const auto size = static_cast<qint64>(obj->text.size());
     for (std::chrono::milliseconds wait{1};; wait *= 2) {
         QSaveFile file(path);
@@ -705,8 +706,8 @@ bool MainWindow::exportObj(const QString& path) {
 
 bool MainWindow::save() {
     if (!takeWhatIsTyped()) return false;
-    const QString path = path_.isEmpty() ? QFileDialog::getSaveFileName(this, "Save", inFolder(folderFor(Files::Patterns), title_ + ".clothcad"),
-                                                                        "Patterns (*.clothcad)")
+    const QString path = path_.isEmpty() ? QFileDialog::getSaveFileName(this, "Save", inFolder(folderFor(Files::Patterns), title_ + ".twintail"),
+                                                                        "Patterns (*.twintail)")
                                          : path_;
     return !path.isEmpty() && saveAs(path);
 }
@@ -714,7 +715,7 @@ bool MainWindow::save() {
 bool MainWindow::mayDiscard(const QString& before) {
     if (!takeWhatIsTyped()) return false;
     if (!session_.unsaved()) return true;
-    QMessageBox box(QMessageBox::Question, "Cloth CAD", QString("Save the changes to %1 before %2?").arg(title_, before),
+    QMessageBox box(QMessageBox::Question, "Twintailor", QString("Save the changes to %1 before %2?").arg(title_, before),
                     QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, this);
     box.button(QMessageBox::Discard)->setText("Don't Save");
     box.setDefaultButton(QMessageBox::Save);
@@ -790,7 +791,7 @@ void MainWindow::offerRecovery(const QString& folder) {
             continue;
         }
         const QString title = QString::fromStdString(copy->title);
-        QMessageBox box(QMessageBox::Question, "Cloth CAD", QString("Cloth CAD stopped before %1 was saved. Open the recovered copy?").arg(title),
+        QMessageBox box(QMessageBox::Question, "Twintailor", QString("Twintailor stopped before %1 was saved. Open the recovered copy?").arg(title),
                         QMessageBox::Open | QMessageBox::Discard | QMessageBox::Cancel, this);
         box.button(QMessageBox::Discard)->setText("Delete");
         box.button(QMessageBox::Cancel)->setText("Not Now");
@@ -834,10 +835,10 @@ void MainWindow::endRecovery() {
 void MainWindow::cannotGoOn(const QString& error) {
     if (std::exchange(failed_, true)) return;
     timer_->stop();
-    const QString words = QString("Cloth CAD met an error it cannot go on from, and has to close (%1).\n\n").arg(error) + copyBeforeEnding();
+    const QString words = QString("Twintailor met an error it cannot go on from, and has to close (%1).\n\n").arg(error) + copyBeforeEnding();
     // The message not at once: the error may have come out of the middle of drawing.
     QTimer::singleShot(0, this, [this, words] {
-        auto* box = new QMessageBox(QMessageBox::Critical, "Cloth CAD", words, QMessageBox::Close, this);
+        auto* box = new QMessageBox(QMessageBox::Critical, "Twintailor", words, QMessageBox::Close, this);
         box->setObjectName("cannotGoOn");
         box->setTextInteractionFlags(Qt::TextSelectableByMouse);  // so that a report can copy the error
         connect(box, &QMessageBox::finished, this, &MainWindow::mustEnd);
@@ -850,18 +851,18 @@ QString MainWindow::copyBeforeEnding() {
         if (!session_.unsaved()) return "Nothing was unsaved.";
         if (!autosave_) return "No recovery copy could be kept: the changes since the last save are lost.";
         const std::expected<void, std::string> written = autosave_->writeNow(session_, title_.toStdString(), path_.toStdString());
-        if (written) return "Your unsaved work was copied. Start Cloth CAD again: it offers to open it.";
-        return QString("Your unsaved work could not be copied (%1). Start Cloth CAD again: it offers an earlier copy, if there is one.")
+        if (written) return "Your unsaved work was copied. Start Twintailor again: it offers to open it.";
+        return QString("Your unsaved work could not be copied (%1). Start Twintailor again: it offers an earlier copy, if there is one.")
             .arg(QString::fromStdString(written.error()));
     } catch (const std::exception& problem) {
-        return QString("Your unsaved work could not be copied (%1). Start Cloth CAD again: it offers an earlier copy, if there is one.")
+        return QString("Your unsaved work could not be copied (%1). Start Twintailor again: it offers an earlier copy, if there is one.")
             .arg(QString::fromUtf8(problem.what()));
     }
 }
 
 void MainWindow::showTitle(const QString& title) {
     title_ = title;
-    setWindowTitle(title + "[*]  —  Cloth CAD");  // Qt shows the "*" while the window is marked modified
+    setWindowTitle(title + "[*]  —  Twintailor");  // Qt shows the "*" while the window is marked modified
 }
 
 void MainWindow::showUnsaved() {
@@ -1422,4 +1423,4 @@ void MainWindow::setViewLayout(ViewLayout layout) {
     if (layout == ViewLayout::SideBySide || layout == ViewLayout::Stacked) views_->setSizes({1, 1});  // shared in half again
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

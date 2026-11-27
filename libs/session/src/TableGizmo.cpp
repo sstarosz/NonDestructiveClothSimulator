@@ -1,11 +1,11 @@
-#include "clothcad/session/TableGizmo.h"
+#include "twintailor/session/TableGizmo.h"
 
 #include <algorithm>
 #include <cmath>
 
-#include "clothcad/core/Drawing.h"
+#include "twintailor/core/Drawing.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
@@ -103,4 +103,4 @@ Factors scaleBy(const TableGizmo& gizmo, TableHandle handle, Vec2 pressed, Vec2 
     return handle == TableHandle::AlongX ? Factors{factor, 1.0} : Factors{1.0, factor};
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

@@ -1,5 +1,5 @@
 # One test file per source file of the library.
-clothcad_unit_tests(core SOURCES
+twintailor_unit_tests(core SOURCES
     DocumentTests.cpp
     DrawingTests.cpp
     EvaluateTests.cpp

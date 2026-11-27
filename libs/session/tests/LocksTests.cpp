@@ -3,10 +3,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/session/Locks.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/session/Locks.h"
 
-using namespace clothcad;
+using namespace twintailor;
 
 TEST_CASE("the ends of an edge whose length a formula gives are locked; the other corners are not")
 {

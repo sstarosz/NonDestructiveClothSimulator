@@ -1,11 +1,11 @@
-#include "clothcad/session/Offers.h"
+#include "twintailor/session/Offers.h"
 
 #include <array>
 
-#include "clothcad/core/Fields.h"
-#include "clothcad/core/Text.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/core/Text.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
@@ -77,4 +77,4 @@ Added addOffered(Document& doc, PanelId panel, Offer offer) {
     return {added, toChoose};
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-namespace clothcad::testing {
+namespace twintailor::testing {
 
 template <class Each>
 void forEachDamaged(std::string_view text, const Each& each) {
@@ -25,4 +25,4 @@ void forEachDamaged(std::string_view text, const Each& each) {
     }
 }
 
-} // namespace clothcad::testing
+} // namespace twintailor::testing

@@ -40,16 +40,16 @@ class QPainter;
 
 #include "LengthCard.h"
 #include "Shelf.h"
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/core/Fields.h"
-#include "clothcad/session/Drafting.h"
-#include "clothcad/session/Lengths.h"
-#include "clothcad/session/TableGizmo.h"
-#include "clothcad/sim/Mesh.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/session/Drafting.h"
+#include "twintailor/session/Lengths.h"
+#include "twintailor/session/TableGizmo.h"
+#include "twintailor/sim/Mesh.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class TableView : public QWidget {
     Q_OBJECT
@@ -120,16 +120,16 @@ public:
     std::optional<session::TableGizmo> gizmoDrawn() const;
 
 signals:
-    void gestured(const clothcad::session::Gesture& gesture);
-    void pointerAt(clothcad::Vec2 tablePoint);
+    void gestured(const twintailor::session::Gesture& gesture);
+    void pointerAt(twintailor::Vec2 tablePoint);
     void told(const QString& why);     // why what was pressed cannot be dragged
     void hinted(const QString& next);  // what to do next, in a tool of two clicks
-    void referencePicked(const clothcad::Reference& reference);
+    void referencePicked(const twintailor::Reference& reference);
     void choosingDropped();  // Esc while choosing
-    void lengthEdited(clothcad::OpId operation, clothcad::FieldId field, const QString& text);
-    void lengthCommitted(clothcad::OpId operation, clothcad::FieldId field, const QString& text);
+    void lengthEdited(twintailor::OpId operation, twintailor::FieldId field, const QString& text);
+    void lengthCommitted(twintailor::OpId operation, twintailor::FieldId field, const QString& text);
     void lengthCancelled();
-    void keepingChosen(clothcad::OpId operation, clothcad::SetLength::Keeping keeping);
+    void keepingChosen(twintailor::OpId operation, twintailor::SetLength::Keeping keeping);
     // The table painted itself, which took that long (View > Frame times).
     void painted(double milliseconds);
 
@@ -309,4 +309,4 @@ private:
     std::optional<LineStart> lineFrom_;  // Line: the first end
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

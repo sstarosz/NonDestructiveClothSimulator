@@ -34,14 +34,14 @@
 #include "SpaceView.h"
 #include "TableView.h"
 #include "Theme.h"
-#include "clothcad/render/Camera.h"
-#include "clothcad/render/Gizmo.h"
-#include "clothcad/render/SceneOf.h"
-#include "clothcad/session/Samples.h"
-#include "clothcad/sim/Mesh.h"
+#include "twintailor/render/Camera.h"
+#include "twintailor/render/Gizmo.h"
+#include "twintailor/render/SceneOf.h"
+#include "twintailor/session/Samples.h"
+#include "twintailor/sim/Mesh.h"
 
-using namespace clothcad;
-using namespace clothcad::ui;
+using namespace twintailor;
+using namespace twintailor::ui;
 
 namespace {
 
@@ -428,8 +428,8 @@ void tshirt(MainWindow& window, perf::Report& report) {
     const Document& doc = window.session().document();
     for (const Param parameter : doc.parameters()) {
         if (doc.get(parameter).unit != Unit::Length) continue;
-        // CLOTHCAD_BENCH_PAINT=1 also lists which widgets Qt paints, and how much, per frame.
-        const bool counting = qEnvironmentVariableIsSet("CLOTHCAD_BENCH_PAINT");
+        // TWINTAILOR_BENCH_PAINT=1 also lists which widgets Qt paints, and how much, per frame.
+        const bool counting = qEnvironmentVariableIsSet("TWINTAILOR_BENCH_PAINT");
         const Run changed = bestOf(3, [&] {
             const std::uint64_t versionBefore = window.session().editor().version();
             int step = 0;

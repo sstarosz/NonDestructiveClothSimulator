@@ -17,11 +17,11 @@
 #include <numbers>
 
 #include "Theme.h"
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Text.h"
-#include "clothcad/session/Locks.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Text.h"
+#include "twintailor/session/Locks.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 TableView::TableView(QWidget* parent) : QWidget(parent) {
     setObjectName("table");
@@ -1361,4 +1361,4 @@ void TableView::resizeEvent(QResizeEvent*) {
     if (!fitted_) fit();
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

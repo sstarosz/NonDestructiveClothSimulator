@@ -13,7 +13,7 @@
 #include <QString>
 #include <functional>
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class Application : public QApplication {
 public:
@@ -27,4 +27,4 @@ private:
     std::function<void(const QString&)> handler_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

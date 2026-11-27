@@ -10,16 +10,16 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/session/Autosave.h"
+#include "twintailor/session/Autosave.h"
 
-using namespace clothcad;
-using namespace clothcad::session;
+using namespace twintailor;
+using namespace twintailor::session;
 
 namespace {
 
 // An empty folder of this test's own, beside the test program.
 std::string emptyFolder(const char* name) {
-    const std::filesystem::path folder = filePath(CLOTHCAD_TEST_FOLDER) / name;
+    const std::filesystem::path folder = filePath(TWINTAILOR_TEST_FOLDER) / name;
     std::filesystem::remove_all(folder);
     std::filesystem::create_directories(folder);
     const std::u8string utf8 = folder.generic_u8string();
@@ -46,7 +46,7 @@ TEST_CASE("a copy is written when unsaved work is due one, with whose it is, and
     Session session(start.doc, Threading::OneStepPerAdvance);
     Autosave autosave(folder, 30.0);
     const auto update = [&](double now) {
-        const std::optional<std::string> problem = autosave.update(session, now, "band", "C:/patterns/band.clothcad");
+        const std::optional<std::string> problem = autosave.update(session, now, "band", "C:/patterns/band.twintail");
         EXPECT((!problem && !autosave.wait()), "no problem");
     };
     const auto set = [&](int waist) { REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.waist, Expr(waist)); })); };
@@ -62,7 +62,7 @@ TEST_CASE("a copy is written when unsaved work is due one, with whose it is, and
     REQUIRE(hasRecovery(folder));
     std::expected<Recovery, std::string> copy = readRecovery(folder);
     REQUIRE(copy);
-    EXPECT((copy->title == "band" && copy->path == "C:/patterns/band.clothcad"), "whose it is");
+    EXPECT((copy->title == "band" && copy->path == "C:/patterns/band.twintail"), "whose it is");
     EXPECT((asNumber(copy->scene.document.get(start.waist).value) == 90.0), "the work as it was");
 
     set(100);
@@ -70,7 +70,7 @@ TEST_CASE("a copy is written when unsaved work is due one, with whose it is, and
     EXPECT((asNumber(readRecovery(folder)->scene.document.get(start.waist).value) == 90.0), "the next is not due yet");
     update(160.0);
     EXPECT((asNumber(readRecovery(folder)->scene.document.get(start.waist).value) == 100.0), "and then it is");
-    std::filesystem::remove(filePath(folder + "/pattern.clothcad"));
+    std::filesystem::remove(filePath(folder + "/pattern.twintail"));
     update(200.0);
     EXPECT((!hasRecovery(folder)), "work that has not changed since is not written again");
 
@@ -107,7 +107,7 @@ TEST_CASE("a copy stays when the program stops, goes when forgotten, and one tha
         EXPECT((!hasRecovery(folder) && std::filesystem::is_empty(filePath(folder))), "forgotten, nothing is left");
     }
 
-    std::ofstream(filePath(folder + "/pattern.clothcad")) << "broken";
+    std::ofstream(filePath(folder + "/pattern.twintail")) << "broken";
     EXPECT((!readRecovery(folder)), "a copy that cannot be read says so");
 
     Autosave autosave(folder + "/no such folder", 0.0);

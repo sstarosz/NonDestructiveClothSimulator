@@ -5,9 +5,9 @@
 #include <algorithm>
 #include <utility>
 
-#include "clothcad/core/Document.h"
+#include "twintailor/core/Document.h"
 
-namespace clothcad {
+namespace twintailor {
 
 struct DocumentAccess {
     static uint32_t nextId(const Document& doc) { return doc.nextId_; }
@@ -32,4 +32,4 @@ struct DocumentAccess {
     }
 };
 
-} // namespace clothcad
+} // namespace twintailor

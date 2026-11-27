@@ -6,11 +6,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/session/Offers.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/session/Offers.h"
 
-using namespace clothcad;
-using namespace clothcad::session;
+using namespace twintailor;
+using namespace twintailor::session;
 
 TEST_CASE("an empty panel is offered shapes; a panel with a shape is offered changes")
 {

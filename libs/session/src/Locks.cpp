@@ -1,9 +1,9 @@
-#include "clothcad/session/Locks.h"
+#include "twintailor/session/Locks.h"
 
-#include "clothcad/core/Fields.h"
-#include "clothcad/session/Lengths.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/session/Lengths.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
@@ -85,4 +85,4 @@ std::string handleLock(const Document& doc, PanelId panel, const EdgeRef& image,
     return {};
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

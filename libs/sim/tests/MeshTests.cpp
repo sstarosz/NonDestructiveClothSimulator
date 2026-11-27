@@ -10,16 +10,16 @@
 
 #include "Expect.h"
 #include "Helpers.h"
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/sim/Body.h"
-#include "clothcad/sim/Cloth.h"
-#include "clothcad/sim/Layout.h"
-#include "clothcad/sim/Mesh.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/sim/Body.h"
+#include "twintailor/sim/Cloth.h"
+#include "twintailor/sim/Layout.h"
+#include "twintailor/sim/Mesh.h"
 
-using namespace clothcad;
-using namespace clothcad::sim;
-using namespace clothcad::sim::testing;
+using namespace twintailor;
+using namespace twintailor::sim;
+using namespace twintailor::sim::testing;
 
 TEST_CASE("a rectangle is covered by triangles")
 {

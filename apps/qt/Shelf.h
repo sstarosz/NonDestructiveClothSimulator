@@ -16,7 +16,7 @@
 #include <QWidget>
 #include <optional>
 
-#include "clothcad/session/Tools.h"
+#include "twintailor/session/Tools.h"
 
 class QAction;
 class QActionGroup;
@@ -24,7 +24,7 @@ class QStackedWidget;
 class QTabBar;
 class QToolBar;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 // The tools are the session's (session/Tools.h): the shelf only shows them.
 using session::Tool;
@@ -75,8 +75,8 @@ signals:
     void sewAsSourceRequested();
     // Every formula of the panel replaced by the number it comes to now.
     void bakeRequested();
-    void toolChosen(clothcad::ui::Tool tool);
-    void layoutChosen(clothcad::ui::ViewLayout layout);
+    void toolChosen(twintailor::ui::Tool tool);
+    void layoutChosen(twintailor::ui::ViewLayout layout);
 
 private:
     QToolBar* row(const QString& tab);
@@ -102,4 +102,4 @@ private:
     QAction* sewAsSource_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

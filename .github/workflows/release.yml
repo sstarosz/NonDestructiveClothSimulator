@@ -38,7 +38,7 @@ jobs:
     needs: notes
     uses: ./.github/workflows/ci.yml
     with:
-      package: ClothCad-${{ needs.notes.outputs.version }}-windows-x64
+      package: Twintailor-${{ needs.notes.outputs.version }}-windows-x64
       version: ${{ needs.notes.outputs.version }}
 
   draft:
@@ -63,6 +63,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ needs.notes.outputs.prerelease }}
         run: |
-          flags=(--draft --verify-tag --title "Cloth CAD ${GITHUB_REF_NAME#v}" --notes-file notes.md)
+          flags=(--draft --verify-tag --title "Twintailor ${GITHUB_REF_NAME#v}" --notes-file notes.md)
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" ClothCad-*.zip --repo "$GITHUB_REPOSITORY" "${flags[@]}"
+          gh release create "$GITHUB_REF_NAME" Twintailor-*.zip --repo "$GITHUB_REPOSITORY" "${flags[@]}"

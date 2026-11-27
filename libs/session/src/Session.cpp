@@ -1,4 +1,4 @@
-#include "clothcad/session/Session.h"
+#include "twintailor/session/Session.h"
 
 #include <algorithm>
 #include <chrono>
@@ -7,9 +7,9 @@
 #include <string>
 #include <utility>
 
-#include "clothcad/core/Drawing.h"
+#include "twintailor/core/Drawing.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 constexpr std::size_t keptDrapes = 64;  // about 70 kB each at 2,800 particles
@@ -347,7 +347,7 @@ bool Session::takeMeshIfMade(bool wait) {
         meshedShapes_ = meshing_.shapes;
         meshFailed_ = meshing_.shapes;
         toTell_ = "The cloth mesh could not be made (" + std::string(problem.what()) +
-                  "), so the one before is shown. Undo the last change, or save your work and start Cloth CAD again.";
+                  "), so the one before is shown. Undo the last change, or save your work and start Twintailor again.";
         return false;
     }
     // Made before a panel was taken away: of no use; the next one is made at once.
@@ -403,7 +403,7 @@ void Session::followBody() {
             body_ = preparing_.get();
         } catch (const std::exception& problem) {
             bodyProblem_ = "The avatar could not be made ready for the cloth (" + std::string(problem.what()) +
-                           "), so the cloth waits. Save your work and start Cloth CAD again.";
+                           "), so the cloth waits. Save your work and start Twintailor again.";
             toTell_ = bodyProblem_;
         }
     }
@@ -510,4 +510,4 @@ std::expected<sim::Obj, std::string> Session::obj() {
     return std::unexpected("There is nothing to export. Draw a panel on the table, or put right the one that has no cloth, and export again.");
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

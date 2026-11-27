@@ -1,5 +1,5 @@
 Third-party code inside the Qt 6.12.0 libraries and plugins shipped with
-Cloth CAD, with the notices that go with it. Taken from the attribution pages
+Twintailor, with the notices that go with it. Taken from the attribution pages
 of Qt's documentation, for what Qt's bill of materials (qtbase-6.12.0.spdx)
 lists in those files. See also https://doc.qt.io/qt-6/licenses-used-in-qt.html
 

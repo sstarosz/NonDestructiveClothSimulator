@@ -1,5 +1,5 @@
-#include "clothcad/sim/Mesh.h"
-#include "clothcad/sim/Layout.h"
+#include "twintailor/sim/Mesh.h"
+#include "twintailor/sim/Layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,9 +10,9 @@
 
 #include <CDT.h>
 
-#include "clothcad/core/Drawing.h"
+#include "twintailor/core/Drawing.h"
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 namespace {
 
@@ -353,4 +353,4 @@ ClothMesh meshOf(const Document& doc, const Result& shapes, MeshSettings setting
     return cloth;
 }
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

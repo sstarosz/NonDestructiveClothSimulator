@@ -1,8 +1,8 @@
-#include "clothcad/core/Expr.h"
+#include "twintailor/core/Expr.h"
 
 #include "internal/ExprNode.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 
@@ -47,4 +47,4 @@ Expr max(const Expr& a, const Expr& b) { return binary(Kind::Max, a, b); }
 Expr abs(const Expr& a) { return unary(Kind::Abs, a); }
 Expr clamp(const Expr& value, const Expr& low, const Expr& high) { return min(max(value, low), high); }
 
-} // namespace clothcad
+} // namespace twintailor

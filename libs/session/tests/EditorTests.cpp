@@ -5,13 +5,13 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/Drawing.h"
-#include "clothcad/session/Editor.h"
-#include "clothcad/sim/Layout.h"
-#include "clothcad/sim/Mesh.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/session/Editor.h"
+#include "twintailor/sim/Layout.h"
+#include "twintailor/sim/Mesh.h"
 
-using namespace clothcad;
-using namespace clothcad::session;
+using namespace twintailor;
+using namespace twintailor::session;
 
 namespace {
 

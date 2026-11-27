@@ -1,11 +1,11 @@
-#include "clothcad/render/Picking.h"
+#include "twintailor/render/Picking.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <numbers>
 
-namespace clothcad::render {
+namespace twintailor::render {
 
 namespace {
 
@@ -114,4 +114,4 @@ std::optional<sim::Vec3> acrossTheView(const OrbitCamera& camera, ViewSize size,
     return *to - *from;
 }
 
-} // namespace clothcad::render
+} // namespace twintailor::render

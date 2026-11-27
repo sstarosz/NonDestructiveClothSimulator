@@ -15,9 +15,9 @@
 #endif
 
 #include "Theme.h"
-#include "clothcad/render/SceneOf.h"
+#include "twintailor/render/SceneOf.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -457,4 +457,4 @@ void SpaceView::key(QKeyCombination pressed) {
     else emit keyed(pressed);
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

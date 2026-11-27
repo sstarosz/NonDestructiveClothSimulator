@@ -13,15 +13,15 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/File.h"
+#include "twintailor/core/File.h"
 
-using namespace clothcad;
+using namespace twintailor;
 
 namespace {
 
 // An empty folder of this test's own, beside the test program.
 std::string emptyFolder(const char* name) {
-    const std::filesystem::path folder = filePath(CLOTHCAD_TEST_FOLDER) / name;
+    const std::filesystem::path folder = filePath(TWINTAILOR_TEST_FOLDER) / name;
     std::filesystem::remove_all(folder);
     std::filesystem::create_directories(folder);
     const std::u8string utf8 = folder.generic_u8string();
@@ -47,7 +47,7 @@ Document band(double waist) {
 
 TEST_CASE("a file that another program holds for a moment is saved")
 {
-    const std::string path = emptyFolder("moment") + "/band.clothcad";
+    const std::string path = emptyFolder("moment") + "/band.twintail";
     REQUIRE(save(band(80), path).empty());
 
     std::ifstream held(filePath(path), std::ios::binary);
@@ -67,7 +67,7 @@ TEST_CASE("a file that another program holds for a moment is saved")
 #ifdef _WIN32
 TEST_CASE("a file that stays held is not replaced, and saving says why")
 {
-    const std::string path = emptyFolder("held") + "/band.clothcad";
+    const std::string path = emptyFolder("held") + "/band.twintail";
     REQUIRE(save(band(80), path).empty());
 
     const std::ifstream held(filePath(path), std::ios::binary);

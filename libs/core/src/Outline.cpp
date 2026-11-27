@@ -5,9 +5,9 @@
 #include <cstddef>
 #include <limits>
 
-#include "clothcad/core/Units.h"
+#include "twintailor/core/Units.h"
 
-namespace clothcad::outline {
+namespace twintailor::outline {
 
 namespace {
 
@@ -457,4 +457,4 @@ void flip(Pattern& pattern) {
     pattern.flipped = !pattern.flipped;
 }
 
-} // namespace clothcad::outline
+} // namespace twintailor::outline

@@ -1,6 +1,6 @@
 # What else is in the package
 
-Cloth CAD is under the MIT licence (`LICENSE`). The Windows package also
+Twintailor is under the MIT licence (`LICENSE`). The Windows package also
 holds the work of others, listed here with its licence and where its source
 is. The licence texts are in `licenses/`.
 
@@ -32,7 +32,7 @@ under the Visual Studio licence terms
 
 ## CDT (Constrained Delaunay Triangulation) 1.4.4
 
-Compiled into `clothcad.exe`, unchanged. Mozilla Public License 2.0
+Compiled into `twintailor.exe`, unchanged. Mozilla Public License 2.0
 (`licenses/MPL-2.0.txt`). Source:
 <https://github.com/artem-ogre/CDT/tree/1.4.4>.
 
@@ -74,7 +74,7 @@ CDT brings two pieces of other authors:
 
 ## Vulkan headers and Vulkan-Hpp
 
-Compiled into `clothcad.exe`. Source:
+Compiled into `twintailor.exe`. Source:
 <https://github.com/KhronosGroup/Vulkan-Hpp> and
 <https://github.com/KhronosGroup/Vulkan-Headers>. Offered under the Apache
 License 2.0 or the MIT licence; used here under the MIT licence:
@@ -105,5 +105,5 @@ graphics card's driver.
 
 ## The avatar
 
-`assets/avatarV1.obj`: generated with AI. Shipped under Cloth CAD's MIT
+`assets/avatarV1.obj`: generated with AI. Shipped under Twintailor's MIT
 licence (see `LICENSE`).

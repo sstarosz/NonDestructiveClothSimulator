@@ -1,11 +1,11 @@
-#include "clothcad/core/Drawing.h"
+#include "twintailor/core/Drawing.h"
 
 #include <algorithm>
 #include <cmath>
 
 #include "internal/Outline.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 
@@ -130,4 +130,4 @@ Pattern turned(const Pattern& pattern, double degrees) {
     return result;
 }
 
-} // namespace clothcad
+} // namespace twintailor

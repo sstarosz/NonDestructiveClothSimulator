@@ -1,4 +1,4 @@
-#include "clothcad/sim/Cloth.h"
+#include "twintailor/sim/Cloth.h"
 
 #include <algorithm>
 #include <array>
@@ -9,9 +9,9 @@
 #include <utility>
 
 #include "Arranging.h"
-#include "clothcad/sim/Normals.h"  // joinedWithin: how wide a seam can be and still look closed
+#include "twintailor/sim/Normals.h"  // joinedWithin: how wide a seam can be and still look closed
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 namespace {
 
@@ -591,4 +591,4 @@ bool Cloth::sound() const {
     return true;
 }
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

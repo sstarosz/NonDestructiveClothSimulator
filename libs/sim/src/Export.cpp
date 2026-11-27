@@ -1,4 +1,4 @@
-#include "clothcad/sim/Export.h"
+#include "twintailor/sim/Export.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -6,12 +6,12 @@
 #include <iterator>
 #include <set>
 
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Text.h"
-#include "clothcad/sim/AvatarImport.h"
-#include "clothcad/sim/Normals.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Text.h"
+#include "twintailor/sim/AvatarImport.h"
+#include "twintailor/sim/Normals.h"
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 namespace {
 
@@ -82,7 +82,7 @@ Obj objOf(const Document& doc, const ClothMesh& mesh, const Placement& positions
     auto out = std::back_inserter(obj.text);
     // Written as the avatar's file was, so that the two line up where both are opened.
     const AvatarImport readAs = doc.avatar() ? doc.avatar()->readAs : AvatarImport{};
-    std::format_to(out, "# Cloth CAD 0.1, {} panel{}, {}\n", written.size(), written.size() == 1 ? "" : "s", unitName(readAs.cmPerUnit()));
+    std::format_to(out, "# Twintailor 0.1, {} panel{}, {}\n", written.size(), written.size() == 1 ? "" : "s", unitName(readAs.cmPerUnit()));
     std::set<std::string> taken;
     std::size_t first = 1;  // OBJ counts from 1, through the whole file
     for (const std::size_t i : written) {
@@ -108,4 +108,4 @@ Obj objOf(const Document& doc, const ClothMesh& mesh, const Placement& positions
     return obj;
 }
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

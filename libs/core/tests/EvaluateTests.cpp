@@ -8,14 +8,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/core/Fields.h"
-#include "clothcad/core/File.h"
-#include "clothcad/core/Text.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/core/File.h"
+#include "twintailor/core/Text.h"
 
-using namespace clothcad;
+using namespace twintailor;
 
 TEST_CASE("parameter may be defined before the one it uses")
 {

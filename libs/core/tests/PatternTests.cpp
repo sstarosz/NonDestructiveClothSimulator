@@ -5,10 +5,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
 
-using namespace clothcad;
+using namespace twintailor;
 
 TEST_CASE("an outline is looked up by the names of its edges and corners")
 {

@@ -10,14 +10,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/Drawing.h"
-#include "clothcad/sim/AvatarImport.h"
-#include "clothcad/sim/Body.h"
-#include "clothcad/sim/Export.h"
-#include "clothcad/sim/Normals.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/sim/AvatarImport.h"
+#include "twintailor/sim/Body.h"
+#include "twintailor/sim/Export.h"
+#include "twintailor/sim/Normals.h"
 
-using namespace clothcad;
-using namespace clothcad::sim;
+using namespace twintailor;
+using namespace twintailor::sim;
 
 namespace {
 
@@ -104,7 +104,7 @@ TEST_CASE("an OBJ holds every particle, its place in the pattern and its normal,
     const Obj obj = objOf(start.doc, made.mesh, made.positions);
     const Read read(obj.text);
     EXPECT((obj.panels == 2 && obj.leftOut == 0 && obj.unmeshed == 0), "both panels are written");
-    EXPECT(read.firstLine == "# Cloth CAD 0.1, 2 panels, cm", "it says what it is, and its units");
+    EXPECT(read.firstLine == "# Twintailor 0.1, 2 panels, cm", "it says what it is, and its units");
     EXPECT((read.v.size() == made.particles && read.vt.size() == made.particles && read.vn.size() == made.particles), "a v, a vt and a vn per particle");
     REQUIRE(read.groups.size() == 2);
     EXPECT((read.groups[0].name == "front" && read.groups[1].name == "side"), "a group per panel, with its name");
@@ -153,7 +153,7 @@ TEST_CASE("on an avatar read from a file in metres, z up, the OBJ is in metres, 
 
     const Obj obj = objOf(start.doc, made.mesh, made.positions);
     const Read read(obj.text);
-    EXPECT(read.firstLine == "# Cloth CAD 0.1, 2 panels, m", "it says its unit");
+    EXPECT(read.firstLine == "# Twintailor 0.1, 2 panels, m", "it says its unit");
     REQUIRE(read.v.size() == made.particles);
     bool lined = true;
     for (std::size_t i = 0; i < file.points.size(); ++i) lined = lined && length(read.v[i] - file.points[i]) < 1e-5;
@@ -176,10 +176,10 @@ TEST_CASE("an OBJ's first line says the unit of the avatar's file")
         const Meshed made(start.doc);
         return Read(objOf(start.doc, made.mesh, made.positions).text).firstLine;
     };
-    EXPECT(firstLine({}) == "# Cloth CAD 0.1, 2 panels, cm", "as it was for a file in cm");
-    EXPECT(firstLine({.unit = 0.1}) == "# Cloth CAD 0.1, 2 panels, mm", "mm");
-    EXPECT(firstLine({.unit = 2.54}) == "# Cloth CAD 0.1, 2 panels, inch", "inches");
-    EXPECT(firstLine({.unit = 100.0, .rescale = 170.0 / 100.4}) == "# Cloth CAD 0.1, 2 panels, 1 unit = 169.32 cm",
+    EXPECT(firstLine({}) == "# Twintailor 0.1, 2 panels, cm", "as it was for a file in cm");
+    EXPECT(firstLine({.unit = 0.1}) == "# Twintailor 0.1, 2 panels, mm", "mm");
+    EXPECT(firstLine({.unit = 2.54}) == "# Twintailor 0.1, 2 panels, inch", "inches");
+    EXPECT(firstLine({.unit = 100.0, .rescale = 170.0 / 100.4}) == "# Twintailor 0.1, 2 panels, 1 unit = 169.32 cm",
            "rescaled, what one unit of the file came to be");
 }
 
@@ -235,7 +235,7 @@ TEST_CASE("a panel left out of an OBJ is not in it, and the others keep their UV
     const Obj obj = objOf(start.doc, made.mesh, made.positions, {.leftOut = {start.front}});
     const Read read(obj.text);
     EXPECT((obj.panels == 1 && obj.leftOut == 1), "counted");
-    EXPECT(read.firstLine == "# Cloth CAD 0.1, 1 panel, cm", "one panel");
+    EXPECT(read.firstLine == "# Twintailor 0.1, 1 panel, cm", "one panel");
     REQUIRE(read.groups.size() == 1);
     EXPECT(read.groups[0].name == "side", "the other one");
     const std::size_t skipped = made.mesh.panels[0].points.size();
