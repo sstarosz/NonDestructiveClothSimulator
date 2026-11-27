@@ -60,9 +60,11 @@ In pull requests, in this order:
   the work on another thread (the avatar, the mesh, the cloth, a recovery copy)
   is said in the help line; any other error the program cannot handle writes the
   recovery copy at once, says so and closes (#151).
-- A round of housekeeping: exact versions of the tools a release is built with,
-  an icon and file properties, the zip's layout, a tidy repository. What it
-  holds is still to be agreed.
+- Done: housekeeping. The tools a release is built with are named exactly, the
+  Vulkan SDK by number and each action by commit (#162), and the zip holds
+  `clothcad.exe` at its top (#160). Left: the merged branches are removed
+  (#159). The icon and the program's file properties wait for a new name, in
+  0.2 (#161).
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
   another PC (#82).
 - Last, the release's own pull request, when all of the above is done: the
@@ -137,6 +139,12 @@ first and may push steps out.
 | --- | --- | --- | --- |
 | 22 | Export options for OBJ: panels as separate objects or one, seams welded or not, and what else users of 0.1 ask for | M | #124 |
 | 23 | Export only the selected panels (after step 7) | S | #125 |
+
+### Name and looks
+
+| # | Step | Size | Issues |
+| --- | --- | --- | --- |
+| 24 | A new name for the app, more memorable, with a brand to go with it; then its icon, and the name and version in the program's file properties. Files saved under the old name keep opening | M | #161 |
 
 ### Cleanups, done with the step that touches the same code
 

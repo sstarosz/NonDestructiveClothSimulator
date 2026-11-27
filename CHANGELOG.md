@@ -10,7 +10,7 @@ Maya.
 ### Start
 
 Windows 10 or 11 (x64) and a graphics card with a Vulkan 1.1 driver. Unpack
-the zip (right-click, Extract All) and open `bin\clothcad.exe`. There is no
+the zip (right-click, Extract All) and open `clothcad.exe` in it. There is no
 installer.
 
 The program is not signed, so Windows warns about an unknown publisher:
