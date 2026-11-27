@@ -151,6 +151,12 @@ struct Problem {
     std::string message;
 };
 
+std::string shown(double value) {
+    char text[32];
+    std::snprintf(text, sizeof text, "%g", value);
+    return text;
+}
+
 // One line's words. A quoted word may hold spaces.
 class Words {
 public:
@@ -199,15 +205,23 @@ public:
         if (value < 0 || value > most) throw Problem{"a count is out of range"};
         return static_cast<std::size_t>(value);
     }
+    // A number: every one in a file is a real one, so "nan" and "inf" are not.
     double real() {
         const std::string text = word();
         try {
             std::size_t used = 0;
             const double value = std::stod(text, &used);
-            if (used == text.size()) return value;
+            if (used == text.size() && std::isfinite(value)) return value;
         } catch (const std::exception&) {
         }
         throw Problem{"\"" + text + "\" should be a number"};
+    }
+    // The window writes none outside these, so one that is has been damaged.
+    double particleDistance() {
+        const double value = real();
+        if (value < finestParticleDistance || value > coarsestParticleDistance)
+            throw Problem{"the particle distance must be between " + shown(finestParticleDistance) + " and " + shown(coarsestParticleDistance) + " cm"};
+        return value;
     }
 
 private:
@@ -313,12 +327,6 @@ void write(std::string& out, const SceneState& state) {
     }
 }
 
-double finite(Words& words) {
-    const double value = words.real();
-    if (!std::isfinite(value)) throw Problem{"a number here is not a number"};
-    return value;
-}
-
 Axis readAxis(Words& words) {
     const std::string name = words.word();
     const auto known = std::find(axisNames.begin(), axisNames.end(), name);
@@ -330,16 +338,16 @@ Axis readAxis(Words& words) {
 // +z, and the shift.
 AvatarImport readImport(Words& words) {
     AvatarImport as;
-    as.unit = finite(words);
+    as.unit = words.real();
     if (as.unit <= 0.0) throw Problem{"the unit of the avatar's file must be above 0"};
-    as.rescale = finite(words);
+    as.rescale = words.real();
     if (as.rescale <= 0.0) throw Problem{"the avatar's scale must be above 0"};
     as.up = readAxis(words);
     as.facing = readAxis(words);
     if (alongOneLine(as.up, as.facing)) throw Problem{"the avatar cannot face along the axis that is up"};
-    as.moved.x = finite(words);
-    as.moved.y = finite(words);
-    as.moved.z = finite(words);
+    as.moved.x = words.real();
+    as.moved.y = words.real();
+    as.moved.z = words.real();
     return as;
 }
 
@@ -476,7 +484,7 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 description.x = words.real();
                 description.y = words.real();
                 description.angle = words.real();
-                if (!words.done()) description.particleDistance = words.real();  // older files have none
+                if (!words.done()) description.particleDistance = words.particleDistance();  // older files have none
                 DocumentAccess::restore(doc, id, std::move(description));
                 panel = id;
             } else if (what == "arrange") {
@@ -542,7 +550,6 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 p.x = words.real();
                 p.y = words.real();
                 p.z = words.real();
-                if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) throw Problem{"a point of the avatar is not a number"};
                 body.avatar->points.push_back(p);
             } else if (what == "t") {
                 if (!body.avatar || body.avatar->triangles.size() == body.triangles) throw Problem{"there is a triangle more than the avatar announces"};
@@ -563,7 +570,7 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
             } else if (what == "drape") {
                 if (state.drape) throw Problem{"there is a second drape"};
                 state.drape.emplace();
-                state.drape->time = finite(words);
+                state.drape->time = words.real();
                 state.drape->sewing = words.whole() != 0;
                 drape.panels = words.count(mostOfAnAvatar);
                 drape.line = lineNumber;
@@ -572,8 +579,8 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 if (!drape.latestWhole(*state.drape)) throw Problem{"the cloth before this one is cut short"};
                 DrapedPanel cloth;
                 cloth.panel = knownPanel(words);
-                cloth.anchor.x = finite(words);
-                cloth.anchor.y = finite(words);
+                cloth.anchor.x = words.real();
+                cloth.anchor.y = words.real();
                 drape.particles = words.count(mostOfAnAvatar);
                 drape.triangles = words.count(mostOfAnAvatar);
                 state.drape->panels.push_back(std::move(cloth));
@@ -581,12 +588,12 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 if (!state.drape || state.drape->panels.empty() || state.drape->panels.back().at.size() == drape.particles)
                     throw Problem{"there is a particle more than the cloth announces"};
                 Vec2 flat;
-                flat.x = finite(words);
-                flat.y = finite(words);
+                flat.x = words.real();
+                flat.y = words.real();
                 Point3 at;
-                at.x = finite(words);
-                at.y = finite(words);
-                at.z = finite(words);
+                at.x = words.real();
+                at.y = words.real();
+                at.z = words.real();
                 state.drape->panels.back().flat.push_back(flat);
                 state.drape->panels.back().at.push_back(at);
             } else if (what == "f") {

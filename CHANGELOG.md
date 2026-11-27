@@ -35,7 +35,9 @@ A first garment, step by step:
   see-through.
 - **Files**: one file holds the whole scene, the avatar and the drape
   included. You are asked before unsaved work is lost, and offered a recovery
-  copy after a crash. Files saved by 0.1 open in every later version.
+  copy after a crash. After an error it cannot go on from, the program copies
+  your work, says so and closes. Files saved by 0.1 open in every later
+  version.
 - **Export OBJ**: the garment as it hangs, in the units and axes of the
   avatar's file, one group per panel, with the pattern as UVs.
 - Seven sample garments (File > Samples), from a skirt to trousers.

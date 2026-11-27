@@ -53,8 +53,16 @@ In pull requests, in this order:
   and every file dialog starts in the folder last used (#121).
 - The window benchmark passes on an unchanged `main` (#116), and its row for
   a running cloth no longer depends on how long Windows sleeps (#109).
-- A round of hardening and housekeeping: bad input and unexpected errors do
-  not lose work or end the program. What it holds is still to be agreed.
+- Done: hardening, so that bad input and errors do not lose work. A panel of a
+  size out of all reason is refused before any memory is taken for its mesh
+  (#152). A file with a number that is not a number, or a particle distance
+  outside its limits, is not opened, and its line is named (#150). A failure of
+  the work on another thread (the avatar, the mesh, the cloth, a recovery copy)
+  is said in the help line; any other error the program cannot handle writes the
+  recovery copy at once, says so and closes (#151).
+- A round of housekeeping: exact versions of the tools a release is built with,
+  an icon and file properties, the zip's layout, a tidy repository. What it
+  holds is still to be agreed.
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
   another PC (#82).
 - Last, the release's own pull request, when all of the above is done: the

@@ -16,6 +16,13 @@ target_compile_definitions(clothcad_autosave_tests PRIVATE CLOTHCAD_TEST_FOLDER=
 clothcad_warnings(clothcad_autosave_tests)
 catch_discover_tests(clothcad_autosave_tests TEST_PREFIX "autosave: " PROPERTIES LABELS integration)
 
+# Damaged files, from reading them to meshing what opens. Labelled "integration".
+add_executable(clothcad_damaged_file_tests DamagedFileTests.cpp)
+target_link_libraries(clothcad_damaged_file_tests PRIVATE clothcad::session Catch2::Catch2WithMain)
+target_include_directories(clothcad_damaged_file_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+clothcad_warnings(clothcad_damaged_file_tests)
+catch_discover_tests(clothcad_damaged_file_tests TEST_PREFIX "damaged files: " PROPERTIES LABELS integration)
+
 # Work on other threads that fails. Its own program: it brings its own
 # operator new, which runs out of memory when a test says so. Labelled "integration".
 add_executable(clothcad_failure_tests FailureTests.cpp)
