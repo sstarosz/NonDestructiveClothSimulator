@@ -886,7 +886,8 @@ TEST_CASE("the Length tool on the shelf gives a clicked edge a length of its own
 
     QComboBox* keeps = w.window.attributes()->findChild<QComboBox*>("keeps");
     REQUIRE(keeps != nullptr);
-    EXPECT((keeps->count() == 3 && keeps->currentIndex() == 0 && keeps->itemText(1).contains("corner")), "the layer offers what to keep, in words of corners, and starts with both ends moving");
+    EXPECT((keeps->count() == 3 && keeps->currentIndex() == 0 && keeps->itemText(1).endsWith(" stays") &&
+            keeps->itemData(1, Qt::ToolTipRole).toString().contains("corner")), "the layer offers what to keep, in words of corners, and starts with both ends moving");
     const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
     const auto topRightX = [&] { return w.window.session().editor().shapes()[plain].position(rect.topRight()).x; };
     EXPECT_NEAR((topRightX()), (35.0), "with both ends moving, the top-right corner went out 5 cm");
@@ -4467,6 +4468,51 @@ std::size_t trianglesOf(const sim::ClothMesh& mesh, const std::string& without =
 }
 
 } // namespace
+
+// ---- The owner's notes: lists and names in the docks ----
+
+namespace {
+
+// A frame, and the layouts it asked for done, one pass of events after another.
+void settle(Window& w) {
+    w.window.tick();
+    for (int i = 0; i < 5; ++i) QApplication::processEvents();
+}
+
+} // namespace
+
+TEST_CASE("no card of the Attribute Editor is wider than the dock; what a length keeps is said in few words", "[qt]")
+{
+    Window w;
+    choose(w, "fileSample6");
+    w.waitForTheBody();
+    AttributeEditor& editor = *w.window.attributes();
+    // A name as long as a person might give: the instances' list of sources holds it.
+    const PanelId front = w.panel("right front");
+    emit w.window.outliner()->renamed(front, "right front of the long summer trousers");
+    std::size_t setLengths = 0;
+    for (PanelId panel : w.doc().panels()) {
+        w.window.select(panel);
+        for (OpId op : w.doc().operations(panel)) editor.openLayer(op);
+        settle(w);
+        QScrollArea* layers = editor.findChild<QScrollArea*>("layerScroll");
+        INFO(w.doc().get(panel).name << ": the layers want " << layers->widget()->minimumSizeHint().width() << " px, the dock shows " << layers->viewport()->width());
+        EXPECT((layers->widget()->minimumSizeHint().width() <= layers->viewport()->width()), "every card fits in the dock");
+        EXPECT((layers->horizontalScrollBar()->maximum() == 0), "so nothing is scrolled to sideways");
+        for (QComboBox* list : layers->findChildren<QComboBox*>("keeps")) {
+            ++setLengths;
+            REQUIRE(list->count() == 3);
+            EXPECT((list->itemText(0) == "both ends move evenly" && list->itemText(1).endsWith(" stays") && !list->itemText(1).contains("Rectangle")),
+                   "the corner without the layer it comes from");
+            EXPECT((list->itemData(1, Qt::ToolTipRole).toString().contains(" of ")), "which the tooltip says");
+        }
+        // Asked of the list that opens, not by opening it: each window opened off screen is one more thing to
+        // close, and Qt's platform without a screen crashed as the program ended after many of them.
+        for (QComboBox* list : layers->findChildren<QComboBox*>())
+            EXPECT((list->view()->minimumWidth() >= list->view()->sizeHintForColumn(0)), "opened, the list shows its entries whole");
+    }
+    EXPECT((setLengths >= 4), "the trousers' set lengths were among them");
+}
 
 TEST_CASE("File > Export OBJ writes the garment, says how many panels went where, and why when it cannot", "[qt]")
 {

@@ -117,6 +117,9 @@ TEST_CASE("references can be read, named and set without knowing the type")
     EXPECT((nameOf(Reference(doc.get(curve).edge), doc) == "top edge of 1. Rectangle"), "named in words");
     EXPECT((nameOf(Reference(fold.image(rect.right())), doc) == "mirrored right edge of 1. Rectangle"), "a mirror image");
     EXPECT((nameOf(Reference(rect.topLeft()), doc) == "top-left corner of 1. Rectangle"), "a corner");
+    EXPECT((shortName(rect.topLeft(), doc) == "top-left" && shortName(rect.bottomRight(), doc) == "bottom-right"), "a corner in few words, for a list");
+    EXPECT((shortName(fold.image(rect.topRight()), doc) == "mirrored top-right"), "a mirror image says so still");
+    EXPECT((shortName(CornerRef{}, doc).empty()), "of nothing there is nothing to say");
     EXPECT((nameOf(Reference(line.line()), doc) == "line of 4. Angled line"), "a line");
     EXPECT((nameOf(Reference(cut.edge()), doc) == "cut edge of 5. Cut"), "an edge made by a cut");
     EXPECT((nameOf(references(doc.get(OpId(instance)))[0].value, doc) == "sleeve"), "a panel");

@@ -21,6 +21,7 @@
 #include <cmath>
 
 #include "Icons.h"
+#include "Lists.h"
 #include "Section.h"
 #include "ValueField.h"
 #include "clothcad/core/Text.h"
@@ -570,6 +571,7 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                 auto* grid = new QGridLayout();
                 grid->setContentsMargins(26, 2, 8, 0);
                 grid->setSpacing(4);
+                grid->setColumnStretch(1, 1);  // what is chosen or typed has the room the names leave
                 int line = 0;
                 for (const ReferenceField& reference : references(operation)) {
                     grid->addWidget(new QLabel(QString(reference.label.data()), box), line, 0);
@@ -587,6 +589,7 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                         }
                         if (current < 0) list->insertItem(0, used), current = 0;  // nothing chosen, or a panel removed
                         list->setCurrentIndex(current);
+                        fitItsPlace(*list);
                         const ReferenceId id = reference.id;
                         connect(list, &QComboBox::activated, this, [this, op, id, list](int chosen) {
                             const QVariant value = list->itemData(chosen);
@@ -614,24 +617,35 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                     keep->setObjectName("keep");
                     keep->addItems({"left of the line", "right of the line"});
                     keep->setCurrentIndex(cut->keep == Cut::Side::Left ? 0 : 1);
+                    fitItsPlace(*keep);
                     connect(keep, &QComboBox::activated, this, [this, op](int chosen) { emit cutSideChosen(op, chosen == 0 ? Cut::Side::Left : Cut::Side::Right); });
                     grid->addWidget(keep, line++, 1);
                 }
                 if (const SetLength* set = std::get_if<SetLength>(&operation)) {
-                    // The ends of the edge are named by their corners, where the outline still has the edge.
-                    QString start = "the start corner", end = "the end corner";
+                    // The ends of the edge are named by their corners, where the outline still has the edge: in
+                    // few words in the list, which layer they come from in an entry's tooltip.
+                    QString start = "start", end = "end", startInFull = "the start corner", endInFull = "the end corner";
                     const PanelId panel = doc.panelOf(op);
                     if (doc.contains(panel) && shapes[panel].contains(set->edge)) {
                         const Pattern& shape = shapes[panel];
                         const Edge& edge = shape.edge(set->edge);
-                        start = QString::fromStdString(nameOf(Reference(shape.vertices[edge.start].name), doc));
-                        end = QString::fromStdString(nameOf(Reference(shape.vertices[edge.end].name), doc));
+                        const CornerRef& first = shape.vertices[edge.start].name;
+                        const CornerRef& last = shape.vertices[edge.end].name;
+                        startInFull = "the " + QString::fromStdString(nameOf(Reference(first), doc));
+                        endInFull = "the " + QString::fromStdString(nameOf(Reference(last), doc));
+                        start = QString::fromStdString(shortName(first, doc));
+                        end = QString::fromStdString(shortName(last, doc));
+                        // Two that are alike in few words, as two added points are, are told apart by their layers.
+                        if (start == end) start = startInFull, end = endInFull;
                     }
                     grid->addWidget(new QLabel("Keeps", box), line, 0);
                     auto* keeps = new QComboBox(box);
                     keeps->setObjectName("keeps");
-                    keeps->addItems({"both ends move evenly", "the " + start + " stays", "the " + end + " stays"});
+                    keeps->addItems({"both ends move evenly", start + " stays", end + " stays"});
+                    keeps->setItemData(1, startInFull + " stays", Qt::ToolTipRole);
+                    keeps->setItemData(2, endInFull + " stays", Qt::ToolTipRole);
                     keeps->setCurrentIndex(static_cast<int>(set->keeping));
+                    fitItsPlace(*keeps);
                     keeps->setToolTip("Which corner of the edge stays where it is while the edge gets its length. "
                                       "On a half panel mirrored across an edge, keep the corner on the mirror.");
                     connect(keeps, &QComboBox::activated, this, [this, op](int chosen) { emit lengthKeepingChosen(op, static_cast<SetLength::Keeping>(chosen)); });
