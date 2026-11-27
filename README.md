@@ -50,7 +50,42 @@ right. It opens on a T-shirt.
    [Export](#export).
 
 To dress your own character, choose Body > Avatar from OBJ…. It must be one
-closed surface in cm, with y up and facing +z.
+closed surface; it may be in any unit and have any axis up (see [Your own
+avatar](#your-own-avatar)).
+
+### Your own avatar
+
+An OBJ file does not say its unit or which way is up, so after you choose one
+a small dialog opens, filled in with a guess, and the 3D view shows the body
+as you choose it, with your panels around it:
+
+- **File unit**: what the file's numbers are in: mm, cm, m or inch.
+- **Scale**: makes the body larger or smaller than the file has it. 100 % is
+  the file as it is.
+- **Height**: how tall the body comes out. Type one (`172`) to set the scale
+  that gives it. Both numbers can be pulled sideways too.
+- **Up** and **Facing**: the file's axes that point up, and out of the body's
+  front.
+
+While the dialog is open you can turn, move and zoom the 3D view (Alt and the
+mouse, the wheel, F); the rest of the window waits, and so does the cloth. OK
+puts the avatar on, its feet on the floor, in the middle, as one undo step.
+Cancel, or Escape, changes nothing.
+
+After OK the program works out how the cloth collides with the new body, with
+a bar at the bottom of the window while it does: a blink for one like the shipped avatar,
+one or two seconds for a model of millions of triangles. You can press Play
+meanwhile; the cloth starts when the body is ready.
+
+Every file dialog starts in the folder of the last file of its kind: patterns
+(Open and Save), avatars, and exports (a first export is offered beside the
+pattern). This is remembered from one start of the program to the next.
+
+The guess takes the longest side of the file's box as up (y, then z, if one is
+barely longer), and the unit in which the body is 120 to 230 cm tall, at
+100 %. A model that is that tall in no unit (many generated models are about 1
+unit tall) is taken in the nearest unit and scaled to 170 cm. Facing cannot be
+read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
 
 ## What 0.1 does
 
@@ -105,10 +140,11 @@ closed surface in cm, with y up and facing +z.
   arranging it by hand. This is its first place only: moving the source later
   leaves it where it is.
 - **3D**: panels arranged around a body (each sample opens on the avatar in
-  `assets/`; Body > Avatar from OBJ… puts another into the pattern, as one
-  undo step), meshed and simulated: gravity, seams drawing closed, cloth
-  against body, floor and cloth. Another avatar starts the cloth again; undo
-  and redo go back to the avatar before, with the cloth that hung on it.
+  `assets/`; Body > Avatar from OBJ… puts another into the pattern, in the
+  file's own unit and axes, as one undo step), meshed and simulated: gravity,
+  seams drawing closed, cloth against body, floor and cloth. Another avatar
+  starts the cloth again; undo and redo go back to the avatar before, with the
+  cloth that hung on it.
 - **Front and back**: a panel's front is the side the table shows, drawn in
   the panel's colour; its back is a darker, cooler shade of it (grey cloth,
   the amber selection and violet instances alike). A panel that has not been
@@ -193,9 +229,9 @@ closed surface in cm, with y up and facing +z.
 - **Files**: save and open (`.clothcad`, plain text), undo. One file holds
   the whole scene, so it opens the same on another computer: the pattern, where
   its panels stand, the avatar itself (its points and triangles, not a path to
-  the OBJ file), and the scene as you left it: the draped cloth, particle by
-  particle, the panels deactivated, the panels and seams hidden, and the body
-  hidden or see-through. An opened file stands still, as it was saved; Play
+  the OBJ file, and how that file was read), and the scene as you left it: the
+  draped cloth, particle by particle, the panels deactivated, the panels and
+  seams hidden, and the body hidden or see-through. An opened file stands still, as it was saved; Play
   carries on from there. A new pattern, or a file saved without an avatar,
   takes the body that is shown. With the shipped avatar a file is about 650 kB,
   about 950 kB with the trousers draped. Names of files and folders may use any
@@ -334,6 +370,9 @@ no screen, an idle machine):
 | One cloth step, 2,800 particles, on a body | 16 ms | 10 ms |
 | One cloth step, the trousers (2,900 particles), on the avatar | 16 ms | 9-10 ms |
 | Meshing a skirt at 2 cm | 25 ms | 8 ms |
+| Reading an avatar's OBJ, 400,000 triangles (27 November) | 250 ms | 25 ms |
+| Preparing an avatar of 400,000 triangles to collide with (27 November) | 1500 ms | 340 ms |
+| A frame with a cloth step in it, 3D shown, an avatar of 1.4 million triangles (27 November) | 50 ms | 17 ms |
 
 What working at 4K and on a T-shirt costs, per frame, mean of 40 frames spaced as a 60 Hz screen
 would (Windows 11, MSVC, no screen, an idle machine; the 3D view's picture is
@@ -365,6 +404,10 @@ read the 3D picture back, which the real window does not do.
 
 How it is kept fast:
 
+- **A body is made ready to draw once.** Its triangles are handed to the
+  graphics card when the avatar changes, not with every picture
+  (`render::Shape`): a frame with the cloth moving costs the same however
+  detailed the body is.
 - **Nothing is worked out again unless it changed.** The mesh is made only
   when the outlines change; the 3D picture is drawn only when the camera, the
   view's size or what it shows has changed. An unchanged frame costs the same
@@ -418,8 +461,12 @@ Blender, Maya or any other 3D program:
   wrapped) where they are arranged in space. It is always the pattern as it is
   now, also with only the table shown. Exporting does not step the cloth,
   change the pattern or clear the "*".
-- **In cm, the avatar's units**, so it lines up with the character it was
-  draped on. The body is not in the file: load your own avatar file beside it.
+- **In the units and axes of the avatar's file**, so it lines up with the
+  character it was draped on: an avatar loaded in metres with Z up gets its
+  garment in metres with Z up, and one given a height of its own gets it in the
+  numbers of its file again. The first line names the unit. The shipped avatar
+  is in cm, Y up. The body is not in the file: load your own avatar file beside
+  it.
 - **One group per panel**, named after it (spaces become `_`; a name used
   twice gets a number). Hidden panels are left out, and the help line says how
   many; deactivated panels are written where they stand.
@@ -431,16 +478,16 @@ Blender, Maya or any other 3D program:
   each panel's front (the side the table shows) is the front of its faces.
 
 In Blender, File > Import > Wavefront (.obj) brings the garment in as one
-object; switch on "Split by Group" for one object per panel. Blender reads one
-unit as a metre, so give the garment and the avatar the same Scale, 0.01, to
-get their real size.
+object; switch on "Split by Group" for one object per panel. Give the garment
+and the avatar the same Scale and axes there. Blender reads one unit as a
+metre, so files in cm need Scale 0.01 to get their real size.
 
 ## How the code is laid out
 
 | Folder | What is in it | Depends on |
 | --- | --- | --- |
 | `libs/core/` | The document (parameters, panels, operations, seams), formulas, evaluation to 2D outlines, files | nothing |
-| `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver, the garment as OBJ text | `core`, CDT |
+| `libs/sim/` | Meshing, arrangement in space, bodies (an avatar's file read in its unit and axes), the cloth solver, the garment as OBJ text | `core`, CDT |
 | `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use; the recovery copy of unsaved work (`Autosave`) | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
 | `apps/qt/` | The window (`clothcad`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
@@ -465,7 +512,16 @@ holds and hands it what the user did.
   panel that shows its back on the outside in the 3D view is inside out in the
   file too. Panels that overlap on the table overlap in the UVs. All panels
   shown are written; a selection cannot be exported on its own.
-- The avatar must be one closed surface in cm, y up, facing +z.
+- The avatar must be one closed surface.
+- How an avatar's file was read (unit, scale, axes) is chosen when it is
+  loaded: to change it, load the file again. The guess of which way the body
+  faces is only a convention.
+- A very detailed avatar is heavy. With models of 1.5 to 2 million triangles
+  the dialog opens after 0.3 to 0.8 s (longer the first time a file is read
+  from disk), each change in it takes 0.1 to 0.2 s, the cloth can collide with
+  the body 1 to 2 s after OK, and the pattern's file is 80 to 155 MB and takes
+  a second or two to save or open. A model reduced to some tens of thousands
+  of triangles avoids all of it.
 - Seams join whole edges, one to one.
 - Delete on a corner works only for corners added with the Point tool; any
   other corner is part of a shape, and the help line names the layer to
@@ -566,7 +622,9 @@ holds and hands it what the user did.
   later changes of the OBJ file: load it again. The samples read the avatar
   beside the program; without it a sample opens on the body that is shown,
   and with no body the cloth falls to the floor. Working out how to collide
-  with another avatar takes under a second, after loading it and after undo.
+  with another avatar takes about a tenth of a second for one like the shipped
+  one and a second or two for millions of triangles, after loading it and after
+  undo; it uses all of the processor's cores but one.
   The avatar that comes with the program was generated by AI, and its mesh
   is uneven.
 - The saved cloth is the one drape that is shown. The drapes kept for undo are

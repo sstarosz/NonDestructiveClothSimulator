@@ -129,6 +129,58 @@ TEST_CASE("the avatar is saved in the file: one file holds the whole scene")
     EXPECT((problem("avatar \"a\" 0 0\navatar \"b\" 0 0\n").line == 3), "there is only one avatar");
 }
 
+TEST_CASE("how the avatar's file was read is saved with it; one read as it is says nothing of it")
+{
+    Document doc;
+    Avatar made{.name = "me.obj", .points = {{0, 0, 0}, {10, 0, 0}, {0, 170, 0}}, .triangles = {{0, 1, 2}}};
+    doc.setAvatar(std::make_shared<const Avatar>(made));
+    EXPECT((toText(doc).find("import") == std::string::npos), "no line for the plain one");
+
+    made.readAs = {.unit = 100.0, .rescale = 170.0 / 100.4, .up = Axis::Z, .facing = Axis::MinusY, .moved = {-0.03, 85.0 / 3.0, 1e-7}};
+    doc.setAvatar(std::make_shared<const Avatar>(made));
+    const std::string text = toText(doc);
+    const std::variant<SavedScene, FileError> read = fromText(text);
+    REQUIRE(std::holds_alternative<SavedScene>(read));
+    REQUIRE(std::get<SavedScene>(read).document.avatar());
+    EXPECT((*std::get<SavedScene>(read).document.avatar() == made), "the unit, the scale, the axes and the shift, to the last digit");
+    EXPECT((toText(std::get<SavedScene>(read).document) == text), "and it writes the same text again");
+
+    const std::string start = "clothcad 1\n";
+    const std::string avatar = "avatar \"a\" 3 1\n";
+    const std::string rest = "v 0 0 0\nv 1 0 0\nv 0 1 0\nt 0 1 2\n";
+    // As written, and so as every later version has to read it.
+    const std::variant<SavedScene, FileError> kept = fromText(start + avatar + "import 100 1.7 -z x 1.5 -2 0\n" + rest);
+    REQUIRE((std::holds_alternative<SavedScene>(kept) && std::get<SavedScene>(kept).document.avatar()));
+    EXPECT((std::get<SavedScene>(kept).document.avatar()->readAs ==
+            AvatarImport{.unit = 100.0, .rescale = 1.7, .up = Axis::MinusZ, .facing = Axis::X, .moved = {1.5, -2.0, 0.0}}),
+           "each word where it is");
+    for (const char* axis : {"x", "y", "z", "-x", "-y", "-z"}) {
+        const char* across = std::string(axis).ends_with('x') ? "y" : "x";
+        EXPECT((std::holds_alternative<SavedScene>(fromText(start + avatar + "import 1 1 " + axis + " " + across + " 0 0 0\n" + rest))), axis);
+    }
+
+    const auto problem = [&](const std::string& line) {
+        const std::variant<SavedScene, FileError> broken = fromText(start + avatar + line + "\n" + rest);
+        return std::holds_alternative<FileError>(broken) ? std::get<FileError>(broken) : FileError{};
+    };
+    EXPECT((problem("import 0 1 y z 0 0 0").line == 3), "a unit of nothing");
+    EXPECT((problem("import -1 1 y z 0 0 0").line == 3), "or less");
+    EXPECT((problem("import 1 0 y z 0 0 0").line == 3), "a scale of nothing");
+    EXPECT((problem("import 1 -2 y z 0 0 0").line == 3), "or less");
+    EXPECT((problem("import inf 1 y z 0 0 0").line == 3), "or no number");
+    EXPECT((problem("import 1 nan y z 0 0 0").line == 3), "at all");
+    EXPECT((problem("import 1 1 w z 0 0 0").line == 3 && problem("import 1 1 w z 0 0 0").message.find("not an axis") != std::string::npos), "an unknown axis");
+    EXPECT((problem("import 1 1 y up 0 0 0").line == 3), "either of them");
+    EXPECT((problem("import 1 1 y y 0 0 0").line == 3), "facing the way up");
+    EXPECT((problem("import 1 1 -z z 0 0 0").line == 3), "or the way down");
+    EXPECT((problem("import 1 1 y z 0 inf 0").line == 3), "a shift that is no number");
+    EXPECT((problem("import 1 1 y z 0 0").line == 3), "a number too few");
+    EXPECT((problem("import 1 1 y z 0 0 0 0").line == 3), "or too many");
+    EXPECT((problem("import 1 1 y z 0 0 0\nimport 1 1 y z 0 0 0").line == 4), "there is only one");
+    const std::variant<SavedScene, FileError> alone = fromText(start + "import 1 1 y z 0 0 0\n");
+    EXPECT((std::holds_alternative<FileError>(alone) && std::get<FileError>(alone).line == 2), "and it comes after its avatar");
+}
+
 TEST_CASE("how the scene was left is saved beside the pattern")
 {
     Document doc;

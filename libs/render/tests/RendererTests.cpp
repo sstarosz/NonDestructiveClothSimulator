@@ -62,6 +62,46 @@ Scene facing() {
 
 } // namespace
 
+TEST_CASE("a surface with a shared shape is drawn as one with its own points, picture after picture, and another takes its place")
+{
+    if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());
+    const auto shapeOfSquare = [](float size, float z, Colour colour) {
+        const Surface own = square(size, z, colour);
+        Surface shared{.points = {}, .normals = {}, .triangles = {}, .colour = colour};
+        shared.shape = std::make_shared<const Shape>(Shape{.points = own.points, .normals = own.normals, .triangles = own.triangles});
+        return shared;
+    };
+    const Colour red{1.0f, 0.0f, 0.0f}, green{0.0f, 1.0f, 0.0f};
+    const Lines line{{{-40, 100, 40}, {40, 100, 40}}, {0.0f, 0.0f, 1.0f, 1.0f}};
+    const auto pictureOf = [&](std::vector<Surface> surfaces) {
+        Scene scene = facing();
+        scene.surfaces = std::move(surfaces);
+        scene.lines = {line};
+        const auto picture = renderer()->draw(scene, 96, 72);
+        REQUIRE(picture);
+        return picture->pixels;
+    };
+    const auto plain = pictureOf({square(60.0f, 0.0f, red), square(20.0f, 20.0f, green)});
+    {
+        // A shape behind, a surface of its own in front, and a line: each from its own buffer.
+        const Surface behind = shapeOfSquare(60.0f, 0.0f, red);
+        EXPECT(pictureOf({behind, square(20.0f, 20.0f, green)}) == plain, "the same picture");
+        EXPECT(pictureOf({behind, square(20.0f, 20.0f, green)}) == plain, "and again, from the card");
+        const Surface front = shapeOfSquare(20.0f, 20.0f, green);
+        EXPECT(pictureOf({behind, front}) == plain, "two shapes");
+        Surface again = behind;
+        again.colour = green;
+        again.back = std::nullopt;
+        EXPECT(pictureOf({again}) == pictureOf({square(60.0f, 0.0f, green)}), "a shape takes the colour it is drawn in");
+    }
+    // Those are gone; others are made, which may take their places in memory.
+    for (const float size : {40.0f, 10.0f, 50.0f}) {
+        const Surface next = shapeOfSquare(size, 0.0f, red);
+        EXPECT(pictureOf({next}) == pictureOf({square(size, 0.0f, red)}), "the new shape, not what was there before");
+    }
+    EXPECT(pictureOf({square(60.0f, 0.0f, red), square(20.0f, 20.0f, green)}) == plain, "and without any, as at first");
+}
+
 TEST_CASE("an empty scene is the background")
 {
     if (!renderer()) SKIP("No Vulkan on this machine: " << whyNoVulkan());

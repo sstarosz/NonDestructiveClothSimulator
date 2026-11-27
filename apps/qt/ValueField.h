@@ -32,6 +32,7 @@ public:
     void show(const Expr& value, const Document& doc, const Result& shapes);
     // Marks what was typed as not taken, with why in words.
     void refuse(const QString& why);
+    bool refused() const;  // marked so, and not shown anew or put back since
     Unit unit() const { return unit_; }
     // How much a drag changes the number per pixel; by default it follows the number's size.
     void setDragStep(double perPixel) { dragStep_ = perPixel; }

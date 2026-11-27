@@ -6,10 +6,13 @@
 //   file << obj.text;
 //
 // Each panel is a group (`g`) named after it, with its own particles: `v` where
-// they are in space, in cm (the avatar's units, so the two line up), `vt` their
-// place in the flat pattern, and `vn` the cloth's normals (sim::clothNormals),
-// smooth across closed seams. Faces run counter-clockwise seen from the
-// panel's front.
+// they are in space, `vt` their place in the flat pattern, and `vn` the cloth's
+// normals (sim::clothNormals), smooth across closed seams. Faces run
+// counter-clockwise seen from the panel's front.
+//
+// `v` and `vn` are in the units and axes of the avatar's file (the document's
+// Avatar::readAs undone), so that garment and body line up where both are
+// opened; cm, y up, with no avatar. The first line says the unit.
 //
 // The `vt` are the pattern as it lies on the table (each panel turned and moved
 // as it is there), all of it in the square from 0 to 1, with one scale for both

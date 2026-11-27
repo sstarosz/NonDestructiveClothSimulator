@@ -28,19 +28,22 @@ A first garment, step by step:
   every panel, copy, instance and seam that depends on it follows.
 - **Seams** between edges, and instances that come sewn, so a second leg or
   sleeve follows the first.
-- **3D**: panels placed around an avatar read from an OBJ file, and a cloth
-  simulation that stays draped while you edit the pattern. Pull the cloth,
-  move panels with gizmos as in Maya, make the body see-through.
+- **3D**: panels placed around an avatar read from an OBJ file (in mm, cm, m
+  or inches, scaled to the height you want, with any axis up, and shown as you
+  choose), and a cloth simulation that stays draped while you edit the pattern.
+  Pull the cloth, move panels with gizmos as in Maya, make the body
+  see-through.
 - **Files**: one file holds the whole scene, the avatar and the drape
   included. You are asked before unsaved work is lost, and offered a recovery
   copy after a crash. Files saved by 0.1 open in every later version.
-- **Export OBJ**: the garment as it hangs, in cm, one group per panel, with
-  the pattern as UVs.
+- **Export OBJ**: the garment as it hangs, in the units and axes of the
+  avatar's file, one group per panel, with the pattern as UVs.
 - Seven sample garments (File > Samples), from a skirt to trousers.
 
 ### Known limits
 
-- The avatar must be one closed surface, in cm, with y up and facing +z.
+- The avatar must be one closed surface. One of millions of triangles makes
+  the pattern's file large (80 MB and more).
 - One fabric for everything. No pins.
 - Seams join whole edges, one to one. There are no darts or pleats.
 - Cloth keeps clear of cloth by about 1 cm, and cloth pulled open or moving

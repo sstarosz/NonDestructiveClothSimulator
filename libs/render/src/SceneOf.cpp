@@ -121,21 +121,47 @@ std::vector<Point> normalsOf(const std::vector<Point>& points, const std::vector
     return normals;
 }
 
-Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double aspect, const SceneOptions& options) {
+namespace {
+
+// A box grown to take a point in.
+void take(std::optional<Box>& box, sim::Vec3 p) {
+    if (!box) box = Box{p, p};
+    box->first = {std::min(box->first.x, p.x), std::min(box->first.y, p.y), std::min(box->first.z, p.z)};
+    box->second = {std::max(box->second.x, p.x), std::max(box->second.y, p.y), std::max(box->second.z, p.z)};
+}
+
+BodyShape shapeOf(const std::shared_ptr<const sim::Surface>& body) {
+    Shape shape;
+    std::optional<Box> box;
+    shape.points.reserve(body->points.size());
+    for (const sim::Vec3& p : body->points) {
+        shape.points.push_back(pointOf(p));
+        take(box, p);
+    }
+    shape.triangles.reserve(body->triangles.size() * 3);
+    for (const auto& t : body->triangles) shape.triangles.insert(shape.triangles.end(), t.begin(), t.end());
+    shape.normals = normalsOf(shape.points, shape.triangles);
+    return {.of = body, .shape = std::make_shared<const Shape>(std::move(shape)), .box = box};
+}
+
+} // namespace
+
+Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double aspect, const SceneOptions& options, BodyShape* body) {
     Scene scene;
     scene.viewProjection = camera.viewProjection(aspect);
     // A light at the camera, a little above it: the side facing the eye is lit.
     scene.toLight = pointOf(sim::normalized(camera.toEye() + sim::Vec3{0.0, 0.4, 0.0}));
 
-    if (options.body) {
-        const sim::Surface& body = session.bodySurface();
+    // A body being chosen is shown also while the avatar's is hidden: it is what is looked at.
+    const bool shown = options.body || session.previewingBody();
+    BodyShape made;
+    BodyShape& kept = body ? *body : made;
+    // Kept up to date while hidden too: framing asks for its box.
+    if ((shown || body) && kept.of != session.sharedBody()) kept = shapeOf(session.sharedBody());
+    if (shown) {
         Surface surface;
         surface.colour = bodyColour;
-        surface.points.reserve(body.points.size());
-        for (const sim::Vec3& p : body.points) surface.points.push_back(pointOf(p));
-        surface.triangles.reserve(body.triangles.size() * 3);
-        for (const auto& t : body.triangles) surface.triangles.insert(surface.triangles.end(), t.begin(), t.end());
-        surface.normals = normalsOf(surface.points, surface.triangles);
+        surface.shape = kept.shape;
         if (options.seeThroughBody) {
             surface.colour.alpha = seeThroughBodyAlpha;
             surface.nearestOnly = true;
@@ -177,19 +203,16 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     return scene;
 }
 
-std::optional<std::pair<sim::Vec3, sim::Vec3>> extentOf(const session::Session& session) {
-    std::optional<std::pair<sim::Vec3, sim::Vec3>> box;
-    const auto take = [&](sim::Vec3 p) {
-        if (!box) box = std::pair{p, p};
-        box->first = {std::min(box->first.x, p.x), std::min(box->first.y, p.y), std::min(box->first.z, p.z)};
-        box->second = {std::max(box->second.x, p.x), std::max(box->second.y, p.y), std::max(box->second.z, p.z)};
-    };
-    for (const sim::Vec3& p : session.bodySurface().points) take(p);
+std::optional<Box> extentOf(const session::Session& session, const BodyShape* body) {
+    std::optional<Box> box;
+    if (body && body->of == session.sharedBody()) box = body->box;
+    else
+        for (const sim::Vec3& p : session.shownBody().points) take(box, p);
     const std::vector<sim::PanelMesh>& panels = session.shownMesh().panels;
     const sim::Placement& positions = session.shownPositions();
     for (std::size_t i = 0; i < positions.size() && i < panels.size(); ++i)
         if (session.panelShown(panels[i].panel))
-            for (const sim::Vec3& p : positions[i]) take(p);
+            for (const sim::Vec3& p : positions[i]) take(box, p);
     return box;
 }
 

@@ -5,11 +5,15 @@
 
 #include <cmath>
 #include <cstdio>
+#include <format>
+#include <iterator>
+#include <string>
 
 #include "Avatar.h"
 #include "clothcad/core/Document.h"
 #include "clothcad/core/Evaluate.h"
 #include "clothcad/core/File.h"
+#include "clothcad/sim/AvatarImport.h"
 #include "clothcad/sim/Body.h"
 #include "clothcad/sim/Cloth.h"
 #include "clothcad/sim/Layout.h"
@@ -54,9 +58,8 @@ static Document manyPanels() {
 
 // A closed, smooth surface with about as many triangles as an avatar: an
 // egg 30 cm wide and 60 cm tall, standing at chest height.
-static Surface egg() {
+static Surface egg(int around = 140, int rings = 70) {
     Surface surface;
-    const int around = 140, rings = 70;
     for (int r = 0; r <= rings; ++r)
         for (int a = 0; a < around; ++a) {
             const double up = pi * r / rings, turn = 2.0 * pi * a / around;
@@ -69,6 +72,18 @@ static Surface egg() {
             surface.triangles.push_back({at(r, a), at(r, a + 1), at(r + 1, a + 1)});
         }
     return surface;
+}
+
+// A surface as the text of an OBJ file, with a UV and a normal for every
+// point, as modelling programs write one.
+static std::string objText(const Surface& surface) {
+    std::string text;
+    auto out = std::back_inserter(text);
+    for (const Vec3& p : surface.points) std::format_to(out, "v {:.6f} {:.6f} {:.6f}\n", p.x, p.y, p.z);
+    for (const Vec3& p : surface.points) std::format_to(out, "vt {:.6f} {:.6f}\n", p.x / 100.0, p.y / 100.0);
+    for (const Vec3& p : surface.points) std::format_to(out, "vn {:.6f} {:.6f} {:.6f}\n", p.x / 100.0, 0.0, p.z / 100.0);
+    for (const auto& t : surface.triangles) std::format_to(out, "f {0}/{0}/{0} {1}/{1}/{1} {2}/{2}/{2}\n", t[0] + 1, t[1] + 1, t[2] + 1);
+    return text;
 }
 
 int main(int argc, char** argv) {
@@ -95,6 +110,15 @@ int main(int argc, char** argv) {
     const Surface surface = egg();
     report.time("prepare a 19,600-triangle body to collide with", 900.0, [&] { DistanceField field(surface); }, 3);
     const Body scanned = bodyFrom(surface), nobody;
+
+    // Choosing an avatar waits for its file to be read: a detailed body, as modelling
+    // programs write it, with a UV and a normal for every point.
+    const std::string obj = objText(egg(450, 440));
+    report.time("read a body's OBJ text, 396,000 triangles", 250.0, [&] { readObj(obj); }, 5);
+    const Surface detailed = readObj(obj).surface;
+    report.time("guess its unit and stand it on the floor", 25.0, [&] { imported(detailed, guessImport(detailed)); });
+    // After OK the cloth waits for this, with a bar in the status line.
+    report.time("prepare that body to collide with", 1500.0, [&] { DistanceField field(detailed); }, 3);
 
     // ---- The cloth ----
     // A step is timed on cloth that has been falling for a second, so that it is in contact and its seams are closing.

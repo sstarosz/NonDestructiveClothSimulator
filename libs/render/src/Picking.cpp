@@ -37,10 +37,12 @@ std::optional<Met> nearestMet(const Scene& scene, const Ray& ray) {
     for (std::size_t s = 0; s < scene.surfaces.size(); ++s) {
         const Surface& surface = scene.surfaces[s];
         if (surface.nearestOnly && !surface.panel) continue;
-        const auto at = [&](std::uint32_t i) { return sim::Vec3{surface.points[i].x, surface.points[i].y, surface.points[i].z}; };
-        for (std::size_t t = 0; t + 2 < surface.triangles.size(); t += 3) {
-            const std::array<std::uint32_t, 3> corners{surface.triangles[t], surface.triangles[t + 1], surface.triangles[t + 2]};
-            if (corners[0] >= surface.points.size() || corners[1] >= surface.points.size() || corners[2] >= surface.points.size()) continue;
+        const std::vector<Point>& points = surface.shownPoints();
+        const std::vector<std::uint32_t>& triangles = surface.shownTriangles();
+        const auto at = [&](std::uint32_t i) { return sim::Vec3{points[i].x, points[i].y, points[i].z}; };
+        for (std::size_t t = 0; t + 2 < triangles.size(); t += 3) {
+            const std::array<std::uint32_t, 3> corners{triangles[t], triangles[t + 1], triangles[t + 2]};
+            if (corners[0] >= points.size() || corners[1] >= points.size() || corners[2] >= points.size()) continue;
             const sim::Vec3 a = at(corners[0]), ab = at(corners[1]) - a, ac = at(corners[2]) - a;
             const sim::Vec3 p = sim::cross(ray.direction, ac);
             const double det = sim::dot(ab, p);
@@ -97,7 +99,8 @@ std::optional<ClothHit> clothAt(const Scene& scene, const OrbitCamera& camera, V
     std::uint32_t nearest = met->corners[0];
     double best = 1e300;
     for (const std::uint32_t corner : met->corners) {
-        const sim::Vec3 there{surface.points[corner].x, surface.points[corner].y, surface.points[corner].z};
+        const Point& point = surface.shownPoints()[corner];
+        const sim::Vec3 there{point.x, point.y, point.z};
         if (const double away = sim::length(there - spot); away < best) best = away, nearest = corner;
     }
     return ClothHit{*surface.panel, nearest, spot};

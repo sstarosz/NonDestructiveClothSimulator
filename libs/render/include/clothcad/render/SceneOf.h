@@ -10,10 +10,20 @@
 // is lined in amber, wider, open or closed. One the cloth could not close
 // (sim::Cloth::openSeams) is lined in red. A hidden seam has no lines. A
 // hidden panel is left out, with its side of every seam; a deactivated one is
-// seen through. The body can be see-through too, to show cloth inside it.
+// seen through. The body can be see-through too, to show cloth inside it. A
+// body being chosen (Session::previewBody) is drawn in the avatar's place.
 //
 //   render::Scene scene = render::sceneOf(session, camera, width / double(height), {.selected = panel});
+//
+// The body is the same from picture to picture, and may have millions of
+// triangles: a view that asks again and again keeps a BodyShape, and the body
+// is made into a Shape once.
+//
+//   render::BodyShape body;                                     // beside the view
+//   scene = render::sceneOf(session, camera, aspect, {}, &body);
+//   box = render::extentOf(session, &body);
 
+#include <memory>
 #include <optional>
 #include <utility>
 
@@ -33,10 +43,22 @@ struct SceneOptions {
     friend bool operator==(const SceneOptions&, const SceneOptions&) = default;
 };
 
-Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double aspect, const SceneOptions& options);
+// A box in space: its lowest and its highest corner.
+using Box = std::pair<sim::Vec3, sim::Vec3>;
+
+// The body as the latest scene showed it, with what it was made from.
+struct BodyShape {
+    std::shared_ptr<const sim::Surface> of;  // held, so that no other body is ever taken for it
+    std::shared_ptr<const Shape> shape;
+    std::optional<Box> box;  // around it
+};
+
+// With `body`, what it holds is used if it is of the body shown now, and is
+// made again, into it, if not.
+Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double aspect, const SceneOptions& options, BodyShape* body = nullptr);
 
 // The box around the body and the panels shown, to frame; empty when there is nothing.
-std::optional<std::pair<sim::Vec3, sim::Vec3>> extentOf(const session::Session& session);
+std::optional<Box> extentOf(const session::Session& session, const BodyShape* body = nullptr);
 
 // Normals at the points of a surface: the faces around each, weighted by their area.
 std::vector<Point> normalsOf(const std::vector<Point>& points, const std::vector<std::uint32_t>& triangles);

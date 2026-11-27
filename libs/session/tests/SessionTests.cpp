@@ -246,6 +246,122 @@ TEST_CASE("the body is the document's avatar: shown at once, and collided with a
     EXPECT((session.bodySurface().triangles.empty() && session.bodyReady()), "and one without an avatar has none");
 }
 
+TEST_CASE("a body shown while another is chosen is only drawn: the document, the cloth and what it meets stay")
+{
+    Skirt start;
+    start.doc.setAvatar(ball(15));
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    waitForTheBody(session);
+    session.simulate(true);
+    frames(session, 10);
+    session.simulate(false);
+    session.update();
+    session.markSaved();
+    const double time = session.cloth().time;
+    const std::size_t worn = session.bodySurface().points.size();
+    EXPECT((!session.previewingBody() && session.shownBody().points.size() == worn), "the avatar's is shown");
+
+    const std::shared_ptr<const sim::Surface> own = session.sharedBody();
+    frames(session, 2);
+    EXPECT(session.sharedBody() == own, "the same body is the same snapshot, frame after frame");
+    const auto other = std::make_shared<const sim::Surface>(
+        sim::Surface{.points = {{0, 0, 0}, {10, 0, 0}, {0, 10, 0}}, .triangles = {{0, 1, 2}}});
+    const std::uint64_t before = session.sceneVersion();
+    session.previewBody(other);
+    EXPECT((session.previewingBody() && &session.shownBody() == other.get() && session.sceneVersion() > before), "the other one is shown, and drawn anew");
+    session.update();
+    EXPECT((session.bodySurface().points.size() == worn && session.bodyReady()), "the body is the avatar's still");
+    EXPECT((session.document().avatar() == start.doc.avatar() && !session.unsaved() && !session.editor().canUndo()), "nothing has changed");
+    EXPECT((session.clothShown() && session.cloth().time == time), "and the cloth hangs as it did");
+    const std::uint64_t shown = session.sceneVersion();
+    session.previewBody(other);
+    EXPECT(session.sceneVersion() == shown, "the same one again is nothing to draw");
+
+    session.previewBody(nullptr);
+    EXPECT((!session.previewingBody() && session.shownBody().points.size() == worn && session.sceneVersion() > shown), "back to the avatar's");
+    EXPECT(session.sharedBody() == own, "the very one");
+    session.previewBody(other);
+    session.open(Document{});
+    EXPECT((!session.previewingBody() && session.shownBody().points.empty()), "another document ends it");
+}
+
+TEST_CASE("Play asked while the body is being worked out is kept: the cloth starts when the body is ready, and meets it")
+{
+    Skirt start;
+    start.doc.arrange(start.panel, Arrangement{.placed = true, .x = 0, .y = 200, .z = 0, .tilt = 90});  // flat, above the ball
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    putOn(session, ball(80));  // large, so that working it out takes a moment: its top is at 180 cm
+    session.update();
+    REQUIRE(!session.bodyReady());
+    session.simulate(true);
+    session.update();
+    EXPECT((session.simulating() && !session.clothShown()), "asked for, and waiting: there is nothing to meet yet");
+    waitForTheBody(session);
+    frames(session, 60);
+    REQUIRE((session.simulating() && session.clothShown()));
+    EXPECT(session.cloth().time > 0.5, "it runs, without being asked again");
+    double lowest = 1e9;
+    for (const sim::Vec3& p : session.cloth().positions.front()) lowest = std::min(lowest, std::hypot(p.x, p.y - 100.0, p.z));
+    EXPECT(lowest > 76.0, "and rests on the body (its flat faces come to 78 cm): it did not start before there was one");
+
+    // Pressed and let go again while the next one is worked out: nothing runs.
+    putOn(session, ball(70));
+    session.update();
+    REQUIRE(!session.bodyReady());
+    session.simulate(true);
+    session.update();
+    session.simulate(false);
+    waitForTheBody(session);
+    frames(session, 5);
+    EXPECT((!session.simulating() && !session.clothShown()), "taken back, it stays back");
+}
+
+TEST_CASE("a body being worked out says how far it is; another avatar gives it up at once")
+{
+    Session session(Document{}, Threading::OneStepPerAdvance);
+    EXPECT(!session.bodyProgress(), "no avatar: nothing to work out");
+    // Large, so that working it out takes a while.
+    const auto large = ball(120);
+    putOn(session, large);
+    session.update();
+    REQUIRE(!session.bodyReady());
+    double furthest = 0.0;
+    bool forward = true;
+    for (int i = 0; i < 20; ++i) {
+        const std::optional<double> now = session.bodyProgress();
+        if (!now) break;
+        forward = forward && *now >= furthest && *now <= 1.0;
+        furthest = std::max(furthest, *now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT(forward, "from 0 to 1, going up");
+
+    const auto changed = std::chrono::steady_clock::now();
+    putOn(session, ball(15));
+    session.update();
+    const double waited = std::chrono::duration<double>(std::chrono::steady_clock::now() - changed).count();
+    waitForTheBody(session);
+    EXPECT(!session.bodyProgress(), "ready: nothing is being worked out");
+    EXPECT((session.bodySurface().points.size() == ball(15)->points.size()), "the small one is the body");
+
+    // The same large one worked out to the end, to know how long that is here.
+    const auto whole = std::chrono::steady_clock::now();
+    putOn(session, large);
+    session.update();
+    waitForTheBody(session);
+    const double takes = std::chrono::duration<double>(std::chrono::steady_clock::now() - whole).count();
+    std::printf("      a large body takes %.3f s; changed away from it in %.3f s\n", takes, waited);
+    EXPECT(waited < takes / 2.0, "changing the avatar did not wait for it");
+    // A session thrown away does not wait for the rest either.
+    const auto before = std::chrono::steady_clock::now();
+    {
+        Session brief(Document{}, Threading::OneStepPerAdvance);
+        putOn(brief, large);
+        brief.update();
+    }
+    EXPECT(std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count() < takes / 2.0, "nor does closing");
+}
+
 TEST_CASE("another body ends the cloth; undo and redo bring back the drape that hung on their body")
 {
     Skirt start;

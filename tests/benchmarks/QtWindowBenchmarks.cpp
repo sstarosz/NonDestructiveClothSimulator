@@ -70,6 +70,43 @@ void mouse(QWidget* widget, QEvent::Type type, QPointF at, Qt::MouseButtons held
     QApplication::sendEvent(widget, &event);
 }
 
+// An avatar as detailed as a generated one: 1.4 million triangles, an egg
+// where the skirt hangs.
+std::shared_ptr<const Avatar> detailedAvatar() {
+    constexpr int around = 850, rings = 850;
+    sim::Surface egg;
+    for (int r = 0; r <= rings; ++r)
+        for (int a = 0; a < around; ++a) {
+            const double up = pi * r / rings, turn = 2.0 * pi * a / around;
+            egg.points.push_back({15.0 * std::sin(up) * std::cos(turn), 100.0 - 30.0 * std::cos(up), 12.0 * std::sin(up) * std::sin(turn)});
+        }
+    const auto at = [&](int r, int a) { return static_cast<std::uint32_t>(r * around + a % around); };
+    for (int r = 0; r < rings; ++r)
+        for (int a = 0; a < around; ++a) {
+            egg.triangles.push_back({at(r, a), at(r + 1, a + 1), at(r + 1, a)});
+            egg.triangles.push_back({at(r, a), at(r, a + 1), at(r + 1, a + 1)});
+        }
+    return std::make_shared<const Avatar>(sim::avatarOf(egg, "detailed.obj"));
+}
+
+// The cloth playing on such a body: every frame has new cloth to draw and the
+// same body, which must cost little however detailed it is.
+void onADetailedAvatar(MainWindow& window, perf::Report& report) {
+    Document doc = skirt();
+    doc.setAvatar(detailedAvatar());
+    window.open(std::move(doc), "detailed");
+    for (int i = 0; i < 2000 && !window.session().bodyReady(); ++i) {
+        window.tick();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    window.shelf()->simulate()->setChecked(true);
+    for (int i = 0; i < 30; ++i) frame(window);
+    report.record("frame with a cloth step in it, 3D shown, avatar of 1,445,000 triangles", 50.0,
+                  perf::bestMilliseconds([&] { frame(window); }, 20));
+    report.expect(window.session().clothShown(), "the cloth plays on the detailed avatar");
+    window.shelf()->simulate()->setChecked(false);
+}
+
 // Which widgets are painted, how often and how big: what a change makes Qt paint.
 class PaintCounter : public QObject {
 public:
@@ -539,6 +576,7 @@ int main(int argc, char** argv) {
         atFourK(window, report);
         tshirt(window, report);
         trousers(window, report);
+        onADetailedAvatar(window, report);
     }
     return report.finish();
 }

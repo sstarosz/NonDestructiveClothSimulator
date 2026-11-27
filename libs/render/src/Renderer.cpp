@@ -78,16 +78,29 @@ struct Buffer {
     void fit(const vk::raii::Device& device, const vk::raii::PhysicalDevice& physical, vk::DeviceSize needed, vk::BufferUsageFlags usage) {
         if (needed <= size) return;
         mapped = nullptr;
-        buffer = nullptr;
-        memory = nullptr;
-        size = std::max<vk::DeviceSize>(needed + needed / 2, 64 * 1024);
-        buffer = vk::raii::Buffer(device, vk::BufferCreateInfo({}, size, usage, vk::SharingMode::eExclusive));
-        const vk::MemoryRequirements needs = buffer.getMemoryRequirements();
-        memory = vk::raii::DeviceMemory(device, vk::MemoryAllocateInfo(needs.size, memoryType(physical, needs.memoryTypeBits,
-                                                                                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)));
-        buffer.bindMemory(*memory, 0);
+        make(device, physical, std::max<vk::DeviceSize>(needed + needed / 2, 64 * 1024), usage,
+             vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
         mapped = memory.mapMemory(0, size);
     }
+
+    // A buffer of just this size in memory of this kind; nothing is mapped.
+    void make(const vk::raii::Device& device, const vk::raii::PhysicalDevice& physical, vk::DeviceSize bytes, vk::BufferUsageFlags usage,
+              vk::MemoryPropertyFlags kind) {
+        buffer = nullptr;
+        memory = nullptr;
+        size = bytes;
+        buffer = vk::raii::Buffer(device, vk::BufferCreateInfo({}, size, usage, vk::SharingMode::eExclusive));
+        const vk::MemoryRequirements needs = buffer.getMemoryRequirements();
+        memory = vk::raii::DeviceMemory(device, vk::MemoryAllocateInfo(needs.size, memoryType(physical, needs.memoryTypeBits, kind)));
+        buffer.bindMemory(*memory, 0);
+    }
+};
+
+// A shape's geometry in the card's own memory, where it is drawn fastest, kept
+// while anything holds the shape.
+struct OnTheCard {
+    std::weak_ptr<const Shape> of;
+    Buffer vertices, indices;
 };
 
 struct Image {
@@ -155,6 +168,9 @@ struct Renderer::Inside {
     vk::raii::PipelineLayout layout{nullptr};
     std::vector<Pass> passes;
     Buffer vertices, indices;
+    std::vector<std::unique_ptr<OnTheCard>> shapes;
+    // Where a shape is on the card, putting it there the first time.
+    const OnTheCard& onTheCard(const std::shared_ptr<const Shape>& shape);
 
     // The picture read back by draw(), kept while its size stays.
     struct Offscreen {
@@ -173,6 +189,7 @@ struct Renderer::Inside {
             std::int32_t base;
             Colour colour, back;
             bool lit, nearestOnly;
+            const OnTheCard* shape = nullptr;  // its own buffers; none: the shared ones
         };
         struct Plain {
             std::uint32_t count, first;
@@ -326,10 +343,45 @@ const Pass& Renderer::Inside::passFor(vk::Format format, vk::ImageLayout finalLa
     return passes.back();
 }
 
+const OnTheCard& Renderer::Inside::onTheCard(const std::shared_ptr<const Shape>& shape) {
+    for (const std::unique_ptr<OnTheCard>& one : shapes)
+        if (one->of.lock() == shape) return *one;
+    auto made = std::make_unique<OnTheCard>();
+    made->of = shape;
+    const vk::DeviceSize vertexBytes = shape->points.size() * sizeof(Vertex), indexBytes = shape->triangles.size() * sizeof(std::uint32_t);
+    // Written where the processor can, then copied by the card into its own memory.
+    Buffer staging;
+    staging.fit(device, physical, vertexBytes + indexBytes, vk::BufferUsageFlagBits::eTransferSrc);
+    auto* vertex = static_cast<Vertex*>(staging.mapped);
+    for (std::size_t i = 0; i < shape->points.size(); ++i) vertex[i] = {shape->points[i], i < shape->normals.size() ? shape->normals[i] : Point{0, 0, 1}};
+    std::memcpy(static_cast<char*>(staging.mapped) + vertexBytes, shape->triangles.data(), indexBytes);
+    made->vertices.make(device, physical, vertexBytes, vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
+                        vk::MemoryPropertyFlagBits::eDeviceLocal);
+    made->indices.make(device, physical, indexBytes, vk::BufferUsageFlagBits::eIndexBuffer | vk::BufferUsageFlagBits::eTransferDst,
+                       vk::MemoryPropertyFlagBits::eDeviceLocal);
+    commands.reset();
+    commands.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
+    commands.copyBuffer(*staging.buffer, *made->vertices.buffer, vk::BufferCopy(0, 0, vertexBytes));
+    commands.copyBuffer(*staging.buffer, *made->indices.buffer, vk::BufferCopy(vertexBytes, 0, indexBytes));
+    const vk::MemoryBarrier readable(vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eVertexAttributeRead | vk::AccessFlagBits::eIndexRead);
+    commands.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eVertexInput, {}, readable, {}, {});
+    commands.end();
+    device.resetFences({*done});
+    const vk::CommandBuffer commandBuffer = *commands;
+    queue.submit(vk::SubmitInfo({}, {}, commandBuffer), *done);
+    waitUntilDone();
+    shapes.push_back(std::move(made));
+    return *shapes.back();
+}
+
+// Called with the card idle.
 Renderer::Inside::Draws Renderer::Inside::upload(const Scene& scene) {
+    std::erase_if(shapes, [](const std::unique_ptr<OnTheCard>& one) { return one->of.expired(); });
     std::size_t vertexCount = 0, indexCount = 0;
-    for (const Surface& s : scene.surfaces) vertexCount += s.points.size(), indexCount += s.triangles.size();
-    for (const Surface& s : scene.overlay) vertexCount += s.points.size(), indexCount += s.triangles.size();
+    for (const Surface& s : scene.surfaces)
+        if (!s.shape) vertexCount += s.points.size(), indexCount += s.triangles.size();
+    for (const Surface& s : scene.overlay)
+        if (!s.shape) vertexCount += s.points.size(), indexCount += s.triangles.size();
     for (const Lines& l : scene.lines) vertexCount += l.points.size();
     vertices.fit(device, physical, std::max<std::size_t>(vertexCount, 1) * sizeof(Vertex), vk::BufferUsageFlagBits::eVertexBuffer);
     indices.fit(device, physical, std::max<std::size_t>(indexCount, 1) * sizeof(std::uint32_t), vk::BufferUsageFlagBits::eIndexBuffer);
@@ -340,7 +392,12 @@ Renderer::Inside::Draws Renderer::Inside::upload(const Scene& scene) {
     std::uint32_t vertexAt = 0, indexAt = 0;
     const auto put = [&](const std::vector<Surface>& from, std::vector<Draws::Indexed>& into) {
         for (const Surface& s : from) {
-            if (s.triangles.empty() || s.points.empty()) continue;
+            if (s.shownTriangles().empty() || s.shownPoints().empty()) continue;
+            if (s.shape) {
+                into.push_back({static_cast<std::uint32_t>(s.shape->triangles.size()), 0, 0, s.colour, s.back.value_or(s.colour), s.lit, s.nearestOnly,
+                                &onTheCard(s.shape)});
+                continue;
+            }
             for (std::size_t i = 0; i < s.points.size(); ++i) vertex[vertexAt + i] = {s.points[i], i < s.normals.size() ? s.normals[i] : Point{0, 0, 1}};
             std::copy(s.triangles.begin(), s.triangles.end(), index + indexAt);
             into.push_back({static_cast<std::uint32_t>(s.triangles.size()), indexAt, static_cast<std::int32_t>(vertexAt), s.colour, s.back.value_or(s.colour), s.lit,
@@ -366,8 +423,6 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
     commands.beginRenderPass(vk::RenderPassBeginInfo(*pass.renderPass, framebuffer, vk::Rect2D({0, 0}, extent), clear), vk::SubpassContents::eInline);
     commands.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f));
     commands.setScissor(0, vk::Rect2D({0, 0}, extent));
-    commands.bindVertexBuffers(0, {*vertices.buffer}, {vk::DeviceSize(0)});
-    commands.bindIndexBuffer(*indices.buffer, 0, vk::IndexType::eUint32);
     Push push{scene.viewProjection, {}, {scene.toLight.x, scene.toLight.y, scene.toLight.z, 0.0f}, {}};
     const vk::ShaderStageFlags stages = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
     const auto drawSurface = [&](const vk::raii::Pipeline& pipeline, const Draws::Indexed& d) {
@@ -376,11 +431,14 @@ void Renderer::Inside::record(const Scene& scene, const Draws& draws, const Pass
         push.back = d.back;
         push.toLight[3] = d.lit ? 0.0f : 1.0f;  // the light's w: lit (0), or drawn in its colour alone (1)
         commands.pushConstants<Push>(*layout, stages, 0, push);
+        commands.bindVertexBuffers(0, {d.shape ? *d.shape->vertices.buffer : *vertices.buffer}, {vk::DeviceSize(0)});
+        commands.bindIndexBuffer(d.shape ? *d.shape->indices.buffer : *indices.buffer, 0, vk::IndexType::eUint32);
         commands.drawIndexed(d.count, 1, d.first, d.base, 0);
     };
     for (const Draws::Indexed& d : draws.surfaces)
         if (d.colour.alpha >= 1.0f) drawSurface(pass.surfaces, d);
     commands.bindPipeline(vk::PipelineBindPoint::eGraphics, *pass.lines);
+    commands.bindVertexBuffers(0, {*vertices.buffer}, {vk::DeviceSize(0)});  // lines are all in the shared buffer
     const std::optional<Point> eye = eyeOf(scene.viewProjection);
     Push forLines = push;
     for (const Draws::Plain& d : draws.lines) {

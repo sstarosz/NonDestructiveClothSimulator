@@ -65,6 +65,13 @@ TEST_CASE("the panel under the mouse is found, unless the body is in front of it
     REQUIRE(beside.has_value());
     EXPECT((panelAt(scene, camera, size, *beside) == PanelId{7}), "beside the body the panel is under the mouse again");
 
+    // The same with the body's geometry in a shared shape.
+    const Surface nearer = square(10.0f, 30.0f, std::nullopt);
+    Surface shaped{.points = {}, .normals = {}, .triangles = {}, .colour = {}};
+    shaped.shape = std::make_shared<const Shape>(Shape{.points = nearer.points, .normals = nearer.normals, .triangles = nearer.triangles});
+    scene.surfaces.back() = shaped;
+    EXPECT((!panelAt(scene, camera, size, {600, 450}) && panelAt(scene, camera, size, *beside) == PanelId{7}), "a shape is in the way as any surface is");
+
     scene.surfaces.clear();
     scene.overlay.push_back(square(40.0f, 0.0f, PanelId{7}));
     EXPECT((!panelAt(scene, camera, size, {600, 450}).has_value()), "the overlay is not picked");
