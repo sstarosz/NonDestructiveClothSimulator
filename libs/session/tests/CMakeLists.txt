@@ -1,5 +1,6 @@
 # One test file per source file of the library.
 twintailor_unit_tests(session SOURCES
+    CommandsTests.cpp
     DraftingTests.cpp
     EditorTests.cpp
     FrameTimesTests.cpp

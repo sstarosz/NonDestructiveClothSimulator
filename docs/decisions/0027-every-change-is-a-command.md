@@ -1,6 +1,6 @@
 # 0027. Every change is a command; undo is a copy
 
-**Date:** 27 November 2026 (decided; not built yet)
+**Date:** 27 November 2026 (five trial commands built on 28 November; the rest to come)
 **Issues/PRs:** none
 
 ## Context

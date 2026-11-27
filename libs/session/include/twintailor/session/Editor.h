@@ -4,12 +4,15 @@
 // that works now is refused instead of made.
 //
 //   Editor editor(std::move(doc));
-//   auto done = editor.change([&](Document& d) { d.set(rect, &Rect::width, 40_cm); });
+//   auto done = editor.run(SetField{.field = waist, .value = 80_cm});
 //   if (!done) show(done.error());   // why it was refused, in words
 //   editor.undo();
 //
-// A drag is many changes and one undo step: the first starts the step
-// (Step::New), the others continue it (Step::Continue).
+// A change is made as a command (Commands.h). Dragged, it is run again and
+// again from the document as it was (drag, then endDrag or cancelDrag). What
+// has no command yet is changed through change(), where a drag is many changes
+// and one undo step: the first starts the step (Step::New), the others
+// continue it (Step::Continue).
 //
 // A panel gets its place in space once: the first time it has an outline,
 // in the same step as that change, it stands where the 2D table has it then
@@ -26,45 +29,16 @@
 #include <expected>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "twintailor/core/Document.h"
 #include "twintailor/core/Evaluate.h"
+#include "twintailor/session/Commands.h"
 
 namespace twintailor::session {
-
-enum class Step {
-    New,       // starts an undo step
-    Continue,  // part of the step before it, as the later moments of one drag
-};
-
-// What a change may do to the document's problems.
-enum class IfItBreaks {
-    Refuse,  // a change that adds a problem is not made
-    Allow,   // made anyway: adding or removing things, where a problem is the honest result
-};
-
-// What a change touches. Moving a panel on the table or in space, or putting on
-// another avatar, changes no outline, so the outlines are not evaluated again.
-enum class Touches { Shapes, PlacementOnly };
-
-// Which way a panel grows when a change reshapes it.
-enum class Grows {
-    // Its sewn edges stay where they are, on the table and in space: a field or
-    // a formula made a skirt longer, and it grows at the hem.
-    AwayFromSeams,
-    // Exactly as dragged: the panel's own coordinates stay put, on the table
-    // and in space, so the corner under the mouse follows the mouse.
-    WhereDragged,
-};
-
-struct ChangeRules {
-    Step step = Step::New;
-    IfItBreaks ifItBreaks = IfItBreaks::Refuse;
-    Touches touches = Touches::Shapes;
-    Grows grows = Grows::AwayFromSeams;
-};
 
 class Editor {
 public:
@@ -94,9 +68,44 @@ public:
     // No file holds the document as it is: a recovered copy.
     void markUnsaved() { saved_ = 0; }
 
-    // Changes the document through `verb`. Returns why it was refused, if it
-    // was; then the document is as it was. A verb that throws (a handle that
-    // no longer exists) is refused with the exception's words.
+    // Runs a command: one undo step, and what the command hands back; or why it
+    // cannot be done, and then the document is as it was.
+    template <DocumentChange C>
+    std::expected<typename C::Done, std::string> run(const C& command) {
+        endDrag();
+        typename C::Done done{};
+        const std::expected<void, std::string> made = commit(document_, shapes_, verbOf(command, done), command.rules(), true);
+        if (!made) return std::unexpected(made.error());
+        return done;
+    }
+
+    // Runs a command as the latest moment of a drag: on the document as it was
+    // when the drag began, in place of what the moment before made. All the
+    // moments are one undo step. A moment that cannot be done is said why and
+    // leaves the one before.
+    template <DocumentChange C>
+    std::expected<typename C::Done, std::string> drag(const C& command) {
+        if (!drag_) drag_ = Dragged{document_, shapes_, step_};
+        typename C::Done done{};
+        const std::expected<void, std::string> made = commit(drag_->from, drag_->shapes, verbOf(command, done), command.rules(), !drag_->stepOpen);
+        if (!made) return std::unexpected(made.error());
+        drag_->stepOpen = true;
+        return done;
+    }
+    // The drag is over, and what it made stays. Anything else that changes the
+    // history (run, change, undo, redo, replace) ends it too.
+    void endDrag() { drag_.reset(); }
+    // The drag is taken back and forgotten: nothing is left to redo. Says
+    // whether there was anything to take back.
+    bool cancelDrag();
+
+    // An undo step that leaves the document as it is: what changes with it is
+    // kept by its number (the session keeps the drape).
+    void addStep();
+
+    // Changes the document through `verb`: what has no command yet. Returns why
+    // it was refused, if it was; then the document is as it was. A verb that
+    // throws (a handle that no longer exists) is refused with the exception's words.
     std::expected<void, std::string> change(const std::function<void(Document&)>& verb, ChangeRules rules = {});
 
     // Takes back every step down to the state `step` was (see step()), as undo does, but the steps
@@ -113,11 +122,23 @@ public:
     void replace(Document document);
 
 private:
-    void placeNewPanels();
-    void keepSeamsInPlace(const Result& before, const Result& after);
+    // A change made to a document whose outlines were `before`, or why not.
+    using Verb = std::function<std::expected<void, std::string>(Document&, const Result& before)>;
+
+    template <DocumentChange C>
+    static Verb verbOf(const C& command, typename C::Done& done) {
+        return [&command, &done](Document& doc, const Result& before) -> std::expected<void, std::string> {
+            std::expected<typename C::Done, std::string> made = command.apply(doc, before);
+            if (!made) return std::unexpected(std::move(made.error()));
+            done = std::move(*made);
+            return {};
+        };
+    }
+
+    // Makes `verb`'s change to a copy of `from`, and takes it as the document if
+    // all of it can be done; with `newStep` the document as it is now stays for undo.
+    std::expected<void, std::string> commit(const Document& from, std::shared_ptr<const Result> before, const Verb& verb, ChangeRules rules, bool newStep);
     void evaluateAgain();
-    // The first problem in `after` that the current outlines do not have, in words.
-    std::string newProblemIn(const Result& after, const Document& changed) const;
 
     Document document_;
     std::shared_ptr<const Result> shapes_;
@@ -127,6 +148,14 @@ private:
         std::uint64_t content;
     };
     std::vector<Kept> undo_, redo_;
+    // A command being dragged: what each moment of it starts from.
+    struct Dragged {
+        Document from;
+        std::shared_ptr<const Result> shapes;
+        std::uint64_t step;     // the state before the drag
+        bool stepOpen = false;  // whether a moment of it has been taken, in an undo step of its own
+    };
+    std::optional<Dragged> drag_;
     std::uint64_t shapesVersion_ = 1;
     std::uint64_t version_ = 1;
     std::uint64_t step_ = 1, lastStep_ = 1;

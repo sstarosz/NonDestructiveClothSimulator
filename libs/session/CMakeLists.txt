@@ -5,6 +5,7 @@ find_package(Threads REQUIRED)
 twintailor_library(session
     SOURCES
         src/Autosave.cpp
+        src/Commands.cpp
         src/Drafting.cpp
         src/Editor.cpp
         src/FrameTimes.cpp

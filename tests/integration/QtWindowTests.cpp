@@ -1517,7 +1517,7 @@ TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is p
     w.window.shelf()->simulate()->setChecked(true);
     for (int i = 0; i < 5; ++i) w.window.tick();
     REQUIRE(w.window.session().clothShown());
-    const std::uint64_t version = w.window.session().editor().version();
+    const std::string pattern = toText(w.doc());
     // Off the middle again, so that the press is on the cloth and not on the gizmo.
     const render::PicturePoint nowMiddle = frontPanel(w).second;
     const double scale = space.inPicture({1, 1}).x;
@@ -1526,7 +1526,7 @@ TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is p
     space.release();
     w.window.tick();
     EXPECT((!w.window.session().pulling()), "let go, it is not");
-    EXPECT((w.window.session().editor().version() == version), "pulling the cloth changes nothing in the document");
+    EXPECT((toText(w.doc()) == pattern), "pulling the cloth changes nothing in the document");
 }
 
 TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled while it plays, or with the Pull tool", "[qt]")
@@ -1600,11 +1600,20 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
     // Pull (H): the paused cloth is pulled, and runs while it is held.
     w.window.shelf()->action(Tool::Pull)->trigger();
     w.window.tick();
-    version = session.editor().version();
+    const std::string pattern = toText(w.doc());
+    const sim::Placement unpulled = session.cloth().positions;
     time = session.cloth().time;
     drag();
     EXPECT((held && session.cloth().time > time && moved(positions) > 1.0), "with Pull the cloth is held and runs");
-    EXPECT((!session.pulling() && !session.simulating() && session.editor().version() == version), "let go, it is paused again and the document is as it was");
+    EXPECT((!session.pulling() && !session.simulating() && toText(w.doc()) == pattern), "let go, it is paused again and the document is as it was");
+    const sim::Placement pulled = session.cloth().positions;
+    REQUIRE(w.window.shelf()->undo()->isEnabled());
+    w.window.shelf()->undo()->trigger();
+    w.window.tick();
+    EXPECT((moved(unpulled) < 1e-5 && toText(w.doc()) == pattern), "one undo takes the whole pull back, and only the pull");
+    w.window.shelf()->redo()->trigger();
+    w.window.tick();
+    EXPECT((moved(pulled) < 1e-5), "and redo pulls it again");
 
     // Playing: a drag pulls the cloth, whatever the tool.
     for (const Tool tool : {Tool::Select, Tool::Move}) {
@@ -1612,9 +1621,8 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
         w.window.shelf()->simulate()->setChecked(true);
         w.window.tick();
         EXPECT((w.window.helpLine().contains("pull")), "playing says that a drag pulls");
-        version = session.editor().version();
         drag();
-        EXPECT((held && session.editor().version() == version), "while the cloth plays a drag pulls it");
+        EXPECT((held && toText(w.doc()) == pattern), "while the cloth plays a drag pulls it");
         w.window.shelf()->simulate()->setChecked(false);
         w.window.tick();
     }

@@ -196,16 +196,7 @@ struct UseShapeLength {
     EdgeRef edge;
 };
 
-// How a panel added next to another relates to it: a copy of its own, or
-// something that follows the source (an instance, or its mirror image). A
-// mirrored instance of a panel at one side of the body also stands in space as
-// its mirror image across x = 0, if the source has a place there and its anchor
-// is at least a quarter of its width from the middle. Everything else stands
-// where the table has it. This is the new panel's first place: it does not follow
-// the source's later moves.
-enum class Follow { Copy, Instance, MirroredInstance };
-// A new panel just right of `source`, selected. An instance is sewn as its
-// source is, as far as there is something to sew it to (Document::sewAsSource).
+// A new panel just right of `source`, selected (see DuplicatePanels).
 struct AddBeside {
     PanelId source;
     Follow how;
@@ -337,6 +328,8 @@ private:
     // A drag in space: the arrangement `now` works out from the one the panel had when the drag began.
     Outcome arrangeByDrag(Editor&, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now);
 
+    // The new panels become the selection; the help line says how they were sewn.
+    std::vector<PanelId> add(Editor&, const DuplicatePanels&, Outcome&);
     // The operation a drag writes to, and its values when the drag began.
     struct Dragging {
         OpId operation;
@@ -344,11 +337,7 @@ private:
         double baseX, baseY;
     };
     std::optional<Dragging> dragging_;
-    struct CornerDrag {
-        CornerRef corner;  // the drawn original that moves
-        OpId operation;    // the adjustment it is written to
-    };
-    std::vector<CornerDrag> cornerDrags_;  // while a group of corners is dragged
+    bool draggingCorners_ = false;  // a drag of corners that began with one that can move
     // Panels being scaled by the gizmo, each in the way that adds the least to the
     // document (see ScalePanel). A layer is only added with the first change that is
     // accepted, so a refused drag leaves nothing behind.

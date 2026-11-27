@@ -5,7 +5,7 @@
 // hands it what the user did. The window and the tests both use it.
 //
 //   Session session(std::move(doc));
-//   session.editor().change(...);       // every change of the document
+//   session.run(SetField{.field = waist, .value = 80_cm});  // a command (Commands.h)
 //   session.simulate(true);
 //   ...each frame:
 //   session.update();
@@ -41,6 +41,31 @@ public:
     Editor& editor() { return editor_; }
     const Editor& editor() const { return editor_; }
     const Document& document() const { return editor_.document(); }
+
+    // ---- Commands ----
+    // Runs a command, or the latest moment of a drag of one (see Editor::run and
+    // Editor::drag). A pull of the cloth is run only as a drag.
+    template <DocumentChange C>
+    std::expected<typename C::Done, std::string> run(const C& command) {
+        endDrag();
+        return editor_.run(command);
+    }
+    template <DocumentChange C>
+    std::expected<typename C::Done, std::string> drag(const C& command) {
+        return editor_.drag(command);
+    }
+    // Takes hold of a particle of the cloth shown, or leads the one held, as a
+    // hand would; `command.panel` and `.point` matter only as the drag begins.
+    // While it is held the cloth runs, even when it is not being simulated. The
+    // drag is one undo step. False: there is nothing to take hold of, or the
+    // hold is over (a new mesh, a reset).
+    bool drag(const PullCloth& command);
+    // The drag is over (a held particle is let go), and what it made stays.
+    void endDrag();
+    // The drag is taken back: the document and the drape are as before it. Says
+    // whether there was anything to take back.
+    bool cancelDrag();
+    bool pulling() const { return held_.has_value(); }
     // Another document, with no history: opening a file. The scene is as
     // `state` leaves it: its drape hangs again, paused. It starts saved.
     void open(Document document, SceneState state = {});
@@ -133,16 +158,6 @@ public:
     // How the cloth runs; changing it resets the cloth.
     void setThreading(Threading threading);
     Threading threading() const { return threading_; }
-
-    // ---- Pulling the cloth by hand ----
-    // Takes hold of a particle of the cloth shown and leads it to `to`, as a
-    // hand would. While it is held the cloth runs, even when it is not being
-    // simulated. `point` indexes the panel's particles in cloth().mesh.
-    // A panel carried through space meanwhile keeps the hold; a new mesh ends it.
-    void grab(PanelId panel, std::uint32_t point, sim::Vec3 to);
-    void pullTo(sim::Vec3 to);
-    void letGo();
-    bool pulling() const { return held_.has_value(); }
 
     // What to draw in space: the cloth when there is some, else the panels
     // where they are arranged. The positions belong to that mesh.
@@ -241,6 +256,8 @@ private:
         std::uint32_t panel, point;  // panel indexes cloth_.mesh's panels
     };
     std::optional<Held> held_;
+    std::optional<std::uint64_t> pulledFrom_;  // while a pull is dragged: the state before it
+    void release();                            // lets go of the held particle
 
     // The drape as it was when each state of the history was left, so that
     // undo and redo bring it back (keyed by Editor::step).

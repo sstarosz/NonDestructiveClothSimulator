@@ -229,11 +229,11 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         if (!choosing_) say(next);
     });
     connect(space_, &SpaceView::clothPulled, this, [this](PanelId panel, std::uint32_t point, sim::Vec3 to, session::DragPhase phase) {
-        // Pulling the cloth by hand changes nothing in the document: only the drape.
+        // Pulling the cloth by hand changes nothing in the document, only the drape: one undo step.
         if (choosing_ || !session_.document().contains(panel)) return;
-        if (phase == session::DragPhase::Begin) session_.grab(panel, point, to);
-        else if (phase == session::DragPhase::Continue) session_.pullTo(to);
-        else session_.letGo();
+        if (phase == session::DragPhase::Begin) session_.endDrag();
+        if (phase == session::DragPhase::End) session_.endDrag();
+        else if (session_.drag(session::PullCloth{panel, point, to}) && phase == session::DragPhase::Begin) refresh();  // there is something to undo
     });
     connect(table_, &TableView::told, this, [this](const QString& why) { say(why, true); });
     connect(table_, &TableView::hinted, this, [this](const QString& next) { say(next); });
@@ -271,7 +271,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(parameters_, &ParametersPanel::valueTyped, this, [this](Param parameter, QString text) {
         ValueField* field = parameters_->field(parameter);
         if (const std::optional<Expr> value = read(text, session_.document().get(parameter).unit, field))
-            change([&](Document& doc) { doc.set(parameter, *value); }, {}, field);
+            answer(session_.run(session::SetField{parameter, *value}), field);
     });
     connect(parameters_, &ParametersPanel::addRequested, this, [this] {
         int n = 1;
@@ -286,10 +286,10 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
 
     // Dragging a number: the same changes as typing it, one undo step per drag.
     connect(parameters_, &ParametersPanel::valueDragged, this, [this](Param parameter, double value, session::DragPhase phase) {
-        if (session_.document().contains(parameter)) changeByDrag(phase, [&](Document& doc) { doc.set(parameter, Expr(value)); });
+        if (session_.document().contains(parameter)) dragField(phase, {parameter, Expr(value)});
     });
     connect(attributes_, &AttributeEditor::fieldDragged, this, [this](OpId layer, FieldId id, double value, session::DragPhase phase) {
-        if (session_.document().contains(layer)) changeByDrag(phase, [&](Document& doc) { doc.set(layer, id, Expr(value)); });
+        if (session_.document().contains(layer)) dragField(phase, {session::OperationField{layer, id}, Expr(value)});
     });
     connect(attributes_, &AttributeEditor::spaceDragged, this, [this](PanelId panel, int which, double value, session::DragPhase phase) {
         if (!session_.document().contains(panel)) return;
@@ -1172,10 +1172,25 @@ bool MainWindow::changeByDrag(session::DragPhase phase, const std::function<void
     return done;
 }
 
+void MainWindow::dragField(session::DragPhase phase, const session::SetField& command) {
+    QElapsedTimer took;
+    took.start();
+    if (phase == session::DragPhase::Begin) session_.endDrag();
+    answer(session_.drag(command), nullptr, &took);
+    if (phase == session::DragPhase::End) session_.endDrag();
+}
+
 bool MainWindow::change(const std::function<void(Document&)>& verb, session::ChangeRules rules, ValueField* field) {
     QElapsedTimer took;
     took.start();
-    const std::expected<void, std::string> done = session_.editor().change(verb, rules);
+    return answer(session_.editor().change(verb, rules), field, &took);
+}
+
+bool MainWindow::answer(const std::expected<session::Nothing, std::string>& done, ValueField* field, const QElapsedTimer* since) {
+    return answer(done ? std::expected<void, std::string>{} : std::unexpected(done.error()), field, since);
+}
+
+bool MainWindow::answer(const std::expected<void, std::string>& done, ValueField* field, const QElapsedTimer* since) {
     if (!done) {
         const QString why = QString::fromStdString(done.error());
         say("Not changed: " + why, true);
@@ -1185,14 +1200,14 @@ bool MainWindow::change(const std::function<void(Document&)>& verb, session::Cha
     }
     say({});
     refresh();
-    frameTimes_.took(session::FrameTimes::Work::Change, static_cast<double>(took.nsecsElapsed()) / 1e6);
+    if (since) frameTimes_.took(session::FrameTimes::Work::Change, static_cast<double>(since->nsecsElapsed()) / 1e6);
     return true;
 }
 
 void MainWindow::typed(OpId layer, FieldId id, const QString& text, ValueField* field) {
     if (!session_.document().contains(layer)) return;
     const Unit unit = fields(session_.document().get(layer))[id.index].unit;
-    if (const std::optional<Expr> value = read(text, unit, field)) change([&](Document& doc) { doc.set(layer, id, *value); }, {}, field);
+    if (const std::optional<Expr> value = read(text, unit, field)) answer(session_.run(session::SetField{session::OperationField{layer, id}, *value}), field);
 }
 
 std::optional<Expr> MainWindow::read(const QString& text, Unit unit, ValueField* field) {

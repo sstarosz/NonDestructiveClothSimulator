@@ -257,7 +257,7 @@ TEST_CASE("a seam the cloth could not close is lined in red; selected it stays a
     session.update();
     // One stitched point held under the floor, where the one sewn to it cannot follow.
     const sim::Stitch stitch = session.cloth().mesh->stitches.front();
-    session.grab(session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0});
+    session.drag(session::PullCloth{session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}});
     for (int i = 0; i < 600; ++i) session.update();
     REQUIRE(!session.cloth().open.empty());
     OrbitCamera camera;

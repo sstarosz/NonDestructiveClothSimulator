@@ -10,9 +10,6 @@ What comes next is in the [roadmap](../ROADMAP.md).
 - One fabric for everything, with fixed properties; no pins in the window.
 - Pulling the cloth holds one particle; the cloth runs while it is held and
   stops again when it is let go, if it was paused.
-- Pulling the cloth is not an undo step of its own: undo after a pull also
-  takes back the last change of the pattern or of a panel's place (redo brings
-  the pulled cloth back).
 - Reset drops the whole cloth, not one panel's, and undo does not bring back
   what it dropped.
 - A panel cannot be frozen so that it keeps still while cloth rests on it: a

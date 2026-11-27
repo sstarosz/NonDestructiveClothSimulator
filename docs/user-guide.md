@@ -107,7 +107,8 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Dragging cloth in 3D**: while the cloth plays, a drag pulls it by the
-  particle under the mouse, whatever the tool. Paused, it stands still: with
+  particle under the mouse, whatever the tool. Each pull is an undo step:
+  Ctrl+Z puts the cloth back as it was before it. Paused, it stands still: with
   Move (W) a drag on the selected panel moves it in space, drape and all, with
   Select (Q) a drag does nothing, and the Pull tool (H) pulls the cloth, which
   runs while it is held. The help line says which happens. A draped panel whose

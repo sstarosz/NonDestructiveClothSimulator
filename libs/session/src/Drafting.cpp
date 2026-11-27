@@ -7,6 +7,7 @@
 #include "twintailor/session/Lengths.h"
 #include "twintailor/session/Locks.h"
 #include "twintailor/sim/Layout.h"
+#include "Corners.h"
 
 namespace twintailor::session {
 
@@ -27,147 +28,8 @@ ChangeRules placing(bool newStep) { return {.step = newStep ? Step::New : Step::
 // Adding and removing things may leave a problem behind: that is shown where it is, not refused.
 constexpr ChangeRules adding{.ifItBreaks = IfItBreaks::Allow};
 
-// On a symmetric panel a drag has to respect the mirror: a drag on the
-// mirrored side is the mirror image of the drag on the drawn side, and a
-// point lying on the mirror's axis may only slide along it.
-struct Movement {
-    double dx, dy;
-};
-Movement acrossTheMirror(const Document& doc, const Result& shapes, PanelId panel, Movement moved, bool wasImage, const Vec2* position) {
-    const std::optional<OpRef<Mirror>> mirror = symmetryOf(doc, panel);
-    if (!mirror) return moved;
-    for (const SymmetryAxis& axis : shapes[panel].axes) {
-        if (!(axis.mirror == OpId(*mirror))) continue;
-        const double length = std::hypot(axis.end.x - axis.start.x, axis.end.y - axis.start.y);
-        if (length < 1e-9) continue;
-        const double ux = (axis.end.x - axis.start.x) / length, uy = (axis.end.y - axis.start.y) / length;
-        const double along = moved.dx * ux + moved.dy * uy;
-        if (wasImage) moved = {2.0 * along * ux - moved.dx, 2.0 * along * uy - moved.dy};
-        if (position) {
-            const double off = (position->x - axis.start.x) * uy - (position->y - axis.start.y) * ux;
-            if (std::abs(off) < 1e-6) moved = {along * ux, along * uy};  // on the axis: slide along it
-        }
-    }
-    return moved;
-}
-
-bool panelNamed(const Document& doc, const std::string& name) {
-    for (PanelId p : doc.panels())
-        if (doc.get(p).name == name) return true;
-    return false;
-}
-
-// "front copy", or "front copy 2" if that is taken.
-std::string firstFreeName(const Document& doc, const std::string& wanted) {
-    if (!panelNamed(doc, wanted)) return wanted;
-    for (int n = 2;; ++n)
-        if (!panelNamed(doc, wanted + " " + std::to_string(n))) return wanted + " " + std::to_string(n);
-}
-
-// The box a panel that follows `source` takes up about its own origin: a copy
-// is turned on the table as its source is, an instance is not.
-std::optional<Bounds> boxOfOneLike(const Editor& editor, PanelId source, Follow how) {
-    const Pattern& outline = editor.shapes()[source];
-    return how == Follow::Copy ? bounds(turned(outline, editor.document().get(source).angle)) : bounds(outline);
-}
-
-// Where a panel that follows `source` goes: just right of it, with room to
-// spare. A mirrored panel's own left edge is the source's right one.
-Vec2 besideSource(const Editor& editor, PanelId source, Follow how) {
-    const Panel& from = editor.document().get(source);
-    const Result& shapes = editor.shapes();
-    double x = from.x + 30_cm;
-    if (const std::optional<Bounds> box = boxOfOneLike(editor, source, how)) {
-        const double newLeft = how == Follow::MirroredInstance ? -box->max.x : box->min.x;
-        const std::optional<Bounds> placed = bounds(turned(shapes[source], from.angle));
-        x = from.x + (placed ? placed->max.x : box->max.x) + 12_cm - newLeft;
-    }
-    return {x, from.y};
-}
-
 // "1 seam", "2 seams".
 std::string seamCount(std::size_t count) { return std::to_string(count) + (count == 1 ? " seam" : " seams"); }
-
-// Where a mirrored instance of `source` first stands in space: as its source,
-// mirrored across the body's middle (a second leg beside the first). None, so
-// that it stands where the table has it, as any new panel, if the source has no
-// place of its own, or its anchor is less than a quarter of its width from the
-// middle: its mirror image would start inside it.
-std::optional<Arrangement> mirrorImageInSpace(const Editor& editor, PanelId source) {
-    Arrangement from = editor.document().get(source).arrangement;
-    const Pattern& outline = editor.shapes()[source];
-    const std::optional<Bounds> box = bounds(outline);
-    if (!from.placed || !box || std::abs(from.x) < (box->max.x - box->min.x) / 4.0) return std::nullopt;
-    // Said, though it may be the middle of the box: the instance's anchor is the image of this spot.
-    from.anchor = sim::anchorOf(from, outline);
-    return sim::mirrored(from);
-}
-
-// A new panel like each `source`, at its place on the table, all in one change.
-// Instances are sewn as their sources are, and a mirrored instance of a panel
-// at one side of the body stands in space as its mirror image. Empty if the
-// change is refused.
-struct Placed {
-    PanelId source;
-    Vec2 at;
-};
-std::vector<PanelId> addLike(Editor& editor, const std::vector<Placed>& wanted, Follow how, Outcome& outcome) {
-    const std::string suffix = how == Follow::Copy ? " copy" : how == Follow::Instance ? " instance" : " mirrored";
-    std::vector<PanelId> added;
-    std::size_t sewn = 0;
-    apply(editor, [&](Document& doc) {
-        added.clear();
-        sewn = 0;
-        for (const Placed& one : wanted) {
-            const std::string name = firstFreeName(doc, doc.get(one.source).name + suffix);
-            if (how == Follow::Copy) {
-                // As its source in all but its name and where it is. In space it has no place yet: it would stand inside the source.
-                Panel like = doc.get(one.source);
-                like.name = name;
-                like.x = one.at.x, like.y = one.at.y;
-                like.arrangement = {};
-                added.push_back(doc.copy(one.source, std::move(like)));
-            } else {
-                const PanelId panel = doc.add(Panel{.name = name, .x = one.at.x, .y = one.at.y});
-                doc.add(panel, Instance{.source = one.source, .mirrored = how == Follow::MirroredInstance});
-                if (how == Follow::MirroredInstance)
-                    if (const std::optional<Arrangement> image = mirrorImageInSpace(editor, one.source)) doc.arrange(panel, *image);
-                added.push_back(panel);
-            }
-        }
-        // Only when they are all there can they be sewn to each other. A copy is not an instance: it gets none.
-        for (PanelId panel : added) sewn += doc.sewAsSource(panel).size();
-    }, adding, outcome);
-    if (outcome.refused) added.clear();
-    else if (sewn > 0)
-        outcome.notice = seamCount(sewn) + " sewn as on " +
-                         (wanted.size() == 1 ? editor.document().get(wanted.front().source).name : std::string("the panels they follow")) + ".";
-    return added;
-}
-
-// Where copies (or instances) of a group go: it keeps its shape, with the middle of its box at
-// `at`, or just right of where it is when there is no place. Mirrored instances are laid out as
-// the mirror image of the group, so that each stands to the others as its source does, flipped.
-std::vector<Placed> groupPlaces(const Editor& editor, const std::vector<PanelId>& sources, const std::optional<Vec2>& at, Follow how) {
-    const Document& doc = editor.document();
-    Vec2 low{1e300, 1e300}, high{-1e300, -1e300};
-    for (PanelId source : sources) {
-        const Panel& from = doc.get(source);
-        const std::optional<Bounds> box = boxOfOneLike(editor, source, how);
-        const Bounds own = box ? *box : Bounds{};
-        low = {std::min(low.x, from.x + own.min.x), std::min(low.y, from.y + own.min.y)};
-        high = {std::max(high.x, from.x + own.max.x), std::max(high.y, from.y + own.max.y)};
-    }
-    const Vec2 by = at ? Vec2{at->x - (low.x + high.x) / 2.0, at->y - (low.y + high.y) / 2.0} : Vec2{high.x - low.x + 12_cm, 0.0};
-    std::vector<Placed> places;
-    for (PanelId source : sources) {
-        const Panel& from = doc.get(source);
-        // A mirrored instance's origin mirrors its source's, about the middle of the group.
-        const double x = how == Follow::MirroredInstance ? low.x + high.x - from.x : from.x;
-        places.push_back({source, {x + by.x, from.y + by.y}});
-    }
-    return places;
-}
 
 // The selected panels in the document's order; only those that are still there.
 std::vector<PanelId> selectedInOrder(const Document& doc, const Drafting::Selection& selection) {
@@ -175,13 +37,6 @@ std::vector<PanelId> selectedInOrder(const Document& doc, const Drafting::Select
     for (PanelId panel : doc.panels())
         if (selection.has(panel)) panels.push_back(panel);
     return panels;
-}
-
-// "2. Curve": a layer by its place in its panel and its label, as the window names it.
-std::string layerName(const Document& doc, OpId layer) {
-    const std::vector<OpId> siblings = doc.operations(doc.panelOf(layer));
-    const auto index = static_cast<std::size_t>(std::find(siblings.begin(), siblings.end(), layer) - siblings.begin());
-    return std::to_string(index + 1) + ". " + std::string(label(doc.get(layer)));
 }
 
 } // namespace
@@ -266,7 +121,7 @@ void Drafting::forget(const Document& doc) {
     dragging_.reset();
     scaling_.reset();
     groupStarts_.clear();
-    cornerDrags_.clear();
+    draggingCorners_ = false;
     turning_.reset();
     arrangedFrom_.reset();
     selection.corners.clear();
@@ -602,100 +457,35 @@ Outcome Drafting::on(Editor& editor, const MovePanel& g) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const MoveCorner& image) {
+Outcome Drafting::on(Editor& editor, const MoveCorner& g) {
     Outcome outcome;
     const Document& doc = editor.document();
-    bool newStep = false;  // whether this change opens the drag's undo step
-    if (!doc.contains(image.panel)) return outcome;
-    // Held to one axis, the other coordinate is not moved at all, whatever the pointer does.
-    const double alongX = image.along == Along::Y ? 0.0 : image.dx, alongY = image.along == Along::X ? 0.0 : image.dy;
-    const Vec2 own = turned(Vec2{alongX, alongY}, -doc.get(image.panel).angle);  // the drag in the panel's own coordinates
-    const Pattern& shape = editor.shapes()[image.panel];
+    if (!doc.contains(g.panel)) return outcome;
     std::vector<CornerRef>& chosen = selection.corners;
     const auto isSelected = [&](const CornerRef& c) { return std::find(chosen.begin(), chosen.end(), c) != chosen.end(); };
 
     // Dragging a selected corner moves the whole selection; dragging any
     // other corner selects just that one.
-    if (image.phase == DragPhase::Begin && !(chosen.size() > 1 && isSelected(image.corner))) chosen = {image.corner};
-    const std::vector<CornerRef> grabbed = chosen.size() > 1 && isSelected(image.corner) ? chosen : std::vector<CornerRef>{image.corner};
+    if (g.phase == DragPhase::Begin && !(chosen.size() > 1 && isSelected(g.corner))) chosen = {g.corner};
+    const std::vector<CornerRef> grabbed = chosen.size() > 1 && isSelected(g.corner) ? chosen : std::vector<CornerRef>{g.corner};
 
-    // On a symmetric panel, a mirrored corner moves its original, the mirrored
-    // way; a corner and its own image count once.
-    struct Moving {
-        CornerRef corner;
-        Movement by;
-    };
-    std::vector<Moving> moving;
-    for (const CornerRef& c : grabbed) {
-        if (!shape.contains(c)) continue;
-        const DrawnCorner drawn = drawnSide(doc, image.panel, c);
-        if (std::any_of(moving.begin(), moving.end(), [&](const Moving& m) { return m.corner == drawn.corner; })) continue;
-        const Vec2 where = shape.position(c);
-        moving.push_back({drawn.corner, acrossTheMirror(doc, editor.shapes(), image.panel, {own.x, own.y}, drawn.wasImage, &where)});
+    if (g.phase == DragPhase::Begin) {
+        editor.endDrag();
+        const auto movable = movableCorners(editor.document(), editor.shapes(), g.panel, grabbed, {0.0, 0.0});
+        draggingCorners_ = movable.has_value();
+        if (!movable) outcome.notice = movable.error();  // a formula places them
     }
-
-    if (image.phase == DragPhase::Begin) {
-        dragging_.reset();
-        cornerDrags_.clear();
-        // Corners that come from a formula stay where they are.
-        std::string locked;
-        moving.erase(std::remove_if(moving.begin(), moving.end(), [&](const Moving& m) {
-                         const std::string why = cornerLock(doc, editor.shapes(), image.panel, m.corner);
-                         if (!why.empty()) locked = why;
-                         return !why.empty();
-                     }),
-                     moving.end());
-        if (moving.empty()) {
-            outcome.notice = locked;
-            return outcome;
-        }
-        if (moving.size() == 1) {
-            // Keep dragging the same corner in one operation: if the panel's last
-            // operation already moves this corner by plain numbers, continue it.
-            const CornerRef corner = moving.front().corner;
-            const std::vector<OpId> operations = doc.operations(image.panel);
-            const AdjustPoint* last = operations.empty() ? nullptr : std::get_if<AdjustPoint>(&doc.get(operations.back()));
-            if (last && last->corner == corner && asNumber(last->dx) && asNumber(last->dy)) {
-                newStep = true;  // the drag's first change opens its undo step
-                dragging_ = Dragging{operations.back(), false, *asNumber(last->dx), *asNumber(last->dy)};
-            } else {
-                OpId added;
-                if (!apply(editor, [&](Document& d) { added = d.add(image.panel, AdjustPoint{.corner = corner, .dx = 0_cm, .dy = 0_cm}); }, byHand(true), outcome))
-                    return outcome;  // for instance the only point of a whole circle
-                dragging_ = Dragging{added, false, 0.0, 0.0};
-            }
-        } else {
-            // A group: one adjustment each, all in one undo step.
-            std::vector<CornerDrag> started;
-            if (!apply(editor, [&](Document& d) {
-                    for (const Moving& m : moving) started.push_back({m.corner, d.add(image.panel, AdjustPoint{.corner = m.corner, .dx = 0_cm, .dy = 0_cm}).id});
-                }, byHand(true), outcome))
-                return outcome;
-            cornerDrags_ = std::move(started);
-        }
+    if (!draggingCorners_) return outcome;
+    // Held to one axis, the other coordinate is not moved at all, whatever the pointer does.
+    const Vec2 by{g.along == Along::Y ? 0.0 : g.dx, g.along == Along::X ? 0.0 : g.dy};
+    if (const auto moved = editor.drag(MoveCorners{.panel = g.panel, .corners = grabbed, .by = by}); !moved) {
+        outcome.notice = "Not changed: " + moved.error();  // for instance the only point of a whole circle
+        outcome.refused = true;
     }
-
-    if (!cornerDrags_.empty()) {
-        apply(editor, [&](Document& d) {
-            for (const CornerDrag& drag : cornerDrags_) {
-                const auto it = std::find_if(moving.begin(), moving.end(), [&](const Moving& m) { return m.corner == drag.corner; });
-                if (it == moving.end() || !d.contains(drag.operation)) continue;
-                const OpRef<AdjustPoint> adjust(drag.operation);
-                d.set(adjust, &AdjustPoint::dx, Expr(it->by.dx));
-                d.set(adjust, &AdjustPoint::dy, Expr(it->by.dy));
-            }
-        }, byHand(false), outcome);
-        if (image.phase == DragPhase::End) cornerDrags_.clear();
-        return outcome;
+    if (g.phase == DragPhase::End) {
+        editor.endDrag();
+        draggingCorners_ = false;
     }
-    if (!dragging_ || !doc.contains(dragging_->operation) || moving.empty()) return outcome;
-    const OpRef<AdjustPoint> adjust(dragging_->operation);
-    const double x = dragging_->baseX + moving.front().by.dx, y = dragging_->baseY + moving.front().by.dy;
-    apply(editor, [&](Document& d) {
-        d.set(adjust, &AdjustPoint::dx, Expr(x));
-        d.set(adjust, &AdjustPoint::dy, Expr(y));
-    }, byHand(newStep), outcome);
-    if (image.phase == DragPhase::End) dragging_.reset();
     return outcome;
 }
 
@@ -969,18 +759,35 @@ Outcome Drafting::on(Editor& editor, const MirrorAcross& g) {
     return outcome;
 }
 
+std::vector<PanelId> Drafting::add(Editor& editor, const DuplicatePanels& command, Outcome& outcome) {
+    const std::expected<DuplicatePanels::Done, std::string> made = editor.run(command);
+    if (!made) {
+        outcome.notice = "Not changed: " + made.error();
+        outcome.refused = true;
+        return {};
+    }
+    selection = {made->panels.front(), {}, {made->panels.begin() + 1, made->panels.end()}};
+    if (made->seams > 0)
+        outcome.notice = seamCount(made->seams) + " sewn as on " +
+                         (command.panels.size() == 1 ? editor.document().get(command.panels.front()).name : std::string("the panels they follow")) + ".";
+    return made->panels;
+}
+
 Outcome Drafting::on(Editor& editor, const AddBeside& g) {
     Outcome outcome;
     if (!editor.document().contains(g.source)) return outcome;
-    const std::vector<PanelId> added = addLike(editor, {{g.source, besideSource(editor, g.source, g.how)}}, g.how, outcome);
-    if (!added.empty()) selection = {added.front(), {}, {}};
+    add(editor, DuplicatePanels{.panels = {g.source}, .how = g.how}, outcome);
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const DeletePanel& g) {
     Outcome outcome;
     if (!editor.document().contains(g.panel)) return outcome;
-    if (!apply(editor, [&](Document& doc) { doc.remove(g.panel); }, adding, outcome)) return outcome;
+    if (const auto done = editor.run(DeletePanels{{g.panel}}); !done) {
+        outcome.notice = "Not changed: " + done.error();
+        outcome.refused = true;
+        return outcome;
+    }
     drop(g.panel);
     return outcome;
 }
@@ -995,39 +802,19 @@ Outcome Drafting::on(Editor& editor, const DeleteSelection& g) {
         return outcome;
     }
     if (g.wholePanels || selection.corners.empty() || !selection.panel || !doc.contains(*selection.panel)) {
-        if (panels.size() == 1) return on(editor, DeletePanel{panels.front()});
-        // Several panels go in one undo step. What used one of them stays and shows a problem.
-        if (!apply(editor, [&](Document& d) {
-                for (PanelId panel : panels) d.remove(panel);
-            }, adding, outcome))
+        if (const auto done = editor.run(DeletePanels{panels}); !done) {
+            outcome.notice = "Not changed: " + done.error();
+            outcome.refused = true;
             return outcome;
+        }
         for (PanelId panel : panels) drop(panel);
         return outcome;
     }
-    const PanelId panel = *selection.panel;
-
-    // A corner can only go with the layer that made it, and only a Point-tool
-    // layer is only that corner. Any other corner is part of a shape: say which.
-    std::vector<OpId> points;
-    for (const CornerRef& corner : selection.corners) {
-        const OpId made = drawnSide(doc, panel, corner).corner.op;
-        if (!doc.contains(made)) continue;
-        if (!(doc.panelOf(made) == panel)) {
-            outcome.notice = "This corner comes from the panel " + doc.get(doc.panelOf(made)).name + ". Change that panel instead.";
-        } else if (!std::holds_alternative<AddPoint>(doc.get(made))) {
-            outcome.notice = "This corner belongs to the " + layerName(doc, made) + " layer. Remove or change that layer instead.";
-        } else {
-            if (std::find(points.begin(), points.end(), made) == points.end()) points.push_back(made);
-            continue;
-        }
+    if (const auto done = editor.run(DeleteCorners{.panel = *selection.panel, .corners = selection.corners}); !done) {
+        outcome.notice = done.error();  // a sentence that says what to do instead
         outcome.refused = true;
         return outcome;
     }
-    if (points.empty()) return outcome;
-    if (!apply(editor, [&](Document& d) {
-            for (OpId point : points) d.remove(point);
-        }, adding, outcome))
-        return outcome;
     selection.corners.clear();
     return outcome;
 }
@@ -1055,9 +842,7 @@ Outcome Drafting::on(Editor& editor, const DuplicateSelection& g) {
         outcome.refused = true;
         return outcome;
     }
-    if (panels.size() == 1) return on(editor, AddBeside{panels.front(), g.how});
-    const std::vector<PanelId> added = addLike(editor, groupPlaces(editor, panels, std::nullopt, g.how), g.how, outcome);
-    if (!added.empty()) selection = {added.front(), {}, {added.begin() + 1, added.end()}};
+    add(editor, DuplicatePanels{.panels = panels, .how = g.how}, outcome);
     return outcome;
 }
 
@@ -1077,24 +862,7 @@ Outcome Drafting::on(Editor& editor, const PastePanel& g) {
         outcome.refused = true;
         return outcome;
     }
-    std::vector<Placed> places;
-    if (copied_.size() > 1) {
-        places = groupPlaces(editor, copied_, g.at, Follow::Copy);
-    } else {
-        const PanelId source = copied_.front();
-        Vec2 place = besideSource(editor, source, Follow::Copy);
-        if (g.at) {
-            // The copy's middle goes under the pointer.
-            const std::optional<Bounds> box = boxOfOneLike(editor, source, Follow::Copy);
-            const Vec2 middle = box ? Vec2{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0} : Vec2{};
-            place = {g.at->x - middle.x, g.at->y - middle.y};
-        }
-        places = {{source, place}};
-    }
-    const std::vector<PanelId> added = addLike(editor, places, Follow::Copy, outcome);
-    if (!added.empty()) {
-        selection = {added.front(), {}, {added.begin() + 1, added.end()}};
-    }
+    add(editor, DuplicatePanels{.panels = copied_, .how = Follow::Copy, .at = g.at}, outcome);
     return outcome;
 }
 
