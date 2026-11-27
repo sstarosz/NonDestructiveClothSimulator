@@ -4,6 +4,9 @@ A pattern CAD for clothing in which nothing is ever baked in. Draw a pattern,
 sew it, drape it on your own character, change any measurement while it hangs,
 and take it into Blender or Maya.
 
+![The window: a T-shirt and trousers draped on an avatar in 3D on the left,
+their pattern on its table on the right](docs/images/window.png)
+
 Every panel is a short list of operations (rectangle, curve, added point, set
 length, cut, mirror ...) whose values can be numbers or formulas over named
 parameters. Change the waist and every panel, copy, instance and seam that

@@ -39,7 +39,8 @@ A first garment, step by step:
   version.
 - **Export OBJ**: the garment as it hangs, in the units and axes of the
   avatar's file, one group per panel, with the pattern as UVs.
-- Seven sample garments (File > Samples), from a skirt to trousers.
+- Eight sample garments (File > Samples), from a skirt to a T-shirt with
+  trousers.
 
 ### Known limits
 

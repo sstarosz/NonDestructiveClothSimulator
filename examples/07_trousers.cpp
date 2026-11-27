@@ -4,7 +4,8 @@
 //      added on the inside edge for the crotch, moved out into the crotch,
 //      and one on the side for the hips. The waist and the hem get lengths
 //      of their own (Set length), which a rectangle's width cannot say; the
-//      side above the hips slants in to the waist, the leg narrows to the hem.
+//      side slants in to the waist, rounded over the hips, and the leg narrows
+//      to the hem.
 //   2. the right back: the same the other way round, with a deeper crotch.
 //   3. sewn at the side, above and below the hips, and along the inseam.
 //   4. the left leg: a mirrored instance of each, sewn as the right leg is;
@@ -17,6 +18,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <numbers>
 
 #include "twintailor/core/Document.h"
 #include "twintailor/core/Evaluate.h"
@@ -33,6 +35,18 @@ struct Leg {
     OpRef<AddPoint> crotch, hip;
     EdgeRef upperSide, lowerSide, inseam, rise;  // the side above and below the hip point
 };
+
+// How far the outline turns where one arc ends and the next begins, in degrees.
+double turnAt(const Pattern& pattern, const EdgeRef& before, const EdgeRef& after) {
+    const auto heading = [&](const Edge& edge, std::uint32_t at) {
+        const Vec2 point = pattern.vertices[at].position;
+        const double x = point.x - edge.arc->center.x, y = point.y - edge.arc->center.y;
+        return edge.arc->sweep > 0 ? std::atan2(x, -y) : std::atan2(-x, y);
+    };
+    const Edge &first = pattern.edge(before), &second = pattern.edge(after);
+    const double turn = heading(second, second.start) - heading(first, first.end);
+    return std::abs(std::remainder(turn, 2.0 * std::numbers::pi)) * 180.0 / std::numbers::pi;
+}
 
 } // namespace
 
@@ -59,6 +73,9 @@ int main() {
     doc.add(front.panel, Curve{.edge = front.crotch.after(front.body.right()), .bulge = -2_cm});
     doc.add(front.panel, SetLength{.edge = front.body.top(), .length = waist / 4, .keeping = SetLength::Keeping::Start});
     doc.add(front.panel, SetLength{.edge = front.body.bottom(), .length = ankle / 2});
+    // Rounded over the hips: two arcs that meet at the hip point in one line.
+    doc.add(front.panel, Curve{.edge = front.body.left(), .bulge = 1.6_cm});
+    doc.add(front.panel, Curve{.edge = front.hip.after(front.body.left()), .bulge = 0.4_cm});
     front.upperSide = front.body.left();
     front.lowerSide = front.hip.after(front.body.left());
     front.inseam = front.body.right();
@@ -75,6 +92,8 @@ int main() {
     doc.add(back.panel, Curve{.edge = back.body.left(), .bulge = -2_cm});
     doc.add(back.panel, SetLength{.edge = back.body.top(), .length = waist / 4, .keeping = SetLength::Keeping::End});
     doc.add(back.panel, SetLength{.edge = back.body.bottom(), .length = ankle / 2});
+    doc.add(back.panel, Curve{.edge = back.hip.after(back.body.right()), .bulge = 1.6_cm});
+    doc.add(back.panel, Curve{.edge = back.body.right(), .bulge = 0.4_cm});
     back.upperSide = back.hip.after(back.body.right());
     back.lowerSide = back.body.right();
     back.inseam = back.crotch.after(back.body.left());
@@ -111,7 +130,8 @@ int main() {
     expect("back crotch point x", b->position(back.crotch.corner()).x, -12_cm);
     expect("back crotch point height", b->position(back.crotch.corner()).y, 62.8_cm);
     expect("hip line on the side", f->position(front.hip.corner()).y, 74_cm);
-    expect("side above the hips slants in", f->length(front.upperSide), std::hypot(6.0, 18.0));
+    expect("side above the hips is rounded", f->length(front.upperSide) > std::hypot(6.0, 18.0) + 0.1, true);
+    expect("no corner at the hips, in degrees", turnAt(*f, front.upperSide, front.lowerSide) < 1.5, true);
     expect("sides above the hips match", f->length(front.upperSide), b->length(back.upperSide));
     expect("sides below the hips match", f->length(front.lowerSide), b->length(back.lowerSide));
     expect("inseams within 0.5 mm", std::abs(f->length(front.inseam) - b->length(back.inseam)) < 0.05, true);

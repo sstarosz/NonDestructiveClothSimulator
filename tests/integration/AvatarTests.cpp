@@ -243,6 +243,43 @@ TEST_CASE("the trousers sample sews shut on the avatar and hangs from the waist"
     expectTrousersToHang(session::samples()[6].build());
 }
 
+TEST_CASE("the T-shirt and trousers sample sews shut on the avatar, the shirt over the trousers")
+{
+    const Document doc = session::samples()[7].build();
+    const Result shapes = evaluate(doc);
+    REQUIRE(shapes.ok());
+    const ClothMesh mesh = meshOf(doc, shapes, {.particleDistance = 2_cm});
+    REQUIRE(mesh.panels.size() == 6);  // the shirt's two, then the trousers' four
+    Cloth cloth(mesh, arranged(doc, mesh));
+    const Body& body = project::avatar();
+    run(cloth, body, 6.0);
+    double widest = 0.0, hem = 1e9, waistband = 0.0;
+    for (const Stitch& stitch : mesh.stitches)
+        widest = std::max(widest, length(cloth.positions()[stitch.panelA][stitch.pointA] - cloth.positions()[stitch.panelB][stitch.pointB]));
+    for (std::size_t p = 0; p < 2; ++p)
+        for (const Vec3& at : cloth.positions()[p]) hem = std::min(hem, at.y);
+    for (std::size_t p = 2; p < 6; ++p)
+        for (const Vec3& at : cloth.positions()[p]) waistband = std::max(waistband, at.y);
+    // Where the two lie on each other: is the shirt's particle further from the body than the trousers' nearest one?
+    std::size_t over = 0, under = 0;
+    for (std::size_t p = 0; p < 2; ++p)
+        for (const Vec3& at : cloth.positions()[p]) {
+            const Vec3* nearest = nullptr;
+            for (std::size_t q = 2; q < 6; ++q)
+                for (const Vec3& other : cloth.positions()[q])
+                    if (!nearest || length(other - at) < length(*nearest - at)) nearest = &other;
+            if (length(*nearest - at) < 3.0) ++(distanceTo(body, at) > distanceTo(body, *nearest) ? over : under);
+        }
+    std::printf("      outfit: widest stitch %.2f cm, shirt hem at %.1f cm, trousers' top at %.1f cm, over %zu, under %zu, stretch %.1f%%, fastest %.1f cm/s\n", widest, hem,
+                waistband, over, under, 100 * worstStretch(mesh, cloth.positions()), cloth.fastest());
+    EXPECT((cloth.sound() && !cloth.sewing()), "it is sewn, and every position is a number");
+    EXPECT((widest < 0.5), "every stitch is closed");
+    EXPECT((hem < waistband), "the shirt reaches down over the trousers: no skin shows between them");
+    EXPECT((over > 9 * under && over > 50), "the shirt lies over the trousers");
+    EXPECT((cloth.fastest() < 5.0), "it has settled");
+    EXPECT((waistband > project::avatarHips + 10.0), "the trousers hang from the waist");
+}
+
 TEST_CASE("trousers with only the right leg arranged, the left made as mirrored instances, hang as well")
 {
     // The sample without its left leg, which is then made as in the window:
