@@ -82,9 +82,9 @@ public:
     // stopping otherwise leaves it for the next start.
     void keepRecoveryIn(const QString& folder, double everySeconds = 30.0);
     // What the program remembers between runs (the folders of the last pattern,
-    // avatar and export, where the next file dialog of each starts) is read from
-    // this file now and written to it from now on. Without this it is
-    // remembered only while the window is there.
+    // avatar and export, where the next file dialog of each starts, and View >
+    // Instances in violet) is read from this file now and written to it from now
+    // on. Without this it is remembered only while the window is there.
     void keepSettingsIn(const QString& file);
     // Until a copy that is being written is on disk, for tests.
     void finishRecoveryCopy();
@@ -106,6 +106,7 @@ public:
     void showBody(bool shown);
     bool bodyShown() const { return session_.bodyPresent(); }
     void showBodySeeThrough(bool seeThrough);  // the body drawn so that cloth inside it shows
+    void markInstances(bool on);               // instances drawn violet in 3D; remembered by the program
     bool bodySeeThrough() const { return session_.bodySeeThrough(); }
     const std::vector<CornerRef>& selectedCorners() const { return drafting_.selection.corners; }
 
@@ -247,6 +248,7 @@ private:
     QAction* bodyAction_ = nullptr;
     QAction* exportAction_ = nullptr;
     QAction* seeThroughAction_ = nullptr;
+    QAction* markInstancesAction_ = nullptr;  // checked: instances are violet in 3D
     std::uint64_t problemsSaid_ = 0;  // how many times the help line has said that something cannot be
     // Recovery copies: the folder this run keeps them in, held by a lock while it runs.
     QString recoveryFolder_;

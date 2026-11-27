@@ -159,7 +159,8 @@ The budgets and the measured times are in
 - Outlines run counter-clockwise; an edge's start and end follow the outline.
 - In space y is up, the floor is y = 0 and the body faces +z.
 - Colours with a meaning live in `apps/qt/Theme.h` (and, for the 3D view,
-  `libs/render`): teal = driven by a formula, violet = instance, pink =
-  symmetry, blue = seam, amber = selected; x red, y green, z blue.
+  `libs/render`): teal = driven by a formula, violet = instance (in 3D only
+  when asked, View > Instances in violet), pink = symmetry, blue = seam, amber =
+  selected; x red, y green, z blue.
 - The 3D view works in picture pixels (`SpaceView::pixelScale`), so its gizmo
   is as easy to take hold of at any scale; Qt scales the widgets.

@@ -63,6 +63,7 @@ QString assetsFolder() { return QCoreApplication::applicationDirPath() + "/asset
 
 // The names the folders are kept under in the settings file, in MainWindow::Files' order.
 constexpr std::array<const char*, 3> folderKeys = {"patternFolder", "avatarFolder", "exportFolder"};
+constexpr const char* markInstancesKey = "instancesInViolet";
 
 // A file named in a folder; the name alone where there is no folder to name.
 QString inFolder(const QString& folder, const QString& name) { return folder.isEmpty() ? name : QDir(folder).filePath(name); }
@@ -590,6 +591,11 @@ void MainWindow::buildMenus() {
     seeThroughAction_->setCheckable(true);
     seeThroughAction_->setChecked(session_.bodySeeThrough());
     connect(seeThroughAction_, &QAction::triggered, this, &MainWindow::showBodySeeThrough);
+    markInstancesAction_ = view->addAction("Instances in violet");
+    markInstancesAction_->setObjectName("markInstances");
+    markInstancesAction_->setCheckable(true);
+    markInstancesAction_->setToolTip("In 3D, draws instances violet, as the table does.");
+    connect(markInstancesAction_, &QAction::triggered, this, &MainWindow::markInstances);
     QAction* grid = view->addAction("Grid on the table");
     grid->setCheckable(true);
     grid->setChecked(table_->gridShown());
@@ -885,6 +891,15 @@ void MainWindow::keepSettingsIn(const QString& file) {
     const QSettings settings(file, QSettings::IniFormat);
     for (std::size_t i = 0; i < folders_.size(); ++i)
         if (const QString kept = settings.value(folderKeys[i]).toString(); !kept.isEmpty()) folders_[i] = kept;
+    markInstancesAction_->setChecked(settings.value(markInstancesKey, false).toBool());
+    showSpace();
+}
+
+// How the person likes to look at any pattern, so it is the program's to remember, not the file's.
+void MainWindow::markInstances(bool on) {
+    markInstancesAction_->setChecked(on);
+    if (!settingsFile_.isEmpty()) QSettings(settingsFile_, QSettings::IniFormat).setValue(markInstancesKey, on);
+    showSpace();
 }
 
 QString MainWindow::folderFor(Files files) const {
@@ -1024,7 +1039,8 @@ void MainWindow::showSpace() {
                   .body = session_.bodyPresent(),
                   .mesh = shelf_->mesh()->isChecked(),
                   .seam = choosing ? std::nullopt : drafting_.selection.seam,
-                  .seeThroughBody = !choosing && session_.bodySeeThrough()});
+                  .seeThroughBody = !choosing && session_.bodySeeThrough(),
+                  .markInstances = markInstancesAction_->isChecked()});
 }
 
 void MainWindow::setThreading(session::Threading threading) {

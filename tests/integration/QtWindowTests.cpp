@@ -3862,6 +3862,44 @@ TEST_CASE("each file dialog starts in the folder of the last file of its kind, a
     EXPECT(startOf(w, "bodyAvatar").folder == assets, "a folder that has gone since is not offered");
 }
 
+TEST_CASE("View > Instances in violet marks instances in 3D, is off at first and is remembered", "[qt]")
+{
+    application();  // the folder below is beside the program
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-violet-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString settings = folder.filePath("settings.ini");
+    // How many panels the 3D view draws violet; the trousers' left leg is two instances.
+    const auto violet = [](Window& w) {
+        int count = 0;
+        for (const render::Surface& surface : w.window.space()->sceneFor(200, 200).surfaces)
+            if (surface.panel && surface.colour.blue > surface.colour.green + 0.1f) ++count;
+        return count;
+    };
+    {
+        Window w;
+        w.window.keepSettingsIn(settings);
+        w.window.openSample(6);
+        w.window.tick();
+        auto* action = w.window.findChild<QAction*>("markInstances");
+        REQUIRE(action != nullptr);
+        EXPECT((!action->isChecked() && violet(w) == 0), "at first the legs look alike");
+        choose(w, "markInstances");
+        EXPECT((action->isChecked() && violet(w) == 2), "switched on, the instances are violet at once");
+    }
+    {
+        Window w;
+        w.window.keepSettingsIn(settings);
+        w.window.openSample(6);
+        w.window.tick();
+        EXPECT(violet(w) == 2, "the next run has them violet too");
+        choose(w, "markInstances");
+        EXPECT((violet(w) == 0 && !w.window.isWindowModified()), "off again; the pattern is as it was saved");
+    }
+    Window w;
+    w.window.keepSettingsIn(settings);
+    EXPECT(!w.window.findChild<QAction*>("markInstances")->isChecked(), "and off is remembered");
+}
+
 TEST_CASE("an avatar file that cannot be read opens no dialog and says why", "[qt]")
 {
     Window w;

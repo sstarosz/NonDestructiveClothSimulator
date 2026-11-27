@@ -116,6 +116,9 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   the panel's colour; its back is a darker, cooler shade of it (grey cloth,
   the amber selection and violet instances alike). A panel that has not been
   turned in space has its front towards +z, where the body faces.
+- **Instances in violet**: in 3D an instance looks like other cloth. View >
+  Instances in violet draws instances violet, as the table always does. The
+  program remembers the choice; it is not part of the pattern.
 - **Seams in 3D**: while a seam is open, both its edges are lined in blue and
   a thin line runs from each point to the point it is sewn to, so you see which
   end meets which: the lines of a twisted seam cross. Once the seam has closed

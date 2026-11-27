@@ -1,8 +1,8 @@
 #pragma once
 // What the 3D view shows of a session: the body, the cloth (draped, or the
 // panels where they are arranged), the floor, and the mesh's triangles when
-// asked. Colours keep their meaning: the selected panel amber, an instance
-// violet. A panel's front (the side the table shows) has that colour; its back
+// asked. Colours keep their meaning: the selected panel amber, and, when
+// instances are marked, an instance violet. A panel's front (the side the table shows) has that colour; its back
 // is a darker, cooler shade of it. A seam that is still open is lined in blue
 // along both its edges, with a thin line from each particle to the one it is
 // sewn to, where the cloth has them now. A closed seam has no lines, and both
@@ -40,6 +40,7 @@ struct SceneOptions {
     std::optional<SeamId> seam{};  // the selected seam
     double pixel = 1.0;            // picture pixels in one pixel of the screen's own scale: how wide lines are
     bool seeThroughBody = false;   // the body drawn so that cloth inside it shows
+    bool markInstances = false;    // instances drawn violet, as the table has them
     friend bool operator==(const SceneOptions&, const SceneOptions&) = default;
 };
 
