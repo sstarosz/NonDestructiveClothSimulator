@@ -46,6 +46,9 @@ public:
     std::optional<std::string> update(const Session& session, double now, const std::string& title, const std::string& path);
     // A copy of the work as it is, whatever the time.
     void write(const Session& session, const std::string& title, const std::string& path);
+    // The same, on disk before this returns; or why it could not be written,
+    // every time. For when there is no later: the program is about to end.
+    std::expected<void, std::string> writeNow(const Session& session, const std::string& title, const std::string& path);
     // No copy: the work is saved, or thrown away.
     void forget();
     // Until no copy is being written. Returns why it could not be, if so.

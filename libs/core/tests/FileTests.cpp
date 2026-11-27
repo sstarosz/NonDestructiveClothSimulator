@@ -10,6 +10,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "Damaged.h"
 #include "Expect.h"
 #include "clothcad/core/Document.h"
 #include "clothcad/core/Drawing.h"
@@ -227,6 +228,59 @@ TEST_CASE("how the scene was left is saved beside the pattern")
     EXPECT((problem("frozen 9\n").line == 3 && problem("hidden 9\n").line == 3 && problem("hiddenseam 9\n").line == 3),
            "a panel or seam that is not in the file");
     EXPECT((problem("body upsidedown\n").line == 3), "a way of showing the body that is not known");
+}
+
+TEST_CASE("a number that is no number is refused wherever it stands, with its line")
+{
+    struct Place {
+        const char* what;
+        std::string lines;  // "?" stands where the number goes, on the last line
+    };
+    const std::string panel = "panel 1 \"a\" 0 0 0 0\n";
+    std::vector<Place> places = {
+        {"a panel's x", "panel 1 \"a\" 0 ? 0 0\n"},
+        {"its y", "panel 1 \"a\" 0 0 ? 0\n"},
+        {"its angle", "panel 1 \"a\" 0 0 0 ?\n"},
+        {"its particle distance", "panel 1 \"a\" 0 0 0 0 ?\n"},
+        {"a parameter", "parameter 1 \"p\" n ?\n"},
+        {"deep in a formula", "parameter 1 \"p\" + n 1 neg n ?\n"},
+        {"an operation's value", panel + "op 2 Rect 1 2 n ? n 1 0 0\n"},
+    };
+    const std::vector<std::string> arrangement = {"x", "y", "z", "turn", "tilt", "roll", "wrap", "anchor x", "anchor y"};
+    for (std::size_t bad = 0; bad < arrangement.size(); ++bad) {
+        std::string line = panel + "arrange";
+        for (std::size_t i = 0; i < arrangement.size(); ++i) line += i == bad ? " ?" : " 1";
+        places.push_back({arrangement[bad].c_str(), line + "\n"});
+    }
+    for (const Place& place : places) {
+        const auto with = [&](const char* number) {
+            std::string text = "clothcad 1\n" + place.lines;
+            text.replace(text.find('?'), 1, number);
+            return fromText(text);
+        };
+        INFO(place.what);
+        EXPECT((std::holds_alternative<SavedScene>(with("1.5"))), "a number is read there");
+        const std::size_t line = 1 + static_cast<std::size_t>(std::count(place.lines.begin(), place.lines.end(), '\n'));
+        for (const char* number : {"nan", "-nan", "inf", "-inf", "infinity", "1e999", "twelve"}) {
+            INFO(number);
+            const std::variant<SavedScene, FileError> read = with(number);
+            REQUIRE(std::holds_alternative<FileError>(read));
+            EXPECT((std::get<FileError>(read).line == line && !std::get<FileError>(read).message.empty()), "said with its line");
+        }
+    }
+}
+
+TEST_CASE("a particle distance outside its limits is refused: the window never writes one")
+{
+    const auto read = [](const char* distance) { return fromText(std::string("clothcad 1\npanel 1 \"a\" 0 0 0 0 ") + distance + "\n"); };
+    for (const char* distance : {"0.5", "2", "5"}) EXPECT((std::holds_alternative<SavedScene>(read(distance))), distance);
+    for (const char* distance : {"0.01", "0.499", "5.001", "500", "0", "-2"}) {
+        INFO(distance);
+        const std::variant<SavedScene, FileError> refused = read(distance);
+        REQUIRE(std::holds_alternative<FileError>(refused));
+        const FileError& problem = std::get<FileError>(refused);
+        EXPECT((problem.line == 2 && problem.message == "the particle distance must be between 0.5 and 5 cm"), "with the limits");
+    }
 }
 
 TEST_CASE("a parameter's unit is saved, and a length needs none")
@@ -467,6 +521,31 @@ TEST_CASE("the trousers saved by 0.1 open, with the same lengths and their avata
     EXPECT((shapes.errors.empty()), "no problem");
     EXPECT_NEAR(shapes[front].length(frontBody.top()), (20.0), "the waist follows");
     EXPECT_NEAR(shapes[leftFront].length(frontBody.top()), (20.0), "on both legs");
+}
+
+TEST_CASE("a saved file cut short or with a word changed opens or says on which line it is wrong")
+{
+    std::size_t opened = 0, refused = 0;
+    for (const char* text : {trousersAsWrittenBy01, piecesAsWrittenBy01}) {
+        testing::forEachDamaged(text, [&](const std::string& damaged) {
+            INFO(damaged);
+            const std::variant<SavedScene, FileError> read = fromText(damaged);
+            if (const FileError* problem = std::get_if<FileError>(&read)) {
+                ++refused;
+                const auto lines = static_cast<std::size_t>(std::count(damaged.begin(), damaged.end(), '\n')) + 1;
+                // Line 0 is for a file with nothing in it at all.
+                CHECK((problem->line <= lines && (problem->line > 0) == (damaged.find_first_not_of(" \n") != std::string::npos)));
+                CHECK(!problem->message.empty());
+                return;
+            }
+            ++opened;
+            const Document& doc = std::get<SavedScene>(read).document;
+            const Result shapes = evaluate(doc);
+            // evaluate() never throws: what it could not foresee it reports as this.
+            for (const Error& error : shapes.errors) CHECK(!error.message.starts_with("internal error"));
+        });
+    }
+    EXPECT((opened > 100 && refused > 1000), "both happen: the damage is of both kinds");
 }
 
 TEST_CASE("every other operation saved by 0.1 opens, with the same lengths")

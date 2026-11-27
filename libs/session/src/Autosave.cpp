@@ -1,6 +1,7 @@
 #include "clothcad/session/Autosave.h"
 
 #include <chrono>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <system_error>
@@ -62,13 +63,26 @@ void Autosave::write(const Session& session, const std::string& title, const std
     // The work has its own copies; the avatar it shares with them is never changed.
     writing_ = std::async(std::launch::async,
                           [folder = folder_, document = session.document(), state = session.state(), title, path]() -> std::string {
-                              // Whose it is first: a pattern with nothing beside it would come back without its name.
-                              std::ofstream about(filePath(aboutIn(folder)), std::ios::trunc);
-                              about << title << '\n' << path << '\n';
-                              about.close();
-                              if (!about) return "could not write into \"" + folder + "\"";
-                              return save(document, patternIn(folder), state);
+                              // Whatever goes wrong is the answer: an error left in the future would come out wherever that is asked.
+                              try {
+                                  // Whose it is first: a pattern with nothing beside it would come back without its name.
+                                  std::ofstream about(filePath(aboutIn(folder)), std::ios::trunc);
+                                  about << title << '\n' << path << '\n';
+                                  about.close();
+                                  if (!about) return "could not write into \"" + folder + "\"";
+                                  return save(document, patternIn(folder), state);
+                              } catch (const std::exception& problem) {
+                                  return problem.what();
+                              }
                           });
+}
+
+std::expected<void, std::string> Autosave::writeNow(const Session& session, const std::string& title, const std::string& path) {
+    write(session, title, path);
+    const std::string failed = writing_.get();
+    if (failed.empty()) return {};
+    copied_.reset();
+    return std::unexpected(failed);
 }
 
 void Autosave::forget() {

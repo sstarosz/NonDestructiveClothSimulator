@@ -187,7 +187,8 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(shelf_->simulate(), &QAction::toggled, this, [this](bool on) {
         session_.simulate(on);
         // What a drag on the cloth does changes with Play and Pause.
-        if (on) say(session_.bodyReady() ? playingHint : waitingHint);
+        if (on && session_.bodyProblem()) say(QString::fromStdString(*session_.bodyProblem()), true);
+        else if (on) say(session_.bodyReady() ? playingHint : waitingHint);
         else if (session_.clothShown()) say("Paused: in 3D, Move (W) moves the selected panel, drape and all; Pull (H) pulls the cloth.");
         else if (helpLine() == playingHint || helpLine() == waitingHint) say({});  // reset, or another garment: no cloth to drag
     });
@@ -715,6 +716,11 @@ bool MainWindow::mayDiscard(const QString& before) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    // After an error nothing is saved or thrown away: closing would take the recovery copy with it.
+    if (failed_) {
+        event->ignore();
+        return;
+    }
     stopChoosing();
     if (!mayDiscard("closing")) {
         event->ignore();
@@ -814,6 +820,34 @@ void MainWindow::endRecovery() {
     autosave_.reset();
     recoveryLock_.reset();
     QDir(recoveryFolder_).removeRecursively();
+}
+
+void MainWindow::cannotGoOn(const QString& error) {
+    if (std::exchange(failed_, true)) return;
+    timer_->stop();
+    const QString words = QString("Cloth CAD met an error it cannot go on from, and has to close (%1).\n\n").arg(error) + copyBeforeEnding();
+    // The message not at once: the error may have come out of the middle of drawing.
+    QTimer::singleShot(0, this, [this, words] {
+        auto* box = new QMessageBox(QMessageBox::Critical, "Cloth CAD", words, QMessageBox::Close, this);
+        box->setObjectName("cannotGoOn");
+        box->setTextInteractionFlags(Qt::TextSelectableByMouse);  // so that a report can copy the error
+        connect(box, &QMessageBox::finished, this, &MainWindow::mustEnd);
+        box->open();
+    });
+}
+
+QString MainWindow::copyBeforeEnding() {
+    try {
+        if (!session_.unsaved()) return "Nothing was unsaved.";
+        if (!autosave_) return "No recovery copy could be kept: the changes since the last save are lost.";
+        const std::expected<void, std::string> written = autosave_->writeNow(session_, title_.toStdString(), path_.toStdString());
+        if (written) return "Your unsaved work was copied. Start Cloth CAD again: it offers to open it.";
+        return QString("Your unsaved work could not be copied (%1). Start Cloth CAD again: it offers an earlier copy, if there is one.")
+            .arg(QString::fromStdString(written.error()));
+    } catch (const std::exception& problem) {
+        return QString("Your unsaved work could not be copied (%1). Start Cloth CAD again: it offers an earlier copy, if there is one.")
+            .arg(QString::fromUtf8(problem.what()));
+    }
 }
 
 void MainWindow::showTitle(const QString& title) {
@@ -1031,10 +1065,14 @@ void MainWindow::paceTicks() {
 }
 
 void MainWindow::tick() {
+    if (failed_) return;
     QElapsedTimer took;
     took.start();
     const bool meshShown = shelf_->mesh()->isChecked();
-    if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) say(QString::fromStdString(*problem), true);
+    if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) {
+        say(QString::fromStdString(*problem), true);
+        if (!session_.simulating()) shelf_->simulate()->setChecked(false);  // a cloth that went wrong has stopped: Play shows it
+    }
     table_->setMesh(meshShown ? session_.mesh() : nullptr);
     if (session_.bodyReady() && helpLine() == waitingHint) say(shelf_->simulate()->isChecked() ? playingHint : "");
     if (session_.editor().version() != shownVersion_) refresh();

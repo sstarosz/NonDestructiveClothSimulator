@@ -76,7 +76,10 @@ public:
     // background; until then, and with no avatar, there is nothing to collide
     // with and the cloth falls to the floor. Another body ends the cloth; undo
     // and redo bring back the drape that hung on the body they come back to.
-    bool bodyReady() const { return !preparing_.valid() && bodyOf_ == document().avatar(); }
+    bool bodyReady() const { return !preparing_.valid() && !bodyProblem_ && bodyOf_ == document().avatar(); }
+    // Why there will be no body to collide with: working it out failed, out of
+    // memory most likely. The cloth waits until the document has another avatar.
+    const std::optional<std::string>& bodyProblem() const { return bodyProblem_; }
     // How far working out the body has got, from 0 to 1; empty while none is
     // being worked out. Another avatar gives the work up at once and starts
     // again: nothing waits for a body that is no longer wanted.
@@ -162,7 +165,9 @@ public:
     // Brings everything up to date with the document and picks up news from
     // the cloth; call it once a frame. With `meshWanted` false the mesh, the
     // arrangement and the cloth are left alone (nothing shows them).
-    // Returns a problem to tell the user, if one came up.
+    // Returns a problem to tell the user, if one came up: work in the
+    // background that failed (the body, the mesh, the cloth) comes out here,
+    // once, and the rest goes on.
     std::optional<std::string> update(bool meshWanted = true);
 
 private:
@@ -211,6 +216,9 @@ private:
     std::shared_ptr<const sim::Surface> preview_;  // shown instead of it
     std::future<sim::Body> preparing_;
     std::shared_ptr<sim::Progress> progress_;  // of the body being worked out; the work holds it too
+    std::optional<std::string> bodyProblem_;   // why that work failed
+    std::optional<std::string> toTell_;        // a problem update() has still to hand out
+    std::optional<std::uint64_t> meshFailed_;  // the outlines no mesh could be made of
     bool bodyPresent_ = true;
     bool bodySeeThrough_ = false;
     struct BodyInUse {

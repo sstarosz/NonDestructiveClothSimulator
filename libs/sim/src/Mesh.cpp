@@ -19,6 +19,7 @@ namespace {
 constexpr double weld = 1e-6;         // points closer than this are one point
 constexpr std::size_t mostPoints = 400000;
 constexpr std::size_t mostAlongTheOutline = 20000;
+constexpr const char* panelTooLarge = "the particle distance is too small for a panel this large";
 
 double distance(Vec2 a, Vec2 b) { return std::hypot(b.x - a.x, b.y - a.y); }
 
@@ -36,14 +37,43 @@ double lengthOf(const std::vector<Vec2>& line) {
     return sum;
 }
 
+// How many pieces a length is cut into with particles `distance` apart. Any
+// number above what an outline may have (and a length that is no number) comes
+// out as one more than that: a mistyped size must not be made particle by
+// particle, nor overflow the count.
+std::size_t piecesOf(double length, double distance) {
+    const double pieces = std::round(length / distance);
+    if (!(pieces <= static_cast<double>(mostAlongTheOutline))) return mostAlongTheOutline + 1;
+    return pieces > 1.0 ? static_cast<std::size_t>(pieces) : 1;
+}
+
+// An edge as straight pieces, close enough for particles that far apart.
+std::vector<Vec2> lineOf(const Pattern& pattern, const Edge& edge, double distance) {
+    return edgePoints(pattern, edge, std::min(0.01, distance / 50.0));
+}
+
+// Whether the outline needs more pieces than a mesh may have, by its own
+// lengths alone.
+bool tooLongToMesh(const Pattern& pattern, double distance) {
+    std::size_t along = 0;
+    for (const Edge& edge : pattern.edges) {
+        if (edge.seam) continue;
+        const double length = lengthOf(lineOf(pattern, edge, distance));
+        if (length < weld) continue;  // an edge squeezed to nothing
+        along += piecesOf(length, distance);
+        if (along > mostAlongTheOutline) return true;
+    }
+    return false;
+}
+
 // `pieces` - 1 points spread evenly by length along a line, ends not included.
-std::vector<Vec2> spreadAlong(const std::vector<Vec2>& line, int pieces) {
+std::vector<Vec2> spreadAlong(const std::vector<Vec2>& line, std::size_t pieces) {
     std::vector<Vec2> points;
     const double total = lengthOf(line);
     std::size_t segment = 1;
     double before = 0.0;  // length of the line up to line[segment - 1]
-    for (int k = 1; k < pieces; ++k) {
-        const double target = total * k / pieces;
+    for (std::size_t k = 1; k < pieces; ++k) {
+        const double target = total * static_cast<double>(k) / static_cast<double>(pieces);
         while (segment + 1 < line.size() && before + distance(line[segment - 1], line[segment]) < target) {
             before += distance(line[segment - 1], line[segment]);
             ++segment;
@@ -70,13 +100,16 @@ struct EdgeKey {
 
 // How many pieces each sewn edge is divided into. Edges joined by seams,
 // directly or through other seams, share one count: that of the longest,
-// cut as finely as the finest panel among them asks.
+// cut as finely as the finest panel among them asks. A seam to a panel that is
+// too large to mesh counts for nothing: its other side is cut as if alone.
 class PieceCounts {
 public:
-    PieceCounts(const Document& doc, const Result& shapes, double fallbackDistance) {
+    PieceCounts(const Document& doc, const Result& shapes, double fallbackDistance, const std::vector<PanelId>& tooLarge) {
+        const auto refused = [&](PanelId panel) { return std::find(tooLarge.begin(), tooLarge.end(), panel) != tooLarge.end(); };
         for (const SeamResult& sewn : shapes.seams) {
             if (!sewn.sewn() || !doc.contains(sewn.seam)) continue;
             const Seam& seam = doc.get(sewn.seam);
+            if (refused(seam.a.panel) || refused(seam.b.panel)) continue;
             const std::size_t a = indexOf({seam.a.panel, seam.a.edge}, sewn.lengthA, distanceOf(doc, seam.a.panel, fallbackDistance));
             const std::size_t b = indexOf({seam.b.panel, seam.b.edge}, sewn.lengthB, distanceOf(doc, seam.b.panel, fallbackDistance));
             group_[root(a)] = root(b);
@@ -87,12 +120,11 @@ public:
             finest[root(i)] = std::min(finest[root(i)], distance_[i]);
         }
         pieces_.resize(keys_.size());
-        for (std::size_t i = 0; i < keys_.size(); ++i)
-            pieces_[i] = std::max(1, static_cast<int>(std::lround(longest[root(i)] / finest[root(i)])));
+        for (std::size_t i = 0; i < keys_.size(); ++i) pieces_[i] = piecesOf(longest[root(i)], finest[root(i)]);
     }
 
     // 0 when the edge is in no seam.
-    int of(const EdgeKey& key) const {
+    std::size_t of(const EdgeKey& key) const {
         for (std::size_t i = 0; i < keys_.size(); ++i)
             if (keys_[i] == key) return pieces_[i];
         return 0;
@@ -117,7 +149,7 @@ private:
     std::vector<double> length_;
     std::vector<double> distance_;  // of the panel the edge is on
     std::vector<std::size_t> group_;
-    std::vector<int> pieces_;
+    std::vector<std::size_t> pieces_;
 };
 
 struct Segment {
@@ -140,16 +172,34 @@ PanelMesh meshPanel(PanelId panel, const Pattern& pattern, const PieceCounts& co
         cornerPoint[i] = static_cast<uint32_t>(same);
     }
 
-    // Then particles along each edge.
+    // Then how many pieces each edge is cut into: nothing is put along an
+    // outline that needs more than a mesh may have.
+    struct Division {
+        const Edge& edge;
+        std::vector<Vec2> line;
+        std::size_t pieces;
+    };
+    std::vector<Division> divisions;
+    std::size_t alongTheOutline = 0;
     for (const Edge& edge : pattern.edges) {
         if (edge.seam) continue;
-        const std::vector<Vec2> line = edgePoints(pattern, edge, std::min(0.01, d / 50.0));
+        std::vector<Vec2> line = lineOf(pattern, edge, d);
         const double length = lengthOf(line);
         if (length < weld) continue;  // an edge squeezed to nothing
-        int pieces = counts.of({panel, edge.name});
-        if (pieces == 0) pieces = std::max(1, static_cast<int>(std::lround(length / d)));
+        std::size_t pieces = counts.of({panel, edge.name});
+        if (pieces == 0) pieces = piecesOf(length, d);
         const bool closed = cornerPoint[edge.start] == cornerPoint[edge.end];
-        if (closed) pieces = std::max(pieces, 3);
+        if (closed) pieces = std::max<std::size_t>(pieces, 3);
+        alongTheOutline += pieces;
+        if (alongTheOutline > mostAlongTheOutline) {
+            mesh.problem = panelTooLarge;
+            return mesh;
+        }
+        divisions.push_back({edge, std::move(line), pieces});
+    }
+
+    // Then particles along each edge.
+    for (const auto& [edge, line, pieces] : divisions) {
         EdgeParticles along{edge.name, {cornerPoint[edge.start]}};
         for (const Vec2& point : spreadAlong(line, pieces)) {
             along.points.push_back(static_cast<uint32_t>(mesh.points.size()));
@@ -171,8 +221,8 @@ PanelMesh meshPanel(PanelId panel, const Pattern& pattern, const PieceCounts& co
         high = {std::max(high.x, p.x), std::max(high.y, p.y)};
     }
     const double rowHeight = d * std::sqrt(3.0) / 2.0;
-    if ((high.x - low.x) / d * ((high.y - low.y) / rowHeight) > static_cast<double>(mostPoints) || boundary.size() > mostAlongTheOutline) {
-        mesh.problem = "the particle distance is too small for a panel this large";
+    if ((high.x - low.x) / d * ((high.y - low.y) / rowHeight) > static_cast<double>(mostPoints)) {
+        mesh.problem = panelTooLarge;
         return mesh;
     }
 
@@ -268,7 +318,10 @@ const PanelMesh* ClothMesh::find(PanelId panel) const {
 
 ClothMesh meshOf(const Document& doc, const Result& shapes, MeshSettings settings) {
     ClothMesh cloth;
-    const PieceCounts counts(doc, shapes, settings.particleDistance);
+    std::vector<PanelId> refused;  // too large by their own outlines
+    for (const PanelResult& result : shapes.panels)
+        if (tooLongToMesh(result.pattern, distanceOf(doc, result.panel, settings.particleDistance))) refused.push_back(result.panel);
+    const PieceCounts counts(doc, shapes, settings.particleDistance, refused);
     for (const PanelResult& result : shapes.panels) {
         if (!doc.contains(result.panel) || doc.get(result.panel).construction) continue;
         if (result.pattern.edges.empty()) continue;

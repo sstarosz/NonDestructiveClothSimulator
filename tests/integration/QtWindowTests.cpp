@@ -41,6 +41,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "Application.h"
 #include "AttributeEditor.h"
 #include "AvatarDialog.h"
 #include "Expect.h"
@@ -66,12 +67,12 @@ namespace {
 // One application for the whole run, as Qt wants. It is never deleted: on
 // the off-screen platform, closing it after mouse events were sent crashes
 // as the program ends (seen with Qt 6.2), after every test has passed.
-QApplication& application() {
+Application& application() {
     static int argc = 1;
     static char name[] = "clothcad_qt_window_tests";
     static char* argv[] = {name, nullptr};
     if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
-    static QApplication& app = *new QApplication(argc, argv);
+    static Application& app = *new Application(argc, argv);
     static const bool themed = (theme::apply(app), true);
     (void)themed;
     return app;
@@ -4038,6 +4039,112 @@ TEST_CASE("unsaved work is copied, and what a run that stopped left is offered a
         w.window.tick();
         w.window.finishRecoveryCopy();
         EXPECT((copies() == 0), "no copy before one is due");
+    }
+}
+
+// ---- Errors nothing else handles ----
+
+namespace {
+
+// As the program has it (main.cpp): errors out of events go to the window.
+struct Handling {
+    explicit Handling(MainWindow& window) {
+        application().handleErrors([&window](const QString& error) { window.cannotGoOn(error); });
+    }
+    ~Handling() { application().handleErrors({}); }
+    Handling(const Handling&) = delete;
+    Handling& operator=(const Handling&) = delete;
+};
+
+// Types into a field and presses Enter, as a key event that Qt delivers.
+void enter(QLineEdit* field, const QString& text) {
+    REQUIRE(field != nullptr);
+    field->setFocus();
+    field->setText(text);
+    QKeyEvent pressed(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QApplication::sendEvent(field, &pressed);
+}
+
+// From now on every change typed into `field` ends in an error, after the window has made it.
+void breakAfter(QLineEdit* field) {
+    QObject::connect(field, &QLineEdit::editingFinished, field, [] { throw std::runtime_error("something broke"); });
+}
+
+} // namespace
+
+TEST_CASE("an error in a change nothing handles copies the unsaved work at once, says so, and the window is to end", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-broken-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString recovery = folder.filePath("recovery");
+    w.window.keepRecoveryIn(recovery, 3600.0);  // no copy is due for an hour
+    int ended = 0;
+    QObject::connect(&w.window, &MainWindow::mustEnd, [&] { ++ended; });
+    const Handling handling(w.window);
+    const Param chest = w.parameter("chest");
+    QLineEdit* field = w.window.parameters()->field(chest);
+    breakAfter(field);
+
+    enter(field, "104 cm");
+    REQUIRE(asNumber(w.doc().get(chest).value) == 104.0);
+    const QStringList runs = QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    REQUIRE(runs.size() == 1);
+    const std::expected<session::Recovery, std::string> copy = session::readRecovery((recovery + "/" + runs.front()).toStdString());
+    REQUIRE(copy);
+    EXPECT((asNumber(copy->scene.document.get(chest).value) == 104.0), "the copy is there at once, with the change just made");
+    EXPECT((ended == 0), "and nothing ends before it is said");
+
+    QCoreApplication::processEvents();
+    const QList<QMessageBox*> boxes = w.window.findChildren<QMessageBox*>("cannotGoOn");
+    REQUIRE(boxes.size() == 1);
+    const QString said = boxes.front()->text();
+    INFO(said.toStdString());
+    EXPECT((boxes.front()->isVisible() && said.contains("something broke") && said.contains("was copied") && said.contains("Start Cloth CAD again")),
+           "what happened, and where the work is");
+
+    enter(field, "108 cm");  // another error: told once is enough
+    QCoreApplication::processEvents();
+    EXPECT((w.window.findChildren<QMessageBox*>("cannotGoOn").size() == 1), "only the first is told");
+    EXPECT((!w.window.close() && ended == 0), "the window does not close as if all were well");
+    boxes.front()->button(QMessageBox::Close)->click();
+    EXPECT((ended == 1), "closing the message ends the program");
+    EXPECT((QFile::exists(recovery + "/" + runs.front() + "/pattern.clothcad")), "and the copy stays for the next start");
+}
+
+TEST_CASE("an error with nothing unsaved, or with no copy to be had, says which", "[qt]")
+{
+    application();
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-broken-XXXXXX");
+    REQUIRE(folder.isValid());
+    const auto said = [](Window& w) {
+        QCoreApplication::processEvents();
+        const auto* box = w.window.findChild<QMessageBox*>("cannotGoOn");
+        REQUIRE(box != nullptr);
+        return box->text();
+    };
+    {
+        Window w;
+        w.window.keepRecoveryIn(folder.filePath("saved"), 3600.0);
+        w.window.cannotGoOn("something broke");
+        EXPECT((said(w).contains("Nothing was unsaved")), "nothing to copy");
+    }
+    {
+        Window w;
+        setChest(w, "100 cm");
+        w.window.cannotGoOn("something broke");
+        EXPECT((said(w).contains("No recovery copy") && said(w).contains("lost")), "nowhere to copy to");
+    }
+    {
+        Window w;
+        const QString recovery = folder.filePath("blocked");
+        w.window.keepRecoveryIn(recovery, 3600.0);
+        setChest(w, "100 cm");
+        const QStringList runs = QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        REQUIRE(runs.size() == 1);
+        REQUIRE(QDir(recovery + "/" + runs.front()).mkdir("pattern.clothcad.saving"));  // in the way of the copy
+        w.window.cannotGoOn("something broke");
+        EXPECT((said(w).contains("could not be copied") && said(w).contains("earlier copy")), "the copy failed, and why");
     }
 }
 

@@ -16,7 +16,8 @@ int piecesFor(const Edge& e, double tolerance) {
         // The angle a straight piece may span before it strays `tolerance` from the arc.
         const double step = 2.0 * std::acos(1.0 - tolerance / e.arc->radius);
         const double sweep = std::abs(e.arc->sweep) * (pi / 180.0);
-        return std::clamp(static_cast<int>(std::ceil(sweep / step)), 1, 512);
+        // Held to the limit as a number: for an enormous radius the step comes out as nothing, which no int divides by.
+        return static_cast<int>(std::clamp(std::ceil(sweep / step), 1.0, 512.0));
     }
     return 1;
 }

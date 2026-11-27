@@ -13,6 +13,7 @@ if(NOT TARGET clothcad::render)
 endif()
 
 add_library(clothcad_qt_ui STATIC
+    Application.cpp
     AttributeEditor.cpp
     AvatarDialog.cpp
     Icons.cpp

@@ -235,7 +235,9 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   carries on from there. A new pattern, or a file saved without an avatar,
   takes the body that is shown. With the shipped avatar a file is about 650 kB,
   about 950 kB with the trousers draped. Names of files and folders may use any
-  letters. Files saved by 0.1 open in every later version.
+  letters. Files saved by 0.1 open in every later version. A file with a line
+  that cannot be right (a number that is not one, a particle distance outside
+  0.5 to 5 cm) is not opened, and the line is named.
 - **Unsaved work is not lost by accident**: the title shows "*" while the
   file differs from what you see, and closing the window, New, Open and a
   sample ask first (Save, Don't Save, Cancel). Whatever the file holds counts,
@@ -250,6 +252,11 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   If the program stopped before the work was saved, the next start offers the
   copy: Open (Save then writes it to the pattern's own file), Delete, or Not
   Now, which asks again at the next start.
+- **After an error**: if the program meets an error it cannot go on from (out
+  of memory in the middle of a change), it writes the recovery copy at once,
+  says what happened and where the work is, and closes. If what fails is
+  making the avatar ready for the cloth, the cloth mesh, the cloth or a
+  recovery copy, the help line says so and the program goes on.
 - **The window** is laid out as Maya is: a row of actions under the menu
   (undo, redo, play and pause, reset, cloth mesh), a shelf of tools to make
   things (Draft, Sew, Simulate), a toolbox at the left edge (Select, Move,
@@ -636,6 +643,17 @@ holds and hands it what the user did.
 - A recovery copy can be up to half a minute old. It is offered when the
   program starts, one at a time. A power cut at the very moment of a save may
   still lose that file: the program does not wait for the disk to have it.
+- A crash that is not an error the program raises (memory used wrongly, a
+  fault in a driver, a power cut) still ends it without a word: only the last
+  recovery copy is there then.
+- A file cut short between two lines (a copy or a download that broke off)
+  opens with what is left in it, without a word, unless the cut is inside the
+  avatar or the draped cloth.
+- After an avatar could not be made ready for the cloth (out of memory), the
+  cloth waits until another avatar is put on or the program is started again.
+- A panel far too large for its particle distance (a mistyped width) has no
+  cloth: it is not shown in 3D, and the table says why only with Cloth mesh
+  switched on.
 - The avatar's armpits pinch a top without sleeves (sample 6) at its
   underarm points: a few edges there stretch up to about 30 %.
 - Hiding or deactivating is not an undo step; a panel or seam deleted and

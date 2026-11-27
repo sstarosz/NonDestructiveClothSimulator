@@ -88,6 +88,12 @@ public:
     void keepSettingsIn(const QString& file);
     // Until a copy that is being written is on disk, for tests.
     void finishRecoveryCopy();
+    // An error that nothing else handled: the window cannot be trusted to go
+    // on. Unsaved work is copied at once, as it is, and the window stops
+    // working; then a message ("cannotGoOn") says what happened and where the
+    // work is. Closing it emits mustEnd(), and whoever made the window ends
+    // the program. Only the first error is told.
+    void cannotGoOn(const QString& error);
     void select(std::optional<PanelId> panel);
     std::optional<PanelId> selected() const { return drafting_.selection.panel; }
     // A seam chosen instead of panels, and the one chosen now.
@@ -126,6 +132,10 @@ public:
     QString helpLine() const;
     ViewLayout viewLayout() const { return layout_; }
 
+signals:
+    // After cannotGoOn(), once its message has been read.
+    void mustEnd();
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
@@ -143,6 +153,8 @@ private:
     bool takeWhatIsTyped();
     void offerRecovery(const QString& folder);
     void endRecovery();  // no copy, and no more of them: the window is closed
+    // Writes a recovery copy of unsaved work now; how that went, in words.
+    QString copyBeforeEnding();
     // The kinds of file the window asks for, each with a folder of its own.
     enum class Files { Patterns, Avatars, Exports };
     // Where a dialog for such files starts: the folder of the last one, while
@@ -240,6 +252,7 @@ private:
     QString recoveryFolder_;
     std::unique_ptr<QLockFile> recoveryLock_;
     std::unique_ptr<session::Autosave> autosave_;
+    bool failed_ = false;  // cannotGoOn() has been called: nothing more is done
     // Looking back: the selected panel shown on the table as of this step, and
     // what it was then. Nothing is reshaped on the table meanwhile.
     std::optional<OpId> viewUntil_;

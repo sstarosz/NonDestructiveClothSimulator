@@ -95,6 +95,20 @@ TEST_CASE("an arc can become a free curve that follows it")
     EXPECT((std::abs(r[panel].length(circle.arc()) - 10.0 * pi / 2.0) < 0.01), "same length as the arc it replaced");
 }
 
+// So large that a straight piece of it strays from the arc by less than numbers can tell.
+TEST_CASE("an arc of an enormous radius is still drawn as a curve")
+{
+    for (const double radius : {1e12, 1e18, 1e300}) {
+        INFO(radius << " cm");
+        Document doc;
+        const PanelId panel = doc.add(Panel{.name = "disc"});
+        doc.add(panel, Circle{.radius = radius});
+        const Result result = evaluate(doc);
+        for (const Edge& edge : result[panel].edges)
+            if (edge.arc) EXPECT((edgePoints(result[panel], edge).size() == 513), "as many pieces as any large arc");
+    }
+}
+
 TEST_CASE("small things the window needs")
 {
     Document doc;
