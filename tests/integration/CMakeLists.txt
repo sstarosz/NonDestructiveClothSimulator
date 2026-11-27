@@ -58,6 +58,9 @@ endif()
 
 # What a release is made of. The tag and the notes are checked everywhere; the
 # installed folder and the program in it where the window is built.
+add_test(NAME "release: the workflows name exact tools"
+    COMMAND ${CMAKE_COMMAND} -DFOLDER=${PROJECT_SOURCE_DIR}/.github/workflows -P ${PROJECT_SOURCE_DIR}/cmake/CheckWorkflows.cmake)
+set_tests_properties("release: the workflows name exact tools" PROPERTIES LABELS integration)
 set(version_pattern "${PROJECT_VERSION}")
 string(REPLACE "." "\\." version_pattern "${version_pattern}")
 foreach(tag "v${PROJECT_VERSION}" "v${PROJECT_VERSION}-rc1")

@@ -20,7 +20,7 @@ the body follows too.
 1. Download `ClothCad-<version>-windows-x64.zip` from the
    [Releases page](https://github.com/sstarosz/NonDestructiveClothSimulator/releases).
 2. Unpack it: right-click the zip and choose "Extract All".
-3. Open `clothcad.exe` in the `bin` folder. There is no installer.
+3. Open `clothcad.exe` in the unpacked folder. There is no installer.
 
 The program is not signed, so Windows warns the first time ("Windows
 protected your PC"): choose "More info", then "Run anyway". Help > About
@@ -300,7 +300,7 @@ window, for machines without a display. A warning stops the build;
 something out with another compiler.
 
 A package to hand out, with the program, Qt's libraries, the compiler's
-runtime, the avatars and the licences in `<folder>/bin` (Qt's plugins in
+runtime, the avatars and the licences in `<folder>` (Qt's plugins in
 `<folder>/plugins`):
 
     cmake --install out/build/x64-win-msvc2026 --config Release --prefix <folder>
@@ -319,6 +319,12 @@ the Vulkan SDK, then the unit and integration tests.
 To run the same tests locally:
 
     ctest --preset x64-win-msvc2026-ci
+
+The Vulkan SDK is named by its number and each action by its commit, with the
+version in a comment, so that a commit is built the same way on another day.
+To take a newer one, change both together; the test "release: the workflows
+name exact tools" refuses a floating name. Not fixed: GitHub's runner images
+(with MSVC, CMake, Ninja and vcpkg) and the Python that fetches Qt.
 
 The runner has no graphics card, so the renderer's tests are skipped there,
 and the benchmarks are not run there (shared machines are too noisy for

@@ -24,23 +24,24 @@ if(DEFINED BUILD)
     endif()
 endif()
 
+# The program is at the top of the folder: it is what a user looks for.
 set(needed
-    bin/clothcad.exe
-    bin/Qt6Core.dll
-    bin/Qt6Gui.dll
-    bin/Qt6Widgets.dll
-    bin/qt.conf
+    clothcad.exe
+    Qt6Core.dll
+    Qt6Gui.dll
+    Qt6Widgets.dll
+    qt.conf
     plugins/platforms/qwindows.dll
-    bin/msvcp140.dll
-    bin/vcruntime140.dll
-    bin/vcruntime140_1.dll
-    bin/assets/avatarV1.obj
-    bin/LICENSE
-    bin/THIRD-PARTY.md
-    bin/licenses/GPL-3.0.txt
-    bin/licenses/LGPL-3.0.txt
-    bin/licenses/MPL-2.0.txt
-    bin/licenses/qt-third-party.txt)
+    msvcp140.dll
+    vcruntime140.dll
+    vcruntime140_1.dll
+    assets/avatarV1.obj
+    LICENSE
+    THIRD-PARTY.md
+    licenses/GPL-3.0.txt
+    licenses/LGPL-3.0.txt
+    licenses/MPL-2.0.txt
+    licenses/qt-third-party.txt)
 foreach(file IN LISTS needed)
     if(NOT EXISTS "${FOLDER}/${file}")
         message(FATAL_ERROR "The package lacks ${file}.")
@@ -50,16 +51,16 @@ endforeach()
 # Every kind of file the package may hold. Something new that ships needs its
 # notice in THIRD-PARTY.md first, and then a line here.
 set(allowed
-    "bin/clothcad\\.exe"
-    "bin/Qt6(Core|Gui|Widgets)\\.dll"
-    "bin/qt\\.conf"
+    "clothcad\\.exe"
+    "Qt6(Core|Gui|Widgets)\\.dll"
+    "qt\\.conf"
     "plugins/platforms/qwindows\\.dll"
     "plugins/styles/qmodernwindowsstyle\\.dll"
-    "bin/(msvcp140[a-z0-9_]*|vcruntime140[a-z0-9_]*|concrt140)\\.dll"
-    "bin/assets/[^/]+\\.obj"
-    "bin/LICENSE"
-    "bin/THIRD-PARTY\\.md"
-    "bin/licenses/[^/]+\\.txt")
+    "(msvcp140[a-z0-9_]*|vcruntime140[a-z0-9_]*|concrt140)\\.dll"
+    "assets/[^/]+\\.obj"
+    "LICENSE"
+    "THIRD-PARTY\\.md"
+    "licenses/[^/]+\\.txt")
 file(GLOB_RECURSE shipped RELATIVE "${FOLDER}" "${FOLDER}/*")
 foreach(file IN LISTS shipped)
     set(known FALSE)
@@ -80,8 +81,8 @@ endforeach()
 set(path "$ENV{PATH}")
 set(ENV{PATH} "$ENV{SystemRoot}\\System32;$ENV{SystemRoot}")
 execute_process(
-    COMMAND "${FOLDER}/bin/clothcad.exe" --version
-    WORKING_DIRECTORY "${FOLDER}/bin"
+    COMMAND "${FOLDER}/clothcad.exe" --version
+    WORKING_DIRECTORY "${FOLDER}"
     RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE errors TIMEOUT 60)
 set(ENV{PATH} "${path}")
 if(NOT result EQUAL 0)

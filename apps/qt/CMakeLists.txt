@@ -1,6 +1,13 @@
 # The Qt window (0.1.1 step 5). Built when Qt 6 is found: on Windows the
 # presets point CMAKE_PREFIX_PATH at C:/Qt/6.12.0/msvc2022_64. The window's
 # parts are a library, so that tests can drive them without a screen.
+
+# The Windows package is flat: whoever unpacks the zip finds clothcad.exe at
+# its top, not in bin. Set before Qt is looked for: its deploy script takes the
+# program's folder from here.
+if(WIN32)
+    set(CMAKE_INSTALL_BINDIR ".")
+endif()
 find_package(Qt6 6.5 QUIET COMPONENTS Widgets)  # 6.5: qt_generate_deploy_app_script with its options
 if(NOT Qt6_FOUND)
     message(STATUS "Qt 6 was not found: the Qt window is not built. Set CMAKE_PREFIX_PATH to your Qt to build it.")
@@ -86,7 +93,8 @@ if(CLOTHCAD_WINDOW)
 
     # A package to hand out: cmake --install out/build/x64-win-msvc2026
     # --config Release --prefix <folder> puts the program, Qt's libraries, the
-    # avatars and the licences in <folder>/bin (Qt's plugins in <folder>/plugins).
+    # avatars and the licences in <folder> (Qt's plugins in <folder>/plugins).
+    # Elsewhere than on Windows, <folder>/bin takes the place of <folder>.
     include(GNUInstallDirs)
     file(GLOB avatars CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/assets/*.obj")
     install(TARGETS clothcad RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
