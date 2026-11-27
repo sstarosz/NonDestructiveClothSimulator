@@ -381,7 +381,7 @@ no screen, an idle machine):
 | A frame while dragging a panel on the table | 8 ms | 1.2-1.4 ms |
 | A frame while dragging a corner, 3D shown, 1 cm particles | 16 ms | 4-6 ms |
 | The 3D view orbited (drawn off screen and read back) | 60 ms | 5 ms |
-| A frame while the cloth runs on its own thread, 3D shown | 16 ms | 2 ms |
+| A frame that brings new cloth from its own thread, 3D shown (27 November) | 16 ms | 5 ms |
 | A frame with a cloth step in it, 3D shown | 40 ms | 23 ms |
 | One cloth step, 2,800 particles, on a body | 16 ms | 10 ms |
 | One cloth step, the trousers (2,900 particles), on the avatar | 16 ms | 9-10 ms |

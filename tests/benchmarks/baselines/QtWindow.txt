@@ -5,7 +5,7 @@ frame, both views, nothing changing	0.000360811
 frame while dragging a panel on the table	0.133693
 frame while dragging a corner, 3D shown, 1 cm particles	0.452414
 frame with a cloth step in it, 3D shown	3.64259
-frame while the cloth runs on its own thread, 3D shown	0.236589
+own-thread cloth: a frame with a new state	0.605
 phase (skirt): the Outliner shows the document	0.000336757
 phase (skirt): the Parameters dock shows the document	0
 phase (skirt): the Attribute Editor shows a panel	0.00451014
