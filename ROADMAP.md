@@ -69,6 +69,9 @@ In pull requests, in this order:
   without changing it, until the list is clicked (#145); a Set length's card
   fits the dock, naming the corners it keeps in few words (#144); Enter and
   Escape in a parameter's name leave the box (#143).
+- Done: Save no longer fails now and then because the file is held for a
+  moment. Replacing it is tried again for about half a second, in Save, the
+  recovery copy and Export OBJ (#166).
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
   another PC (#82).
 - Last, the release's own pull request, when all of the above is done: the

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -10,6 +11,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include "internal/DocumentAccess.h"
@@ -618,6 +620,24 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
     return SavedScene{std::move(doc), std::move(state)};
 }
 
+namespace {
+
+// Puts the file `from` in the place of `to` in one step. On Windows that fails
+// while another program holds `to`, which may be only for a moment, so it is
+// tried again after growing waits, about half a second in all.
+std::error_code replaceFile(const std::filesystem::path& from, const std::filesystem::path& to) {
+    using std::chrono::milliseconds;
+    std::error_code failed;
+    std::filesystem::rename(from, to, failed);
+    for (milliseconds wait{1}; failed && wait <= milliseconds{256}; wait *= 2) {
+        std::this_thread::sleep_for(wait);
+        std::filesystem::rename(from, to, failed);
+    }
+    return failed;
+}
+
+} // namespace
+
 std::string save(const Document& doc, const std::string& path, const SceneState& state) {
     const std::filesystem::path target = filePath(path);
     std::filesystem::path beside = target;
@@ -633,9 +653,7 @@ std::string save(const Document& doc, const std::string& path, const SceneState&
             return "could not write \"" + path + "\"";
         }
     }
-    std::error_code failed;
-    std::filesystem::rename(beside, target, failed);  // takes the old file's place in one step
-    if (failed) {
+    if (replaceFile(beside, target)) {
         std::filesystem::remove(beside, ignored);
         return "could not replace \"" + path + "\": it may be read-only or open in another program";
     }

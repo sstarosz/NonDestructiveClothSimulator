@@ -245,7 +245,9 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   as saved. Hiding, deactivating and the body's looks are not undo steps. Not
   in the file, so no "*": the selection, the tool, the cameras and which views
   are shown. Save first takes what is typed in a field, and writes the new file
-  beside the old one before it takes its place.
+  beside the old one before it takes its place. If another program holds the
+  old file, Save and Export OBJ try again for about half a second; then they say
+  that the file could not be written, and the old one is as it was.
 - **After a crash**: while there are unsaved changes a recovery copy is
   written about every 30 seconds (on Windows in
   `%LOCALAPPDATA%\Cloth CAD\recovery`); your file changes only when you save.
