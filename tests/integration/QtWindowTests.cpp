@@ -27,6 +27,7 @@
 #include <QShortcut>
 #include <QStatusBar>
 #include <QTemporaryDir>
+#include <QTest>
 #include <QTimer>
 #include <QTreeWidgetItemIterator>
 #include <QScrollBar>
@@ -65,7 +66,7 @@ using namespace clothcad;
 using namespace clothcad::ui;
 
 // How the system's wheel comes into Qt: declared here as Qt's own test headers
-// declare it (QtTest/qtestwheel.h), so that Qt Test need not be linked.
+// declare it (QtTest/qtestwheel.h).
 QT_BEGIN_NAMESPACE
 Q_GUI_EXPORT void qt_handleWheelEvent(QWindow* window, const QPointF& local, const QPointF& global, QPoint pixelDelta, QPoint angleDelta,
                                       Qt::KeyboardModifiers mods, Qt::ScrollPhase phase);
@@ -2466,6 +2467,78 @@ struct Band {
 };
 
 } // namespace
+
+// The tool keys and Space are shortcuts of the whole window (Shelf), so a box
+// that is typed in has to take them itself. QTest hands a key to Qt's
+// shortcuts first, as the system's keys go; an event sent to a widget skips them.
+TEST_CASE("Space and the tool keys typed into a field are only typed: the cloth stays paused and the tool as it was", "[qt]")
+{
+    Table w;
+    w.window.activateWindow();
+    QApplication::processEvents();
+    REQUIRE(w.window.isActiveWindow());
+    Shelf& shelf = *w.window.shelf();
+    QString keys = " ";  // Space, then every tool's key
+    for (int tool = 0; tool <= static_cast<int>(Tool::Pull); ++tool) keys += shelf.action(static_cast<Tool>(tool))->shortcut().toString().toLower();
+    REQUIRE((keys.contains('q') && keys.contains('s') && keys.size() > 10));
+
+    // Where nothing is typed in, these keys do reach the shortcuts: without that the rest would show nothing.
+    w.table()->setFocus();
+    QTest::keyClick(w.table(), 's');
+    QTest::keyClick(w.table(), ' ');
+    REQUIRE((shelf.tool() == Tool::Sew && shelf.simulate()->isChecked()));
+    shelf.simulate()->setChecked(false);
+    choose(w, Tool::Select);
+
+    // Types the keys one at a time into the box that has the focus, then leaves it with Escape.
+    const auto typeInto = [&](QLineEdit* box, const std::string& where) {
+        INFO(where);
+        REQUIRE(box != nullptr);
+        REQUIRE(QApplication::focusWidget() == box);
+        box->selectAll();
+        const Tool tool = shelf.tool();
+        QString typed;
+        for (const QChar key : keys) {
+            QTest::keyClick(box, key.toLatin1());
+            typed += key;
+            INFO("typed \"" << typed.toStdString() << "\"");
+            REQUIRE(QApplication::focusWidget() == box);
+            EXPECT(box->text() == typed, "the box holds what was typed");
+            EXPECT((!shelf.simulate()->isChecked() && !w.window.session().simulating()), "the cloth stays paused");
+            EXPECT(shelf.tool() == tool, "the tool is as it was");
+        }
+        QTest::keyClick(box, Qt::Key_Escape);
+        QApplication::processEvents();
+    };
+
+    ValueField* value = w.window.parameters()->field(w.widthParameter);
+    dragField(*value, 0.0);  // a click without a drag opens it
+    typeInto(value, "a parameter's value");
+
+    QLineEdit* name = w.window.parameters()->nameField(w.widthParameter);
+    name->setFocus(Qt::MouseFocusReason);
+    typeInto(name, "a parameter's name");
+
+    Outliner& outliner = *w.window.outliner();
+    QTreeWidgetItemIterator row(&outliner);
+    while (*row && (*row)->text(0) != "plain") ++row;
+    REQUIRE(*row != nullptr);
+    outliner.setFocus();
+    outliner.setCurrentItem(*row);
+    QTest::keyClick(&outliner, Qt::Key_F2);
+    QApplication::processEvents();
+    typeInto(qobject_cast<QLineEdit*>(QApplication::focusWidget()), "the Outliner's rename box");
+
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    w.table()->grab();
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(w.table(), QEvent::MouseButtonDblClick, w.table()->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    send(w.table(), QEvent::MouseButtonRelease, w.table()->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::NoButton, {});
+    typeInto(w.table()->lengthEditor(), "the box for a length on the table");
+
+    EXPECT((w.panel("plain") == plain && w.doc().get(w.widthParameter).name == "width"), "Escape left the names as they were");
+}
 
 // On a desktop the window is active, and Qt gives a clicked widget focus
 // before the press reaches it; a field that took that focus typed instead of

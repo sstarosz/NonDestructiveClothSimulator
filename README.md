@@ -274,10 +274,11 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
 Needs CMake 3.25 or newer, a C++23 compiler (Visual Studio 2022 17.10 or
 newer, GCC 12, Clang 17) and vcpkg; the libraries in `vcpkg.json` (Catch2,
 CDT) are built by vcpkg the first time. The window also needs Qt 6 (6.12 on
-Windows: the presets point `CMAKE_PREFIX_PATH` at it) and the Vulkan SDK
-(its headers, with Vulkan-Hpp, and `glslangValidator` for the shaders);
-CMake finds the SDK through the `VULKAN_SDK` variable its installer sets.
-Without them, everything but the window is built. The program is
+Windows: the presets point `CMAKE_PREFIX_PATH` at it; its tests use Qt Test,
+which comes with Qt) and the Vulkan SDK (its headers, with Vulkan-Hpp, and
+`glslangValidator` for the shaders); CMake finds the SDK through the
+`VULKAN_SDK` variable its installer sets. Without them, everything but the
+window is built. The program is
 `clothcad`; on Windows Qt's libraries are copied next to it when it is built,
 and the avatars (the OBJ files in `assets/`) go in an `assets/` folder beside
 it, where the window looks for them.
