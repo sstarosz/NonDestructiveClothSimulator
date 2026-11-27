@@ -1,6 +1,7 @@
 // Unit tests of Mesh.cpp: panels become triangles; sewn edges get particles that pair up.
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -160,6 +161,53 @@ TEST_CASE("bad outlines are reported, not thrown")
     PanelId huge = doc.add(Panel{.name = "huge"});
     doc.add(huge, Rect{.width = 5000_cm, .height = 5000_cm});
     EXPECT((!meshOf(doc, evaluate(doc), {.particleDistance = 0.1_cm}).find(huge)->problem.empty()), "a mesh that would be enormous is refused");
+}
+
+// A mistyped width or parameter: nothing may be made for such a panel, or the memory runs out.
+TEST_CASE("a panel of an absurd size is refused before anything is made for it")
+{
+    for (const double size : {1e9, 1e12, 1e300}) {
+        INFO(size << " cm");
+        Document doc;
+        const PanelId huge = doc.add(Panel{.name = "huge"});
+        const OpRef<Rect> rect = doc.add(huge, Rect{.width = size, .height = size});
+        const PanelId disc = doc.add(Panel{.name = "disc"});
+        doc.add(disc, Circle{.radius = size});
+        const PanelId strip = doc.add(Panel{.name = "strip"});
+        doc.add(strip, Rect{.width = size, .height = 1e-3});  // large along one side only
+        const Result shapes = evaluate(doc);
+
+        const auto began = std::chrono::steady_clock::now();
+        const ClothMesh cloth = meshOf(doc, shapes);
+        EXPECT((std::chrono::steady_clock::now() - began < std::chrono::seconds(2)), "at once");
+        for (const PanelId panel : {huge, disc, strip}) {
+            const PanelMesh& mesh = *cloth.find(panel);
+            EXPECT((mesh.problem.find("this large") != std::string::npos), "the panel says why it has no triangles");
+            EXPECT((mesh.triangles.empty() && mesh.edges.empty() && mesh.points.size() <= 4), "and nothing was put along its edges");
+        }
+    }
+}
+
+TEST_CASE("a panel sewn to one of an absurd size is meshed as if it were alone")
+{
+    for (const double size : {1e9, 1e12}) {
+        INFO(size << " cm");
+        Document doc;
+        const PanelId huge = doc.add(Panel{.name = "huge"});
+        const OpRef<Rect> large = doc.add(huge, Rect{.width = size, .height = size});
+        const PanelId fine = doc.add(Panel{.name = "fine"});
+        const OpRef<Rect> small = doc.add(fine, Rect{.width = 20_cm, .height = 20_cm});
+        const ClothMesh alone = meshOf(doc, evaluate(doc));
+        doc.add(Seam{.a = {huge, large.right()}, .b = {fine, small.left()}});
+        const Result shapes = evaluate(doc);
+
+        const auto began = std::chrono::steady_clock::now();
+        const ClothMesh cloth = meshOf(doc, shapes);
+        EXPECT((std::chrono::steady_clock::now() - began < std::chrono::seconds(2)), "at once");
+        EXPECT((!cloth.find(huge)->problem.empty() && cloth.find(huge)->edges.empty()), "the large one is refused");
+        EXPECT((cloth.find(fine)->problem.empty() && cloth.find(fine)->points.size() == alone.find(fine)->points.size()), "the small one is unharmed");
+        EXPECT((cloth.stitches.empty()), "and nothing is sewn to cloth that is not there");
+    }
 }
 
 TEST_CASE("a stitch says whether its seam is reversed")
