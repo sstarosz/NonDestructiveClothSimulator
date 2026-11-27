@@ -36,6 +36,16 @@ struct Vertex {
 
 constexpr vk::Format pictureFormat = vk::Format::eR8G8B8A8Unorm;
 
+// Waits for the card to be done with what is about to be destroyed. A card that
+// is lost has nothing left to wait for, and an error out of a destructor would
+// end the program.
+void waitBeforeGoing(const vk::raii::Device& device) {
+    try {
+        device.waitIdle();
+    } catch (const std::exception&) {
+    }
+}
+
 // Where the camera of a perspective matrix stands: the one point it gives no
 // place in the picture (x, y and w all zero). None for a matrix with no such point.
 std::optional<Point> eyeOf(const Matrix& m) {
@@ -209,7 +219,7 @@ struct Renderer::Inside {
 
 Renderer::Renderer() : inside_(std::make_unique<Inside>()) {}
 Renderer::~Renderer() {
-    if (inside_ && *inside_->device) inside_->device.waitIdle();
+    if (inside_ && *inside_->device) waitBeforeGoing(inside_->device);
 }
 
 const std::string& Renderer::deviceName() const { return inside_->deviceName; }
@@ -527,7 +537,7 @@ Swapchain::Swapchain(Renderer& renderer, VkSurfaceKHR_T* surface) : inside_(std:
 
 Swapchain::~Swapchain() {
     if (!inside_) return;
-    inside_->renderer.device.waitIdle();
+    waitBeforeGoing(inside_->renderer.device);
 }
 
 std::expected<std::unique_ptr<Swapchain>, std::string> Renderer::swapchainFor(VkSurfaceKHR_T* surface) try {

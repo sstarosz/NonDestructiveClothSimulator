@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -80,7 +81,8 @@ public:
         double time = 0.0;                          // seconds of cloth time so far
         bool sewing = false;
         std::vector<sim::OpenSeam> open;            // the seams that could not close (sim::Cloth::openSeams)
-        bool failed = false;                        // the cloth stopped being numbers and was dropped; should never happen
+        bool failed = false;                        // the cloth was dropped: it stopped being numbers (should never happen), or an error stopped it
+        std::string problem;                        // that error's words, if it was one (out of memory)
         double stepMilliseconds = 0.0;              // how long the latest step took to work out
     };
     // Copies the latest news into `into` if it is newer than what `into`
@@ -91,6 +93,11 @@ public:
 private:
     using Change = std::function<void()>;
     void hand(Change change);  // runs it at once, or on the cloth's thread before its next step
+    // Runs what touches the cloth. An error in it must not leave the cloth's
+    // thread, which would end the program: the cloth is dropped and the news says why.
+    template <class Work>
+    void carryOut(const Work& work);
+    void drop(const char* why);
     void publish();
     void leaveThemOut();
     bool stepOnce();
@@ -111,6 +118,7 @@ private:
     };
     std::optional<Held> held_;
     bool failed_ = false;
+    std::string problem_;  // the error that failed it
     double stepMilliseconds_ = 0.0;
     std::uint64_t made_ = 0;  // which of the asked cloths this is
 

@@ -16,6 +16,16 @@ target_compile_definitions(clothcad_autosave_tests PRIVATE CLOTHCAD_TEST_FOLDER=
 clothcad_warnings(clothcad_autosave_tests)
 catch_discover_tests(clothcad_autosave_tests TEST_PREFIX "autosave: " PROPERTIES LABELS integration)
 
+# Work on other threads that fails. Its own program: it brings its own
+# operator new, which runs out of memory when a test says so. Labelled "integration".
+add_executable(clothcad_failure_tests FailureTests.cpp)
+target_link_libraries(clothcad_failure_tests PRIVATE clothcad::session Catch2::Catch2WithMain)
+target_include_directories(clothcad_failure_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(clothcad_failure_tests PRIVATE CLOTHCAD_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/failure")
+clothcad_warnings(clothcad_failure_tests)
+# A failure that is not caught ends or hangs the program: each test has a time of its own.
+catch_discover_tests(clothcad_failure_tests TEST_PREFIX "failures: " PROPERTIES LABELS integration TIMEOUT 120)
+
 # Tests that run the whole window: driven through its widgets by mouse and
 # keys, without a screen. Labelled "integration", as the examples are (see
 # examples/).

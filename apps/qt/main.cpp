@@ -2,8 +2,10 @@
 //
 //   clothcad            opens the window
 //   clothcad --version  says which build it is, and ends
-#include <QApplication>
+#include <QMessageBox>
 #include <QStandardPaths>
+#include <cstdlib>
+#include <exception>
 #include <string>
 #include <string_view>
 
@@ -15,6 +17,7 @@
 #include <cstdio>
 #endif
 
+#include "Application.h"
 #include "MainWindow.h"
 #include "Theme.h"
 #include "Version.h"
@@ -49,15 +52,32 @@ int main(int argc, char** argv) {
         print(clothcad::ui::versionLine().toStdString());
         return 0;
     }
-    QApplication app(argc, argv);
+    clothcad::ui::Application app(argc, argv);
     QApplication::setApplicationName("Cloth CAD");
-    clothcad::ui::theme::apply(app);
-    clothcad::ui::MainWindow window;
-    window.openSample(5);  // the T-shirt body
-    window.show();
-    const QString own = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    window.keepSettingsIn(own + "/settings.ini");
-    // Unsaved work is copied here now and then, and offered again if the program stopped before it was saved.
-    window.keepRecoveryIn(own + "/recovery");
-    return QApplication::exec();
+    try {
+        clothcad::ui::theme::apply(app);
+        clothcad::ui::MainWindow window;
+        // An error nothing else handles: the work is copied, the window says so,
+        // and the program ends. At once: what may be broken is not closed down
+        // in order, and the copy stays for the next start.
+        QObject::connect(&window, &clothcad::ui::MainWindow::mustEnd, &window, [] { std::_Exit(EXIT_FAILURE); });
+        app.handleErrors([&window](const QString& error) { window.cannotGoOn(error); });
+        try {
+            window.openSample(5);  // the T-shirt body
+            window.show();
+            const QString own = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+            window.keepSettingsIn(own + "/settings.ini");
+            // Unsaved work is copied here now and then, and offered again if the program stopped before it was saved.
+            window.keepRecoveryIn(own + "/recovery");
+        } catch (const std::exception& problem) {
+            window.show();
+            window.cannotGoOn(QString::fromUtf8(problem.what()));
+        }
+        const int ended = QApplication::exec();
+        app.handleErrors({});  // the window it goes to is about to go
+        return ended;
+    } catch (const std::exception& problem) {
+        QMessageBox::critical(nullptr, "Cloth CAD", QString("Cloth CAD could not start (%1).").arg(QString::fromUtf8(problem.what())));
+        return EXIT_FAILURE;
+    }
 }

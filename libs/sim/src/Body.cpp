@@ -8,8 +8,10 @@
 #include <charconv>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <string_view>
 #include <thread>
 
@@ -95,17 +97,29 @@ std::size_t threadsToUse() {
 }
 
 // Calls work(0) ... work(count - 1), each once, on threads that take the next
-// as they finish one, and returns when all are done.
+// as they finish one, and returns when all are done. If one throws (out of
+// memory), no more are begun, and the first error comes out here, on the
+// caller's thread: one that left another thread would end the program.
 template <class Work>
 void spread(std::size_t count, const Work& work) {
     std::atomic<std::size_t> next{0};
+    std::once_flag once;
+    std::exception_ptr failed;
     const auto take = [&] {
-        for (std::size_t i = next++; i < count; i = next++) work(i);
+        try {
+            for (std::size_t i = next++; i < count; i = next++) work(i);
+        } catch (...) {
+            std::call_once(once, [&] { failed = std::current_exception(); });
+            next = count;
+        }
     };
-    std::vector<std::jthread> others;
-    for (std::size_t k = 1; k < std::min(threadsToUse(), count); ++k) others.emplace_back(take);
-    take();
-}  // the others are waited for as they go
+    {
+        std::vector<std::jthread> others;
+        for (std::size_t k = 1; k < std::min(threadsToUse(), count); ++k) others.emplace_back(take);
+        take();
+    }  // the others are waited for as they go
+    if (failed) std::rethrow_exception(failed);
+}
 
 } // namespace
 

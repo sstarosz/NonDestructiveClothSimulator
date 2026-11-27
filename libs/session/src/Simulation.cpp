@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
 #include <future>
 #include <utility>
 
@@ -21,9 +22,27 @@ Simulation::~Simulation() {
     thread_.join();
 }
 
+template <class Work>
+void Simulation::carryOut(const Work& work) {
+    try {
+        work();
+    } catch (const std::exception& problem) {
+        drop(problem.what());
+    }
+}
+
+void Simulation::drop(const char* why) {
+    cloth_.reset();
+    mesh_.reset();
+    held_.reset();
+    failed_ = true;
+    problem_ = why;
+    publish();  // with no cloth, nothing large is copied
+}
+
 void Simulation::hand(Change change) {
     if (threading_ == Threading::OneStepPerAdvance) {
-        change();
+        carryOut(change);
         return;
     }
     {
@@ -43,6 +62,7 @@ void Simulation::start(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placemen
         mesh_ = std::move(mesh);
         leaveThemOut();
         failed_ = false;
+        problem_.clear();
         publish();
     });
 }
@@ -57,6 +77,7 @@ void Simulation::resume(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placeme
         mesh_ = std::move(mesh);
         leaveThemOut();
         failed_ = false;
+        problem_.clear();
         publish();
     });
 }
@@ -97,6 +118,7 @@ void Simulation::restore(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placem
         leaveThemOut();
         held_.reset();
         failed_ = false;
+        problem_.clear();
         publish();
     });
 }
@@ -140,6 +162,8 @@ void Simulation::stop() {
         cloth_.reset();
         held_.reset();
         mesh_.reset();
+        failed_ = false;  // said, if it had: this is news of there being no cloth
+        problem_.clear();
         publish();
     });
 }
@@ -147,9 +171,9 @@ void Simulation::stop() {
 // Tells the interface where everything is now.
 void Simulation::publish() {
     const std::lock_guard<std::mutex> hold(lock_);
-    ++latest_.version;
+    latest_.cloth = 0;  // of no cloth, so not handed out, until all of it is here: copying may fail
     latest_.failed = failed_;
-    latest_.cloth = made_;
+    latest_.problem = problem_;
     latest_.stepMilliseconds = stepMilliseconds_;
     if (cloth_) {
         latest_.mesh = mesh_;
@@ -164,19 +188,24 @@ void Simulation::publish() {
         latest_.sewing = false;
         latest_.open.clear();
     }
+    latest_.cloth = made_;
+    ++latest_.version;
 }
 
 bool Simulation::stepOnce() {
     if (!cloth_) return false;
-    const auto began = std::chrono::steady_clock::now();
-    cloth_->step(body_);
-    stepMilliseconds_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
-    if (!cloth_->sound()) {
-        cloth_.reset();
-        mesh_.reset();
-        failed_ = true;
-    }
-    publish();
+    carryOut([this] {
+        const auto began = std::chrono::steady_clock::now();
+        cloth_->step(body_);
+        stepMilliseconds_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
+        if (!cloth_->sound()) {
+            cloth_.reset();
+            mesh_.reset();
+            failed_ = true;
+            problem_.clear();
+        }
+        publish();
+    });
     return true;
 }
 
@@ -224,7 +253,7 @@ void Simulation::work() {
             changes.swap(changes_);
             running = running_;
         }
-        for (Change& change : changes) change();
+        for (const Change& change : changes) carryOut(change);
         running = running || held_;
         if (!running) {
             next = std::chrono::steady_clock::now();  // started again, the first step comes at once

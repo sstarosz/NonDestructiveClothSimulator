@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <exception>
+#include <string>
 #include <utility>
 
 #include "clothcad/core/Drawing.h"
@@ -240,6 +242,7 @@ void Session::followAvatar() {
     const bool same = wanted && bodyOf_ && wanted->points == bodyOf_->points && wanted->triangles == bodyOf_->triangles;
     bodyOf_ = wanted;
     if (same) return;
+    bodyProblem_.reset();
     // The cloth starts again on another body; the drape on the one before is kept for undo.
     keepDrape();
     resetCloth();
@@ -316,6 +319,7 @@ bool Session::remesh(bool now) {
         if (!fits(*mesh_)) {
             mesh_ = std::make_shared<const sim::ClothMesh>(sim::meshOf(document(), editor_.shapes()));
             meshedShapes_ = editor_.shapesVersion();
+            meshFailed_.reset();
             ++meshesMade_;
             changed = true;
         }
@@ -335,7 +339,17 @@ bool Session::remesh(bool now) {
 bool Session::takeMeshIfMade(bool wait) {
     if (!meshing_.mesh.valid()) return false;
     if (!wait && meshing_.mesh.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
-    std::shared_ptr<const sim::ClothMesh> made = meshing_.mesh.get();
+    std::shared_ptr<const sim::ClothMesh> made;
+    try {
+        made = meshing_.mesh.get();
+    } catch (const std::exception& problem) {
+        // Not tried again until the outlines change: each try could take as long, and fail the same.
+        meshedShapes_ = meshing_.shapes;
+        meshFailed_ = meshing_.shapes;
+        toTell_ = "The cloth mesh could not be made (" + std::string(problem.what()) +
+                  "), so the one before is shown. Undo the last change, or save your work and start Cloth CAD again.";
+        return false;
+    }
     // Made before a panel was taken away: of no use; the next one is made at once.
     if (!fits(*made)) return false;
     mesh_ = std::move(made);
@@ -373,17 +387,26 @@ std::optional<std::string> Session::update(bool meshWanted) {
     followBody();
     if (!meshWanted) {
         simulation_->run(false);
-        return std::nullopt;
+        return std::exchange(toTell_, std::nullopt);
     }
     followShapes(false);
     simulation_->run(simulating_ && bodyReady());  // and while the cloth is held: the simulation sees to that
     simulation_->advance();
-    return takeNews();
+    if (std::optional<std::string> news = takeNews()) return news;  // anything else is told next time
+    return std::exchange(toTell_, std::nullopt);
 }
 
 void Session::followBody() {
     followAvatar();
-    if (preparing_.valid() && preparing_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) body_ = preparing_.get();
+    if (preparing_.valid() && preparing_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+            body_ = preparing_.get();
+        } catch (const std::exception& problem) {
+            bodyProblem_ = "The avatar could not be made ready for the cloth (" + std::string(problem.what()) +
+                           "), so the cloth waits. Save your work and start Cloth CAD again.";
+            toTell_ = bodyProblem_;
+        }
+    }
     forgetTheGone();
 }
 
@@ -455,8 +478,10 @@ std::optional<std::string> Session::takeNews() {
     ++sceneVersion_;
     clothMoved_ = saved_.cloth && !clothAsSaved();
     if (!cloth_.failed) return std::nullopt;
+    const std::string error = cloth_.problem;
     resetCloth();  // should never happen; if it does, stop instead of drawing nonsense
-    return "The simulation went wrong and was reset.";
+    if (error.empty()) return "The simulation went wrong and was reset.";
+    return "The simulation stopped (" + error + ") and was reset. Save your work before you play it again.";
 }
 
 // ---- Export --------------------------------------------------------------------------
@@ -473,6 +498,10 @@ bool Session::hasGarment() const {
 std::expected<sim::Obj, std::string> Session::obj() {
     followBody();
     followShapes(true);
+    if (meshFailed_ == editor_.shapesVersion()) {
+        toTell_.reset();  // said here
+        return std::unexpected("The cloth mesh could not be made, so there is nothing to export of the pattern as it is. Undo the last change and export again.");
+    }
     simulation_->waitForChanges();
     if (const std::optional<std::string> problem = takeNews()) return std::unexpected(*problem + " Export again.");
     sim::Obj obj = sim::objOf(document(), shownMesh(), shownPositions(), {.leftOut = hidden_});
