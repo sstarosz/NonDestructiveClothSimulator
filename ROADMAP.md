@@ -76,6 +76,9 @@ In pull requests, in this order:
 - Done: Save no longer fails now and then because the file is held for a
   moment. Replacing it is tried again for about half a second, in Save, the
   recovery copy and Export OBJ (#166).
+- Every change is a command, undo keeps the drape too, and stored commands
+  bring work back after a crash
+  ([decision 0027](docs/decisions/0027-every-change-is-a-command.md)).
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
   another PC (#82).
 - Last, the release's own pull request, when all of the above is done: the
