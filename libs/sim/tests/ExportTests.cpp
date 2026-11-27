@@ -11,6 +11,7 @@
 
 #include "Expect.h"
 #include "clothcad/core/Drawing.h"
+#include "clothcad/sim/AvatarImport.h"
 #include "clothcad/sim/Body.h"
 #include "clothcad/sim/Export.h"
 #include "clothcad/sim/Normals.h"
@@ -134,6 +135,52 @@ TEST_CASE("an OBJ read back has the particles where they are and the same triang
     }
     EXPECT(there, "in cm, as they are");
     EXPECT(same, "with the same corners in the same order");
+}
+
+TEST_CASE("on an avatar read from a file in metres, z up, the OBJ is in metres, z up, lined up with the file's points")
+{
+    Two start;
+    // A tetrahedron about as tall as a person, as such a file has it.
+    const Surface file{.points = {{0.4, 0.1, 0.02}, {-0.2, 0.1, 0.02}, {0.1, -0.2, 0.02}, {0.1, 0.0, 1.76}},
+                       .triangles = {{0, 2, 1}, {0, 1, 3}, {0, 3, 2}, {1, 2, 3}}};
+    const AvatarImport how = standing(file, {.unit = 100.0, .up = Axis::Z, .facing = Axis::MinusY});
+    start.doc.setAvatar(std::make_shared<const Avatar>(avatarOf(file, "me.obj", how)));
+    Meshed made(start.doc);
+    // The cloth's first particles are put where the document has the avatar's points.
+    const Surface worn = surfaceOf(*start.doc.avatar());
+    REQUIRE(made.positions[0].size() >= worn.points.size());
+    for (std::size_t i = 0; i < worn.points.size(); ++i) made.positions[0][i] = worn.points[i];
+
+    const Obj obj = objOf(start.doc, made.mesh, made.positions);
+    const Read read(obj.text);
+    EXPECT(read.firstLine == "# Cloth CAD 0.1, 2 panels, m", "it says its unit");
+    REQUIRE(read.v.size() == made.particles);
+    bool lined = true;
+    for (std::size_t i = 0; i < file.points.size(); ++i) lined = lined && length(read.v[i] - file.points[i]) < 1e-5;
+    EXPECT(lined, "where the cloth touches the body, it has the file's own numbers");
+
+    const auto normals = clothNormals(made.mesh, made.positions);
+    std::size_t at = 0;
+    bool turnedBack = true;
+    for (const auto& panel : normals)
+        for (const Vec3& n : panel) turnedBack = turnedBack && length(read.vn[at++] - Vec3{n.x, -n.z, n.y}) < 1e-5;
+    EXPECT(turnedBack, "and the normals are turned with them");
+}
+
+TEST_CASE("an OBJ's first line says the unit of the avatar's file")
+{
+    Two start;
+    const auto firstLine = [&](const AvatarImport& how) {
+        const Surface file{.points = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, .triangles = {{0, 2, 1}, {0, 1, 3}, {0, 3, 2}, {1, 2, 3}}};
+        start.doc.setAvatar(std::make_shared<const Avatar>(avatarOf(file, "me.obj", how)));
+        const Meshed made(start.doc);
+        return Read(objOf(start.doc, made.mesh, made.positions).text).firstLine;
+    };
+    EXPECT(firstLine({}) == "# Cloth CAD 0.1, 2 panels, cm", "as it was for a file in cm");
+    EXPECT(firstLine({.unit = 0.1}) == "# Cloth CAD 0.1, 2 panels, mm", "mm");
+    EXPECT(firstLine({.unit = 2.54}) == "# Cloth CAD 0.1, 2 panels, inch", "inches");
+    EXPECT(firstLine({.unit = 100.0, .rescale = 170.0 / 100.4}) == "# Cloth CAD 0.1, 2 panels, 1 unit = 169.32 cm",
+           "rescaled, what one unit of the file came to be");
 }
 
 TEST_CASE("an OBJ's normals are the cloth's")

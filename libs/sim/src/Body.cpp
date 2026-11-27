@@ -1,13 +1,17 @@
 #include "clothcad/sim/Body.h"
 
 #include "clothcad/core/File.h"
+#include "clothcad/sim/AvatarImport.h"
 
 #include <algorithm>
+#include <atomic>
+#include <charconv>
 #include <cmath>
-#include <exception>
+#include <cstring>
 #include <fstream>
 #include <limits>
-#include <sstream>
+#include <string_view>
+#include <thread>
 
 namespace clothcad::sim {
 
@@ -80,65 +84,180 @@ Surface surfaceOf(const Body& body, int around) {
     return surface;
 }
 
+// ---- Work spread over the cores --------------------------------------------
+
+namespace {
+
+// All the cores but one, which is left for the window.
+std::size_t threadsToUse() {
+    const unsigned cores = std::thread::hardware_concurrency();
+    return cores > 2 ? cores - 1 : 1;
+}
+
+// Calls work(0) ... work(count - 1), each once, on threads that take the next
+// as they finish one, and returns when all are done.
+template <class Work>
+void spread(std::size_t count, const Work& work) {
+    std::atomic<std::size_t> next{0};
+    const auto take = [&] {
+        for (std::size_t i = next++; i < count; i = next++) work(i);
+    };
+    std::vector<std::jthread> others;
+    for (std::size_t k = 1; k < std::min(threadsToUse(), count); ++k) others.emplace_back(take);
+    take();
+}  // the others are waited for as they go
+
+} // namespace
+
 // ---- A body from a file ----------------------------------------------------
 
-LoadedSurface readObj(std::string_view text) {
-    LoadedSurface loaded;
-    std::istringstream lines{std::string(text)};
-    std::string line;
-    std::size_t lineNumber = 0;
-    while (std::getline(lines, line)) {
+namespace {
+
+// The words of one line of an OBJ file, read in place: a scanned body has
+// millions of lines, so nothing is copied for any of them.
+class ObjLine {
+public:
+    explicit ObjLine(std::string_view line) : at_(line.data()), end_(at_ + line.size()) {}
+
+    // The next word; empty at the end of the line.
+    std::string_view word() {
+        while (at_ != end_ && blank(*at_)) ++at_;
+        const char* const from = at_;
+        while (at_ != end_ && !blank(*at_)) ++at_;
+        return {from, at_};
+    }
+
+private:
+    static bool blank(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v'; }
+
+    const char* at_;
+    const char* end_;
+};
+
+// The number a word begins with, a "+" before it or not; false if there is none.
+template <class Number>
+bool startsWith(std::string_view word, Number& value) {
+    if (word.starts_with('+')) word.remove_prefix(1);
+    return std::from_chars(word.data(), word.data() + word.size(), value).ec == std::errc{};
+}
+
+// Calls each(line) for the lines of a text, one by one, until it says false.
+template <class Each>
+void forLines(std::string_view text, const Each& each) {
+    while (!text.empty()) {
+        const auto* newline = static_cast<const char*>(std::memchr(text.data(), '\n', text.size()));
+        const std::size_t length = newline ? static_cast<std::size_t>(newline - text.data()) : text.size();
+        if (!each(text.substr(0, length))) return;
+        text.remove_prefix(newline ? length + 1 : length);
+    }
+}
+
+// A stretch of whole lines of an OBJ file, read by itself, and what it holds.
+struct ObjPiece {
+    std::string_view text;
+    std::size_t lines = 0, points = 0;              // counted before any is read
+    std::size_t linesBefore = 0, pointsBefore = 0;  // in the pieces before it
+    std::vector<std::array<uint32_t, 3>> triangles;
+    std::string problem;
+};
+
+void count(ObjPiece& piece) {
+    forLines(piece.text, [&](std::string_view line) {
+        ++piece.lines;
+        if (ObjLine(line).word() == "v") ++piece.points;
+        return true;
+    });
+}
+
+// Reads a piece: its vertices into their places in `points`, which has room for
+// the whole file's, and its faces into its own triangles.
+void read(ObjPiece& piece, std::vector<Vec3>& points) {
+    std::vector<uint32_t> corners;  // of the face being read
+    std::size_t lineNumber = piece.linesBefore;
+    std::size_t known = piece.pointsBefore;  // vertices up to this line
+    const auto refuse = [&](const char* why) {
+        piece.problem = "line " + std::to_string(lineNumber) + ": " + why;
+        return false;
+    };
+    forLines(piece.text, [&](std::string_view text) {
         ++lineNumber;
-        std::istringstream words(line);
-        std::string kind;
-        if (!(words >> kind)) continue;
+        ObjLine line(text);
+        const std::string_view kind = line.word();
         if (kind == "v") {
-            Vec3 p;
-            if (!(words >> p.x >> p.y >> p.z)) {
-                loaded.problem = "line " + std::to_string(lineNumber) + ": a vertex needs three numbers";
-                return loaded;
-            }
-            loaded.surface.points.push_back(p);
+            Vec3& p = points[known];
+            for (double* coordinate : {&p.x, &p.y, &p.z})
+                if (!startsWith(line.word(), *coordinate) || !std::isfinite(*coordinate)) return refuse("a vertex needs three numbers");
+            ++known;
         } else if (kind == "f") {
             // Each corner is "vertex", "vertex/texture" or "vertex/texture/normal"; only the vertex is used.
-            std::vector<uint32_t> corners;
-            std::string corner;
-            while (words >> corner) {
+            corners.clear();
+            for (std::string_view corner = line.word(); !corner.empty(); corner = line.word()) {
                 long long index = 0;
-                try {
-                    index = std::stoll(corner.substr(0, corner.find('/')));
-                } catch (const std::exception&) {
-                    index = 0;
-                }
-                const long long count = static_cast<long long>(loaded.surface.points.size());
-                if (index < 0) index = count + index + 1;  // counted back from the latest vertex
-                if (index < 1 || index > count) {
-                    loaded.problem = "line " + std::to_string(lineNumber) + ": a face names a vertex that is not there";
-                    return loaded;
-                }
+                if (!startsWith(corner, index)) index = 0;
+                const long long before = static_cast<long long>(known);
+                if (index < 0) index = before + index + 1;  // counted back from the latest vertex
+                if (index < 1 || index > before) return refuse("a face names a vertex that is not there");
                 corners.push_back(static_cast<uint32_t>(index - 1));
             }
-            for (std::size_t i = 2; i < corners.size(); ++i) loaded.surface.triangles.push_back({corners[0], corners[i - 1], corners[i]});
+            for (std::size_t i = 2; i < corners.size(); ++i) piece.triangles.push_back({corners[0], corners[i - 1], corners[i]});
         }
+        return true;
+    });
+}
+
+} // namespace
+
+LoadedSurface readObj(std::string_view text) {
+    // Cut at line ends into pieces of about a megabyte or more, for the cores to read side by side.
+    const std::size_t aim = std::max<std::size_t>(text.size() / (4 * threadsToUse()), 1 << 20);
+    std::vector<ObjPiece> pieces;
+    for (std::string_view rest = text; !rest.empty();) {
+        const std::size_t newline = rest.size() > aim ? rest.find('\n', aim) : std::string_view::npos;
+        const std::size_t length = newline == std::string_view::npos ? rest.size() : newline + 1;
+        pieces.push_back({.text = rest.substr(0, length), .triangles = {}, .problem = {}});
+        rest.remove_prefix(length);
     }
+    spread(pieces.size(), [&](std::size_t i) { count(pieces[i]); });
+    std::size_t lines = 0, points = 0;
+    for (ObjPiece& piece : pieces) {
+        piece.linesBefore = lines;
+        piece.pointsBefore = points;
+        lines += piece.lines;
+        points += piece.points;
+    }
+
+    LoadedSurface loaded;
+    loaded.surface.points.resize(points);
+    spread(pieces.size(), [&](std::size_t i) { read(pieces[i], loaded.surface.points); });
+    std::size_t triangles = 0;
+    for (const ObjPiece& piece : pieces) {
+        if (!piece.problem.empty()) return {.surface = {}, .problem = piece.problem};  // the first in the file
+        triangles += piece.triangles.size();
+    }
+    loaded.surface.triangles.reserve(triangles);
+    for (const ObjPiece& piece : pieces) loaded.surface.triangles.insert(loaded.surface.triangles.end(), piece.triangles.begin(), piece.triangles.end());
     if (loaded.surface.triangles.empty()) loaded.problem = "it has no faces";
     return loaded;
 }
 
 LoadedSurface loadObj(const std::string& path) {
-    std::ifstream file(filePath(path));
-    if (!file) return {.surface = {}, .problem = "could not open \"" + path + "\""};
-    std::ostringstream text;
-    text << file.rdbuf();
-    LoadedSurface loaded = readObj(text.str());
+    // All of it at once, straight into the string it is read from.
+    std::ifstream file(filePath(path), std::ios::binary | std::ios::ate);
+    const std::streamoff size = file ? static_cast<std::streamoff>(file.tellg()) : -1;
+    if (size < 0) return {.surface = {}, .problem = "could not open \"" + path + "\""};
+    std::string text(static_cast<std::size_t>(size), '\0');
+    file.seekg(0);
+    if (!file.read(text.data(), size)) return {.surface = {}, .problem = "could not read \"" + path + "\""};
+    LoadedSurface loaded = readObj(text);
     if (!loaded.problem.empty()) loaded.problem = "\"" + path + "\": " + loaded.problem;
     return loaded;
 }
 
 // ---- The avatar of a document ----------------------------------------------
 
-Avatar avatarOf(const Surface& surface, std::string name) {
-    Avatar avatar{.name = std::move(name), .points = {}, .triangles = surface.triangles};
+Avatar avatarOf(const Surface& file, std::string name, const AvatarImport& readAs) {
+    const Surface surface = imported(file, readAs);
+    Avatar avatar{.name = std::move(name), .points = {}, .triangles = surface.triangles, .readAs = readAs};
     avatar.points.reserve(surface.points.size());
     for (const Vec3& p : surface.points) avatar.points.push_back({p.x, p.y, p.z});
     return avatar;
@@ -176,7 +295,8 @@ Vec3 nearestOn(Vec3 p, Vec3 a, Vec3 b, Vec3 c) {
 
 } // namespace
 
-DistanceField::DistanceField(const Surface& surface, double cell, double band) : cell_(std::max(cell, 0.05)), band_(std::max(band, 2.0 * cell)) {
+DistanceField::DistanceField(const Surface& surface, double cell, double band, Progress* progress)
+    : cell_(std::max(cell, 0.05)), band_(std::max(band, 2.0 * cell)) {
     if (surface.points.empty() || surface.triangles.empty()) return;
     Vec3 low = surface.points.front(), high = low;
     for (const Vec3& p : surface.points) {
@@ -190,51 +310,30 @@ DistanceField::DistanceField(const Surface& surface, double cell, double band) :
     nz_ = static_cast<int>(std::ceil((high.z - low.z + 2.0 * margin) / cell_)) + 1;
     if (static_cast<double>(nx_) * ny_ * nz_ > 6.0e7) {  // too fine for a body this large: coarsen
         const double coarser = std::cbrt(static_cast<double>(nx_) * ny_ * nz_ / 6.0e7);
-        *this = DistanceField(surface, cell_ * coarser * 1.01, band_);
+        *this = DistanceField(surface, cell_ * coarser * 1.01, band_, progress);
         return;
     }
     const float unknown = std::numeric_limits<float>::quiet_NaN();
     distance_.assign(static_cast<std::size_t>(nx_) * ny_ * nz_, unknown);
-    // How squarely each grid point faces its nearest triangle so far: between
-    // two triangles equally near (across their shared edge), the one faced
-    // more squarely tells the side correctly.
-    std::vector<float> facing(distance_.size(), 0.0f);
-
-    for (const std::array<uint32_t, 3>& t : surface.triangles) {
-        const Vec3 a = surface.points[t[0]], b = surface.points[t[1]], c = surface.points[t[2]];
-        const Vec3 normal = normalized(cross(b - a, c - a));
-        if (length(normal) < 0.5) continue;  // a triangle with no area
-        const auto index = [&](double v, double from, int most) { return std::clamp(static_cast<int>(std::floor((v - from) / cell_)), 0, most - 1); };
-        const int x0 = index(std::min({a.x, b.x, c.x}) - band_, origin_.x, nx_), x1 = index(std::max({a.x, b.x, c.x}) + band_, origin_.x, nx_) + 1;
-        const int y0 = index(std::min({a.y, b.y, c.y}) - band_, origin_.y, ny_), y1 = index(std::max({a.y, b.y, c.y}) + band_, origin_.y, ny_) + 1;
-        const int z0 = index(std::min({a.z, b.z, c.z}) - band_, origin_.z, nz_), z1 = index(std::max({a.z, b.z, c.z}) + band_, origin_.z, nz_) + 1;
-        for (int z = z0; z <= std::min(z1, nz_ - 1); ++z)
-            for (int y = y0; y <= std::min(y1, ny_ - 1); ++y)
-                for (int x = x0; x <= std::min(x1, nx_ - 1); ++x) {
-                    const Vec3 p = origin_ + Vec3{x * cell_, y * cell_, z * cell_};
-                    const Vec3 from = p - nearestOn(p, a, b, c);
-                    const double away = length(from);
-                    if (away > band_) continue;
-                    const std::size_t i = (static_cast<std::size_t>(z) * ny_ + y) * nx_ + x;
-                    const double squarely = std::abs(dot(from, normal));
-                    const double sofar = std::abs(distance_[i]);
-                    const bool nearer = std::isnan(distance_[i]) || away < sofar - 1e-6;
-                    const bool asNear = !nearer && away < sofar + 1e-6;
-                    if (nearer || (asNear && squarely > facing[i])) {
-                        distance_[i] = static_cast<float>(dot(from, normal) >= 0.0 ? away : -away);
-                        facing[i] = static_cast<float>(squarely);
-                    }
-                }
+    if (!measure(surface, progress)) {  // called off: nothing of it is kept
+        distance_.clear();
+        return;
     }
 
     // Everything further than the band from the surface: outside if it can be
     // reached from a corner of the grid through points that are outside,
     // inside otherwise.
+    const auto calledOff = [&] { return progress && progress->stop; };
+    std::size_t walked = 0;
     std::vector<char> seen(distance_.size(), 0);
     std::vector<uint32_t> reached{0};
     seen[0] = 1;
     distance_[0] = static_cast<float>(band_);
     while (!reached.empty()) {
+        if (++walked % 4096 == 0 && calledOff()) {
+            distance_.clear();
+            return;
+        }
         const uint32_t from = reached.back();
         reached.pop_back();
         const int x = static_cast<int>(from % nx_), y = static_cast<int>((from / nx_) % ny_), z = static_cast<int>(from / (static_cast<std::size_t>(nx_) * ny_));
@@ -263,6 +362,96 @@ DistanceField::DistanceField(const Surface& surface, double cell, double band) :
                 if (z + 1 < nz_) most = std::max(most, std::abs(at(x, y, z + 1) - here));
             }
     steepest_ = most / cell_;
+    if (progress) progress->done = 1.0f;
+}
+
+// Every grid point within the band of a triangle gets its distance to the
+// nearest one. The grid is cut into slabs along y, which threads take one at a
+// time: each point is worked out by one thread, from the triangles in the
+// order the surface has them, so the field is the same however many there are.
+bool DistanceField::measure(const Surface& surface, Progress* progress) {
+    // How squarely each grid point faces its nearest triangle so far: between
+    // two triangles equally near (across their shared edge), the one faced
+    // more squarely tells the side correctly.
+    std::vector<float> facing(distance_.size(), 0.0f);
+
+    const int height = std::max(1, ny_ / static_cast<int>(threadsToUse() * 4));  // of a slab, in grid points; several per thread, as some take longer
+    const int slabs = (ny_ + height - 1) / height;
+    const auto index = [&](double v, double from, int most) { return std::clamp(static_cast<int>(std::floor((v - from) / cell_)), 0, most - 1); };
+    // Which triangles reach into each slab.
+    std::vector<std::vector<uint32_t>> inSlab(static_cast<std::size_t>(slabs));
+    std::size_t listed = 0;
+    for (std::size_t n = 0; n < surface.triangles.size(); ++n) {
+        const std::array<uint32_t, 3>& t = surface.triangles[n];
+        const double a = surface.points[t[0]].y, b = surface.points[t[1]].y, c = surface.points[t[2]].y;
+        const int y0 = index(std::min({a, b, c}) - band_, origin_.y, ny_), y1 = std::min(index(std::max({a, b, c}) + band_, origin_.y, ny_) + 1, ny_ - 1);
+        for (int slab = y0 / height; slab <= y1 / height; ++slab, ++listed) inSlab[static_cast<std::size_t>(slab)].push_back(static_cast<uint32_t>(n));
+    }
+
+    std::atomic<std::size_t> finished{0};
+    spread(static_cast<std::size_t>(slabs), [&](std::size_t slab) {
+        const int first = static_cast<int>(slab) * height, last = std::min(first + height, ny_) - 1;
+        std::size_t counted = 0;
+        // The last twentieth of the whole is what follows the triangles.
+        const auto report = [&] {
+            const float now = 0.95f * static_cast<float>(finished += counted) / static_cast<float>(listed);
+            counted = 0;
+            // Threads report side by side: only ever forwards.
+            for (float was = progress->done; was < now && !progress->done.compare_exchange_weak(was, now);) {}
+        };
+        for (const uint32_t n : inSlab[slab]) {
+            if (progress) {
+                if (progress->stop) return;
+                if (++counted == 512) report();
+            }
+            const std::array<uint32_t, 3>& t = surface.triangles[n];
+            const Vec3 a = surface.points[t[0]], b = surface.points[t[1]], c = surface.points[t[2]];
+            const Vec3 normal = normalized(cross(b - a, c - a));
+            if (length(normal) < 0.5) continue;  // a triangle with no area
+            // A ball round the triangle: no point of it is nearer to a grid
+            // point than the ball is, which is quick to ask.
+            const Vec3 middle = (a + b + c) * (1.0 / 3.0);
+            const double radius = std::max({length(a - middle), length(b - middle), length(c - middle)});
+            constexpr double slack = 1e-5;  // more than the stored distances' rounding and the tie's 1e-6
+            const double farthest = band_ + radius + slack;
+            const int x0 = index(std::min({a.x, b.x, c.x}) - band_, origin_.x, nx_), x1 = index(std::max({a.x, b.x, c.x}) + band_, origin_.x, nx_) + 1;
+            const int y0 = index(std::min({a.y, b.y, c.y}) - band_, origin_.y, ny_), y1 = index(std::max({a.y, b.y, c.y}) + band_, origin_.y, ny_) + 1;
+            const int z0 = index(std::min({a.z, b.z, c.z}) - band_, origin_.z, nz_), z1 = index(std::max({a.z, b.z, c.z}) + band_, origin_.z, nz_) + 1;
+            for (int z = z0; z <= std::min(z1, nz_ - 1); ++z)
+                for (int y = std::max(y0, first); y <= std::min(y1, last); ++y) {
+                    const double dy = origin_.y + y * cell_ - middle.y, dz = origin_.z + z * cell_ - middle.z;
+                    const double across = dy * dy + dz * dz;
+                    const double room = farthest * farthest - across;
+                    if (room < 0.0) continue;
+                    // Only the stretch of the row that the band round the ball reaches.
+                    const double half = std::sqrt(room);
+                    const int from = std::max(x0, static_cast<int>(std::ceil((middle.x - half - origin_.x) / cell_)));
+                    const int to = std::min({x1, nx_ - 1, static_cast<int>(std::floor((middle.x + half - origin_.x) / cell_))});
+                    for (int x = from; x <= to; ++x) {
+                        const std::size_t i = (static_cast<std::size_t>(z) * ny_ + y) * nx_ + x;
+                        const bool unset = std::isnan(distance_[i]);
+                        const double sofar = std::abs(distance_[i]);
+                        // The ball is farther than the distance found already: nothing here can change it.
+                        const double reach = (unset ? band_ : std::min(band_, sofar)) + radius + slack;
+                        const double dx = origin_.x + x * cell_ - middle.x;
+                        if (dx * dx + across > reach * reach) continue;
+                        const Vec3 p = origin_ + Vec3{x * cell_, y * cell_, z * cell_};
+                        const Vec3 apart = p - nearestOn(p, a, b, c);
+                        const double away = length(apart);
+                        if (away > band_) continue;
+                        const double squarely = std::abs(dot(apart, normal));
+                        const bool nearer = unset || away < sofar - 1e-6;
+                        const bool asNear = !nearer && away < sofar + 1e-6;
+                        if (nearer || (asNear && squarely > facing[i])) {
+                            distance_[i] = static_cast<float>(dot(apart, normal) >= 0.0 ? away : -away);
+                            facing[i] = static_cast<float>(squarely);
+                        }
+                    }
+                }
+        }
+        if (progress) report();
+    });
+    return !progress || !progress->stop;
 }
 
 Contact DistanceField::contact(Vec3 point) const {
@@ -285,9 +474,9 @@ Contact DistanceField::contact(Vec3 point) const {
     return contact;
 }
 
-Body bodyFrom(const Surface& surface) {
+Body bodyFrom(const Surface& surface, Progress* progress) {
     Body body;
-    body.scanned = std::make_shared<const DistanceField>(surface);
+    body.scanned = std::make_shared<const DistanceField>(surface, 1.0_cm, 4.0_cm, progress);
     return body;
 }
 

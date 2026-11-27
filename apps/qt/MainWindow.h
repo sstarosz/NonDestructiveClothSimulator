@@ -17,8 +17,11 @@
 
 #include <QElapsedTimer>
 #include <QMainWindow>
+#include <QPointer>
+#include <array>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "Outliner.h"
 #include "Shelf.h"
@@ -30,6 +33,7 @@
 class QDockWidget;
 class QLabel;
 class QLockFile;
+class QProgressBar;
 class QShortcut;
 class QSplitter;
 class QTimer;
@@ -37,6 +41,7 @@ class QTimer;
 namespace clothcad::ui {
 
 class AttributeEditor;
+class AvatarDialog;
 class ParametersPanel;
 class SpaceView;
 class TableView;
@@ -62,12 +67,25 @@ public:
     // Writes the garment to an OBJ file (Session::obj) and says in the help
     // line how many panels went where.
     bool exportObj(const QString& path);
-    bool loadAvatar(const QString& path);
+    // An avatar from an OBJ file, read as `readAs` says; by default the file
+    // is taken to be as the document is: cm, y up, facing +z.
+    bool loadAvatar(const QString& path, const AvatarImport& readAs = {});
+    // What Body > Avatar from OBJ... does with the chosen file: opens the
+    // AvatarDialog ("avatarImport") with a guess of its unit and axes, and
+    // shows the body in 3D as it is chosen. Meanwhile only the dialog and the
+    // 3D view's camera take the hand. OK puts the avatar on, standing on the
+    // floor; Cancel changes nothing.
+    void chooseAvatar(const QString& path);
     // From now on unsaved work is copied now and then into a folder of its own
     // under `folder`, and a copy that a run which stopped left there is
     // offered at once. Closing the window takes the copy away; the program
     // stopping otherwise leaves it for the next start.
     void keepRecoveryIn(const QString& folder, double everySeconds = 30.0);
+    // What the program remembers between runs (the folders of the last pattern,
+    // avatar and export, where the next file dialog of each starts) is read from
+    // this file now and written to it from now on. Without this it is
+    // remembered only while the window is there.
+    void keepSettingsIn(const QString& file);
     // Until a copy that is being written is on disk, for tests.
     void finishRecoveryCopy();
     void select(std::optional<PanelId> panel);
@@ -125,6 +143,32 @@ private:
     bool takeWhatIsTyped();
     void offerRecovery(const QString& folder);
     void endRecovery();  // no copy, and no more of them: the window is closed
+    // The kinds of file the window asks for, each with a folder of its own.
+    enum class Files { Patterns, Avatars, Exports };
+    // Where a dialog for such files starts: the folder of the last one, while
+    // it is there. Else the program's own avatars, the patterns' folder for
+    // exports, and for patterns wherever the system starts (empty).
+    QString folderFor(Files files) const;
+    void rememberFolder(Files files, const QString& file);
+    // The status line says it before the window stops to read or write a file.
+    void sayAtOnce(const QString& words);
+    // The status line's bar while the body is being made ready for the cloth
+    // (Session::bodyProgress, 0 to 1); none: no bar.
+    void showPreparing(std::optional<double> done);
+    // An avatar into the document, as one undo step; nothing if it is the one worn.
+    bool wear(std::shared_ptr<const Avatar> avatar);
+    // While an avatar is chosen: the dialog, what was switched off so that
+    // nothing else takes the hand, and what to put back.
+    struct ChoosingAvatar {
+        AvatarDialog* dialog = nullptr;
+        std::vector<QPointer<QWidget>> widgets;
+        std::vector<QPointer<QAction>> actions;
+        bool playing = false;
+        ViewLayout layout = ViewLayout::SideBySide;
+    };
+    ChoosingAvatar holdTheRest();
+    void endChoosing();     // the preview goes, and the rest is as it was
+    void stopChoosing();    // as Cancel, if an avatar is being chosen
     // Makes a change as one undo step; on refusal says why, in `field` too if given.
     bool change(const std::function<void(Document&)>& verb, session::ChangeRules rules = {}, ValueField* field = nullptr);
     // A change from one step of dragging a field: the whole drag is one undo
@@ -171,6 +215,7 @@ private:
     QSplitter* views_;
     QLabel* help_;
     QLabel* pointerAt_;  // where the pointer is on the table
+    QProgressBar* preparing_;
     QTimer* timer_;
     void paceTicks();  // the timer follows the screen's rate
     // View > Frame times: what the frames take in this window, on this screen.
@@ -181,7 +226,10 @@ private:
     void showFrameTimes();  // the line in the status bar, four times a second while it is shown
     std::vector<QDockWidget*> docks_;
 
+    std::array<QString, 3> folders_;  // of the last file of each kind, in Files' order
+    QString settingsFile_;            // where they are kept between runs; empty: nowhere
     session::Drafting drafting_;  // the tool, the selection, and the drags in progress
+    std::optional<ChoosingAvatar> choosing_;
     bool fieldDragTaken_ = false;  // the field being dragged has changed the document
     std::shared_ptr<const Avatar> shownAvatar_;  // the document's, as last shown
     QAction* bodyAction_ = nullptr;

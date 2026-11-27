@@ -49,3 +49,4 @@ phase (trousers): the table paints itself	0.102254
 phase (trousers): the 3D scene is made from the session	0.0546148
 phase (trousers): the scene is copied for a drawing (with the gizmo)	0.00398095
 phase (trousers): the renderer draws it and reads it back	0.463077
+frame with a cloth step in it, 3D shown, avatar of 1,445,000 triangles	2.03998

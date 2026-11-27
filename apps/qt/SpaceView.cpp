@@ -258,9 +258,9 @@ void SpaceView::show(const session::Session& session, session::Tool tool, render
     selected_ = options.selected;
     // A hidden panel has nothing to take hold of.
     gizmo_ = selected_ && session.panelShown(*selected_) ? render::gizmoOf(session, *selected_, session::GizmoMode::Move, 1.0) : std::nullopt;
-    scene_ = render::sceneOf(session, camera_, 1.0, options);
+    scene_ = render::sceneOf(session, camera_, 1.0, options, &body_);
     scene_.background = background;
-    extent_ = render::extentOf(session);
+    extent_ = render::extentOf(session, &body_);
     if (!framed_ && extent_) {
         camera_.frame(extent_->first, extent_->second);
         framed_ = true;

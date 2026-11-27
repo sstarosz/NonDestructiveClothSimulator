@@ -14,9 +14,11 @@
 #include <QLockFile>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QSaveFile>
 #include <QScreen>
+#include <QSettings>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
@@ -25,6 +27,7 @@
 #include <QUuid>
 
 #include "AttributeEditor.h"
+#include "AvatarDialog.h"
 #include "Outliner.h"
 #include "ParametersPanel.h"
 #include "SpaceView.h"
@@ -36,6 +39,7 @@
 #include "clothcad/core/File.h"
 #include "clothcad/core/Text.h"
 #include "clothcad/session/Samples.h"
+#include "clothcad/sim/AvatarImport.h"
 #include "clothcad/sim/Body.h"
 #include "clothcad/sim/Layout.h"
 
@@ -55,12 +59,34 @@ QDockWidget* makeDock(const QString& title, QWidget* content, QMainWindow* windo
 // package put the project's assets/ beside it (apps/qt/CMakeLists.txt).
 QString assetsFolder() { return QCoreApplication::applicationDirPath() + "/assets"; }
 
-// The avatar in an OBJ file, ready to put into a document; or why there is none.
-std::expected<std::shared_ptr<const Avatar>, QString> readAvatar(const QString& path) {
-    const sim::LoadedSurface loaded = sim::loadObj(path.toStdString());
-    if (!loaded.problem.empty())
-        return std::unexpected(QString::fromStdString(loaded.problem) + ". Choose a Wavefront OBJ file in cm, y up, facing +z.");
-    return std::make_shared<const Avatar>(sim::avatarOf(loaded.surface, QFileInfo(path).fileName().toStdString()));
+// The names the folders are kept under in the settings file, in MainWindow::Files' order.
+constexpr std::array<const char*, 3> folderKeys = {"patternFolder", "avatarFolder", "exportFolder"};
+
+// A file named in a folder; the name alone where there is no folder to name.
+QString inFolder(const QString& folder, const QString& name) { return folder.isEmpty() ? name : QDir(folder).filePath(name); }
+
+// The pointer that says "wait", for as long as this is there.
+struct Waiting {
+    Waiting() { QGuiApplication::setOverrideCursor(Qt::WaitCursor); }
+    ~Waiting() { QGuiApplication::restoreOverrideCursor(); }
+    Waiting(const Waiting&) = delete;
+    Waiting& operator=(const Waiting&) = delete;
+};
+
+// The help line while the cloth plays, and while Play waits for a new body.
+const char* const playingHint = "Playing: drag the cloth in 3D to pull it.";
+const char* const waitingHint = "Preparing the avatar. The cloth starts when it is ready.";
+
+// The surface in an OBJ file, in the file's own numbers; or why there is none.
+std::expected<sim::Surface, QString> readSurface(const QString& path) {
+    sim::LoadedSurface loaded = sim::loadObj(path.toStdString());
+    if (!loaded.problem.empty()) return std::unexpected(QString::fromStdString(loaded.problem) + ". Choose another Wavefront OBJ file.");
+    return std::move(loaded.surface);
+}
+
+// A surface read from `path` as an avatar, named as the file is.
+std::shared_ptr<const Avatar> avatarFrom(const sim::Surface& file, const QString& path, const AvatarImport& readAs) {
+    return std::make_shared<const Avatar>(sim::avatarOf(file, QFileInfo(path).fileName().toStdString(), readAs));
 }
 
 } // namespace
@@ -123,6 +149,16 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     frameTimesLine_->hide();
     clock_.start();
     statusBar()->addWidget(help_, 1);
+    preparing_ = new QProgressBar(this);
+    preparing_->setObjectName("bodyProgress");
+    preparing_->setRange(0, 100);
+    preparing_->setFormat("Preparing the avatar  %p %");
+    preparing_->setAlignment(Qt::AlignCenter);
+    preparing_->setFixedWidth(280);
+    // No higher than the words beside it: the status line, and with it the views, keep their size.
+    preparing_->setFixedHeight(fontMetrics().height());
+    preparing_->hide();
+    statusBar()->addPermanentWidget(preparing_);
     statusBar()->addPermanentWidget(frameTimesLine_);
     statusBar()->addPermanentWidget(pointerAt_);
     statusBar()->setSizeGripEnabled(false);
@@ -151,10 +187,9 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(shelf_->simulate(), &QAction::toggled, this, [this](bool on) {
         session_.simulate(on);
         // What a drag on the cloth does changes with Play and Pause.
-        const QString playing = "Playing: drag the cloth in 3D to pull it.";
-        if (on) say(playing);
+        if (on) say(session_.bodyReady() ? playingHint : waitingHint);
         else if (session_.clothShown()) say("Paused: in 3D, Move (W) moves the selected panel, drape and all; Pull (H) pulls the cloth.");
-        else if (helpLine() == playing) say({});  // reset, or another garment: no cloth to drag
+        else if (helpLine() == playingHint || helpLine() == waitingHint) say({});  // reset, or another garment: no cloth to drag
     });
     connect(shelf_->reset(), &QAction::triggered, this, [this] {
         session_.resetCloth();
@@ -164,9 +199,18 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(outliner_, &Outliner::panelChosen, this, [this](PanelId panel) { select(panel); });
     connect(outliner_, &Outliner::seamChosen, this, [this](SeamId seam) { selectSeam(seam); });
     connect(table_, &TableView::gestured, this, &MainWindow::on);
-    connect(space_, &SpaceView::panelClicked, this, &MainWindow::select);
-    connect(space_, &SpaceView::gestured, this, &MainWindow::on);
+    // While an avatar is chosen the 3D view only turns: nothing done in it changes anything.
+    connect(space_, &SpaceView::panelClicked, this, [this](std::optional<PanelId> panel) {
+        if (!choosing_) select(panel);
+    });
+    connect(space_, &SpaceView::gestured, this, [this](const session::Gesture& gesture) {
+        if (!choosing_) on(gesture);
+    });
     connect(space_, &SpaceView::keyed, this, [this](QKeyCombination pressed) {
+        if (choosing_) {
+            if (pressed == QKeyCombination(Qt::Key_Escape)) stopChoosing();
+            return;
+        }
         if (editInSpace(pressed)) return;
         // Keys typed while the 3D view's own window has the focus do not reach
         // the window's shortcuts by themselves.
@@ -177,10 +221,12 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
                 return;
             }
     });
-    connect(space_, &SpaceView::hinted, this, [this](const QString& next) { say(next); });
+    connect(space_, &SpaceView::hinted, this, [this](const QString& next) {
+        if (!choosing_) say(next);
+    });
     connect(space_, &SpaceView::clothPulled, this, [this](PanelId panel, std::uint32_t point, sim::Vec3 to, session::DragPhase phase) {
         // Pulling the cloth by hand changes nothing in the document: only the drape.
-        if (!session_.document().contains(panel)) return;
+        if (choosing_ || !session_.document().contains(panel)) return;
         if (phase == session::DragPhase::Begin) session_.grab(panel, point, to);
         else if (phase == session::DragPhase::Continue) session_.pullTo(to);
         else session_.letGo();
@@ -488,18 +534,20 @@ void MainWindow::buildMenus() {
     })->setObjectName("fileNew");
     item(file, "Open…", QKeySequence::Open, this, [this] {
         if (!mayDiscard("opening another pattern")) return;
-        const QString path = QFileDialog::getOpenFileName(this, "Open", {}, "Patterns (*.clothcad)");
+        const QString path = QFileDialog::getOpenFileName(this, "Open", folderFor(Files::Patterns), "Patterns (*.clothcad)");
         if (!path.isEmpty()) openFile(path);
     })->setObjectName("fileOpen");
     item(file, "Save", QKeySequence::Save, this, [this] { save(); })->setObjectName("fileSave");
     item(file, "Save as…", QKeySequence::SaveAs, this, [this] {
         if (!takeWhatIsTyped()) return;
-        const QString path = QFileDialog::getSaveFileName(this, "Save as", title_ + ".clothcad", "Patterns (*.clothcad)");
+        const QString path =
+            QFileDialog::getSaveFileName(this, "Save as", inFolder(folderFor(Files::Patterns), title_ + ".clothcad"), "Patterns (*.clothcad)");
         if (!path.isEmpty()) saveAs(path);
-    });
+    })->setObjectName("fileSaveAs");
     exportAction_ = item(file, "Export OBJ…", QKeySequence("Ctrl+E"), this, [this] {
         if (!takeWhatIsTyped()) return;
-        const QString path = QFileDialog::getSaveFileName(this, "Export OBJ", title_ + ".obj", "Wavefront OBJ (*.obj)");
+        const QString path =
+            QFileDialog::getSaveFileName(this, "Export OBJ", inFolder(folderFor(Files::Exports), title_ + ".obj"), "Wavefront OBJ (*.obj)");
         if (!path.isEmpty()) exportObj(path);
     });
     exportAction_->setObjectName("fileExportObj");
@@ -518,9 +566,9 @@ void MainWindow::buildMenus() {
 
     QMenu* body = menuBar()->addMenu("Body");
     item(body, "Avatar from OBJ…", {}, this, [this] {
-        const QString path = QFileDialog::getOpenFileName(this, "Avatar", assetsFolder(), "Wavefront OBJ (*.obj)");
-        if (!path.isEmpty()) loadAvatar(path);
-    });
+        const QString path = QFileDialog::getOpenFileName(this, "Avatar", folderFor(Files::Avatars), "Wavefront OBJ (*.obj)");
+        if (!path.isEmpty()) chooseAvatar(path);
+    })->setObjectName("bodyAvatar");
 
     QMenu* view = menuBar()->addMenu("View");
     item(view, "Frame everything", {}, this, [this] {
@@ -568,6 +616,7 @@ void MainWindow::buildMenus() {
 }
 
 void MainWindow::open(Document document, const QString& title, SceneState state) {
+    stopChoosing();
     // A document that names no body (a new one, or a file from before avatars were saved) takes the one shown.
     if (!document.avatar()) document.setAvatar(session_.document().avatar());
     session::layOutOnTheTable(document);
@@ -590,18 +639,25 @@ void MainWindow::open(Document document, const QString& title, SceneState state)
 }
 
 bool MainWindow::openFile(const QString& path) {
+    rememberFolder(Files::Patterns, path);
+    sayAtOnce("Opening " + QFileInfo(path).fileName() + "…");
+    const Waiting waiting;  // a pattern with a detailed avatar takes seconds
     std::variant<SavedScene, FileError> opened = clothcad::open(path.toStdString());
     if (FileError* problem = std::get_if<FileError>(&opened)) {
         say(QString::fromStdString(problem->line ? "Line " + std::to_string(problem->line) + ": " + problem->message : problem->message), true);
         return false;
     }
     SavedScene& scene = std::get<SavedScene>(opened);
+    say({});  // opening says what there is to say
     open(std::move(scene.document), QFileInfo(path).completeBaseName(), std::move(scene.state));
     path_ = path;
     return true;
 }
 
 bool MainWindow::saveAs(const QString& path) {
+    rememberFolder(Files::Patterns, path);
+    sayAtOnce("Saving " + QFileInfo(path).fileName() + "…");
+    const Waiting waiting;
     const std::string problem = clothcad::save(session_.document(), path.toStdString(), session_.state());
     if (!problem.empty()) {
         say(QString::fromStdString(problem), true);
@@ -617,6 +673,7 @@ bool MainWindow::saveAs(const QString& path) {
 }
 
 bool MainWindow::exportObj(const QString& path) {
+    rememberFolder(Files::Exports, path);
     const std::expected<sim::Obj, std::string> obj = session_.obj();
     if (!obj) {
         say(QString::fromStdString(obj.error()), true);
@@ -638,7 +695,9 @@ bool MainWindow::exportObj(const QString& path) {
 
 bool MainWindow::save() {
     if (!takeWhatIsTyped()) return false;
-    const QString path = path_.isEmpty() ? QFileDialog::getSaveFileName(this, "Save", title_ + ".clothcad", "Patterns (*.clothcad)") : path_;
+    const QString path = path_.isEmpty() ? QFileDialog::getSaveFileName(this, "Save", inFolder(folderFor(Files::Patterns), title_ + ".clothcad"),
+                                                                        "Patterns (*.clothcad)")
+                                         : path_;
     return !path.isEmpty() && saveAs(path);
 }
 
@@ -656,6 +715,7 @@ bool MainWindow::mayDiscard(const QString& before) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    stopChoosing();
     if (!mayDiscard("closing")) {
         event->ignore();
         return;
@@ -767,25 +827,134 @@ void MainWindow::showUnsaved() {
     if (isWindowModified() != unsaved) setWindowModified(unsaved);
 }
 
-bool MainWindow::loadAvatar(const QString& path) {
-    const std::expected<std::shared_ptr<const Avatar>, QString> read = readAvatar(path);
-    if (!read) {
-        say(read.error(), true);
+bool MainWindow::loadAvatar(const QString& path, const AvatarImport& readAs) {
+    const std::expected<sim::Surface, QString> file = readSurface(path);
+    if (!file) {
+        say(file.error(), true);
         return false;
     }
+    return wear(avatarFrom(*file, path, readAs));
+}
+
+void MainWindow::keepSettingsIn(const QString& file) {
+    settingsFile_ = file;
+    const QSettings settings(file, QSettings::IniFormat);
+    for (std::size_t i = 0; i < folders_.size(); ++i)
+        if (const QString kept = settings.value(folderKeys[i]).toString(); !kept.isEmpty()) folders_[i] = kept;
+}
+
+QString MainWindow::folderFor(Files files) const {
+    const QString& kept = folders_[static_cast<std::size_t>(files)];
+    if (!kept.isEmpty() && QDir(kept).exists()) return kept;
+    if (files == Files::Avatars) return assetsFolder();
+    return files == Files::Exports ? folderFor(Files::Patterns) : QString();
+}
+
+void MainWindow::rememberFolder(Files files, const QString& file) {
+    const QFileInfo chosen(file);
+    if (!chosen.dir().exists()) return;
+    const auto which = static_cast<std::size_t>(files);
+    folders_[which] = chosen.absolutePath();
+    // A convenience: where it cannot be written, it is remembered for this run alone.
+    if (!settingsFile_.isEmpty()) QSettings(settingsFile_, QSettings::IniFormat).setValue(folderKeys[which], folders_[which]);
+}
+
+void MainWindow::sayAtOnce(const QString& words) {
+    say(words);
+    statusBar()->repaint();  // now: the window is about to be busy
+}
+
+void MainWindow::chooseAvatar(const QString& path) {
+    stopChoosing();
+    rememberFolder(Files::Avatars, path);
+    sayAtOnce("Reading " + QFileInfo(path).fileName() + "…");
+    const Waiting waiting;
+    std::expected<sim::Surface, QString> read = readSurface(path);
+    if (!read) {
+        say(read.error(), true);
+        return;
+    }
+    // Read once: kept while the dialog is open, for the preview and for OK.
+    const auto file = std::make_shared<const sim::Surface>(std::move(*read));
+    choosing_ = holdTheRest();  // before the dialog is made: what is its own stays usable
+    auto* dialog = new AvatarDialog(sim::sizeOf(*file), sim::guessImport(*file), this);
+    choosing_->dialog = dialog;
+    dialog->setObjectName("avatarImport");
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    const auto preview = [this, file](const AvatarImport& chosen) {
+        session_.previewBody(std::make_shared<const sim::Surface>(sim::imported(*file, sim::standing(*file, chosen))));
+        showSpace();
+    };
+    connect(dialog, &AvatarDialog::changed, this, preview);
+    connect(dialog, &QDialog::finished, this, [this, dialog, file, path](int result) {
+        const AvatarImport chosen = dialog->choice();
+        endChoosing();
+        if (result == QDialog::Accepted) wear(avatarFrom(*file, path, sim::standing(*file, chosen)));
+    });
+    preview(dialog->choice());
+    say("The 3D view shows the avatar as you choose it: Alt and the mouse turn the view. OK puts it on.");
+    dialog->show();
+    // Beside the 3D view, not on it: over the table.
+    const QWidget* beside = table_->isVisible() ? static_cast<QWidget*>(table_) : attributes_;
+    dialog->move(beside->mapToGlobal(QPoint(24, 24)));
+}
+
+MainWindow::ChoosingAvatar MainWindow::holdTheRest() {
+    ChoosingAvatar held{.playing = shelf_->simulate()->isChecked(), .layout = layout_};
+    shelf_->simulate()->setChecked(false);  // the cloth waits: it is on the body that is on, not the one shown
+    if (layout_ == ViewLayout::TableOnly) setViewLayout(ViewLayout::SideBySide);  // the body is seen in 3D
+    // The actions too: their keys work wherever the focus is.
+    for (QAction* action : findChildren<QAction*>())
+        if (action->isEnabled()) {
+            action->setEnabled(false);
+            held.actions.push_back(action);
+        }
+    std::vector<QWidget*> rest{menuBar(), table_};
+    rest.insert(rest.end(), docks_.begin(), docks_.end());
+    for (QToolBar* bar : findChildren<QToolBar*>(Qt::FindDirectChildrenOnly)) rest.push_back(bar);
+    for (QWidget* widget : rest)
+        if (widget->isEnabled()) {
+            widget->setEnabled(false);
+            held.widgets.push_back(widget);
+        }
+    return held;
+}
+
+void MainWindow::endChoosing() {
+    if (!choosing_) return;
+    const ChoosingAvatar was = std::move(*choosing_);
+    choosing_.reset();
+    for (const QPointer<QWidget>& widget : was.widgets)
+        if (widget) widget->setEnabled(true);
+    for (const QPointer<QAction>& action : was.actions)
+        if (action) action->setEnabled(true);
+    if (layout_ != was.layout) setViewLayout(was.layout);
+    session_.previewBody(nullptr);
+    shelf_->simulate()->setChecked(was.playing);
+    say({});
+    refresh();
+}
+
+void MainWindow::stopChoosing() {
+    if (choosing_ && choosing_->dialog) choosing_->dialog->reject();
+}
+
+bool MainWindow::wear(std::shared_ptr<const Avatar> avatar) {
     const std::shared_ptr<const Avatar>& worn = session_.document().avatar();
-    if (worn && *worn == **read) return true;  // the one that is on: nothing to change
+    if (worn && *worn == *avatar) return true;  // the one that is on: nothing to change
     shelf_->simulate()->setChecked(false);      // the cloth starts again on another body
-    return change([&](Document& doc) { doc.setAvatar(*read); }, {.touches = session::Touches::PlacementOnly});
+    return change([&](Document& doc) { doc.setAvatar(avatar); }, {.touches = session::Touches::PlacementOnly});
 }
 
 void MainWindow::openSample(std::size_t index) {
     const session::Sample& sample = session::samples().at(index);
     Document document = sample.build();
-    const std::expected<std::shared_ptr<const Avatar>, QString> avatar = readAvatar(assetsFolder() + "/" + sample.avatar);
-    if (avatar) document.setAvatar(*avatar);
+    // The project's avatars are read as they are: in cm, y up, where they should stand.
+    const QString path = assetsFolder() + "/" + sample.avatar;
+    const std::expected<sim::Surface, QString> file = readSurface(path);
+    if (file) document.setAvatar(avatarFrom(*file, path, {}));
     open(std::move(document), sample.name);
-    if (!avatar) say(avatar.error(), true);  // opened all the same, on the body that was there
+    if (!file) say(file.error(), true);  // opened all the same, on the body that was there
 }
 
 void MainWindow::showBody(bool shown) {
@@ -804,12 +973,14 @@ void MainWindow::showBodySeeThrough(bool seeThrough) {
 
 void MainWindow::showSpace() {
     if (!space_->isVisible()) return;
-    space_->show(session_, drafting_.tool,
-                 {.selected = drafting_.selection.panel,
+    // While an avatar is chosen: no gizmo and nothing marked, and the new body is solid.
+    const bool choosing = choosing_.has_value();
+    space_->show(session_, choosing ? Tool::Select : drafting_.tool,
+                 {.selected = choosing ? std::nullopt : drafting_.selection.panel,
                   .body = session_.bodyPresent(),
                   .mesh = shelf_->mesh()->isChecked(),
-                  .seam = drafting_.selection.seam,
-                  .seeThroughBody = session_.bodySeeThrough()});
+                  .seam = choosing ? std::nullopt : drafting_.selection.seam,
+                  .seeThroughBody = !choosing && session_.bodySeeThrough()});
 }
 
 void MainWindow::setThreading(session::Threading threading) {
@@ -865,9 +1036,11 @@ void MainWindow::tick() {
     const bool meshShown = shelf_->mesh()->isChecked();
     if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) say(QString::fromStdString(*problem), true);
     table_->setMesh(meshShown ? session_.mesh() : nullptr);
+    if (session_.bodyReady() && helpLine() == waitingHint) say(shelf_->simulate()->isChecked() ? playingHint : "");
     if (session_.editor().version() != shownVersion_) refresh();
     showSpace();
     space_->showTime(session_.clothShown() ? std::optional<double>(session_.cloth().time) : std::nullopt, session_.clothShown() && session_.cloth().sewing);
+    showPreparing(session_.bodyProgress());
     outliner_->showBody(bodyNow());
     outliner_->showPanelStates(session_.hiddenPanels(), session_.inactivePanels());
     outliner_->showSeamStates(session_.hiddenSeams());
@@ -881,6 +1054,15 @@ void MainWindow::tick() {
     frameTimes_.took(session::FrameTimes::Work::Tick, static_cast<double>(took.nsecsElapsed()) / 1e6);
     showFrameTimes();
     paceTicks();
+}
+
+void MainWindow::showPreparing(std::optional<double> done) {
+    // Only what changes: it is called every frame.
+    if (done) {
+        const int percent = static_cast<int>(*done * 100.0);
+        if (preparing_->value() != percent) preparing_->setValue(percent);
+    }
+    if (preparing_->isHidden() == done.has_value()) preparing_->setVisible(done.has_value());
 }
 
 void MainWindow::showFrameTimes() {

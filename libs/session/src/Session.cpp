@@ -35,6 +35,7 @@ void Session::open(Document document, SceneState state) {
     if (meshing_.mesh.valid()) meshing_.mesh.wait();  // of the old document; dropped
     meshing_ = {};
     drapes_.clear();
+    preview_.reset();
     editor_.replace(std::move(document));
     const auto gone = [&](auto id) { return !this->document().contains(id); };
     hidden_ = std::move(state.hidden);
@@ -217,6 +218,21 @@ void Session::setBodySeeThrough(bool seeThrough) {
     ++sceneVersion_;
 }
 
+Session::~Session() {
+    if (progress_) progress_->stop = true;  // the future waits for its work, which now ends soon
+}
+
+std::optional<double> Session::bodyProgress() const {
+    if (!preparing_.valid() || !progress_) return std::nullopt;
+    return static_cast<double>(progress_->done.load());
+}
+
+void Session::previewBody(std::shared_ptr<const sim::Surface> body) {
+    if (preview_ == body) return;
+    preview_ = std::move(body);
+    ++sceneVersion_;
+}
+
 void Session::followAvatar() {
     const std::shared_ptr<const Avatar>& wanted = document().avatar();
     if (wanted == bodyOf_) return;
@@ -229,9 +245,14 @@ void Session::followAvatar() {
     resetCloth();
     bodyReplaced_ = true;
     body_ = sim::Body{};
-    bodySurface_ = wanted ? sim::surfaceOf(*wanted) : sim::Surface{};
-    // The background work has its own copy of the surface: nothing is shared with it.
-    preparing_ = wanted ? std::async(std::launch::async, [surface = bodySurface_] { return sim::bodyFrom(surface); }) : std::future<sim::Body>{};
+    bodySurface_ = std::make_shared<const sim::Surface>(wanted ? sim::surfaceOf(*wanted) : sim::Surface{});
+    // A body still being worked out is given up first: replacing its future waits for the work to end.
+    if (progress_) progress_->stop = true;
+    progress_ = wanted ? std::make_shared<sim::Progress>() : nullptr;
+    // The background work holds the surface too, which never changes; and how it gets on.
+    preparing_ = wanted ? std::async(std::launch::async,
+                                     [surface = bodySurface_, progress = progress_] { return sim::bodyFrom(*surface, progress.get()); })
+                        : std::future<sim::Body>{};
     ++sceneVersion_;
 }
 
@@ -355,7 +376,7 @@ std::optional<std::string> Session::update(bool meshWanted) {
         return std::nullopt;
     }
     followShapes(false);
-    simulation_->run(simulating_);  // and while the cloth is held: the simulation sees to that
+    simulation_->run(simulating_ && bodyReady());  // and while the cloth is held: the simulation sees to that
     simulation_->advance();
     return takeNews();
 }
@@ -363,7 +384,6 @@ std::optional<std::string> Session::update(bool meshWanted) {
 void Session::followBody() {
     followAvatar();
     if (preparing_.valid() && preparing_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) body_ = preparing_.get();
-    if (!bodyReady()) simulating_ = false;
     forgetTheGone();
 }
 
@@ -423,7 +443,7 @@ void Session::followShapes(bool now) {
         simulation_->setBody(bodyInSimulation());
         bodyInUse_ = bodyNow;
     }
-    if (simulating_ && !simulation_->exists()) {
+    if (simulating_ && bodyReady() && !simulation_->exists()) {
         simulation_->start(mesh_, arranged_, bodyInSimulation());
         clothPlaced_ = placedNow();
         bodyInUse_ = bodyNow;

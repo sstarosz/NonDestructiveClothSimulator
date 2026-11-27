@@ -41,6 +41,7 @@ ValueField::ValueField(Unit unit, QWidget* parent) : QLineEdit(parent), unit_(un
     setFocusPolicy(Qt::TabFocus);
     connect(this, &QLineEdit::editingFinished, this, [this] {
         if (text() != shown_) emit typed(text());
+        else mark(*this, "refused", false);  // what is shown, typed over something refused
     });
 }
 
@@ -174,6 +175,8 @@ void ValueField::focusOutEvent(QFocusEvent* event) {
     QLineEdit::focusOutEvent(event);
     showCursor();
 }
+
+bool ValueField::refused() const { return property("refused").toBool(); }
 
 void ValueField::refuse(const QString& why) {
     mark(*this, "refused", true);

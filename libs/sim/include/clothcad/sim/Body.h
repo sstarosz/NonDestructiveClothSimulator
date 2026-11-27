@@ -10,6 +10,7 @@
 // The body stands on the floor (y = 0) at x = 0, z = 0, facing +z.
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -62,8 +63,8 @@ Surface surfaceOf(const Body& body, int around = 14);
 //   sim::LoadedSurface avatar = sim::loadObj("assets/avatarV1.obj");
 //   if (avatar.problem.empty()) body = sim::bodyFrom(avatar.surface);
 //
-// The file's units are taken to be cm, with y up, the feet on y = 0 and the
-// body facing +z. The surface should be closed, with its faces
+// The numbers are read as the file has them; AvatarImport.h makes them cm, y
+// up and facing +z. The surface should be closed, with its faces
 // counter-clockwise seen from outside, as modelling programs export them.
 
 struct LoadedSurface {
@@ -77,17 +78,33 @@ LoadedSurface readObj(std::string_view text);
 LoadedSurface loadObj(const std::string& path);
 
 // ---- The avatar of a document ----------------------------------------------
-// A surface as the avatar a document holds (Document::setAvatar), under a name
-// for people to read; and that avatar as a surface again.
-Avatar avatarOf(const Surface& surface, std::string name);
+// A file's surface as the avatar a document holds (Document::setAvatar), under
+// a name for people to read, turned, scaled and moved as `readAs` says
+// (sim::imported) and keeping that; and that avatar as a surface again, as the
+// document has it.
+Avatar avatarOf(const Surface& file, std::string name, const AvatarImport& readAs = {});
 Surface surfaceOf(const Avatar& avatar);
+
+// How far making a body has got, for whoever waits for it, and a way to call
+// it off. The one who makes it writes `done`; any thread may set `stop`.
+//
+//   sim::Progress progress;
+//   auto made = std::async(std::launch::async, [&] { return sim::bodyFrom(surface, &progress); });
+//   progress.done          // from 0 to 1
+//   progress.stop = true;  // soon over, with a body that is nothing
+struct Progress {
+    std::atomic<float> done{0.0f};
+    std::atomic<bool> stop{false};
+};
 
 // How far any point near a surface is from it, worked out once on a grid so
 // that asking is quick. Exact within `band` of the surface; further away it
-// only says which side the point is on.
+// only says which side the point is on. Working it out uses all the cores but
+// one, and takes seconds for a surface of millions of triangles. Called off
+// (Progress::stop), it holds nothing and every point is far from it.
 class DistanceField {
 public:
-    explicit DistanceField(const Surface& surface, double cell = 1.0_cm, double band = 4.0_cm);
+    explicit DistanceField(const Surface& surface, double cell = 1.0_cm, double band = 4.0_cm, Progress* progress = nullptr);
     Contact contact(Vec3 point) const;
     // How fast the distance it gives can change, at most, along any of the
     // grid's axes: cm per cm. About 1 for a clean closed surface, more where
@@ -96,6 +113,8 @@ public:
     double steepest() const { return steepest_; }
 
 private:
+    // The distances near the surface; false if it was called off.
+    bool measure(const Surface& surface, Progress* progress);
     float at(int x, int y, int z) const { return distance_[(static_cast<std::size_t>(z) * ny_ + y) * nx_ + x]; }
 
     Vec3 origin_;
@@ -105,7 +124,7 @@ private:
     std::vector<float> distance_;
 };
 
-// A body that is the given surface.
-Body bodyFrom(const Surface& surface);
+// A body that is the given surface, ready to collide with (see DistanceField).
+Body bodyFrom(const Surface& surface, Progress* progress = nullptr);
 
 } // namespace clothcad::sim

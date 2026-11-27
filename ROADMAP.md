@@ -43,9 +43,14 @@ In pull requests, in this order:
 
 **Also before the tag**, found or put off while PRs 1-10 were made:
 
-- Avatar import options: the file's unit, scale and axes, kept in the
-  pattern, so that an avatar in metres is not read as centimetres. It adds to
-  the file's format, so it goes in before the format is promised (#121).
+- Done: avatar import options. After choosing an OBJ file a dialog sets the
+  file's unit, a scale (or the body's height), the up axis and the facing,
+  filled in with a guess, and the 3D view shows the body as it is chosen. How
+  the file was read is kept in the pattern, so that the garment is exported in
+  the file's units and axes. A large avatar is read and made ready for the cloth
+  in a second or two instead of most of a minute, with a progress bar at the
+  bottom of the window; the cloth plays on it as smoothly as on a small one;
+  and every file dialog starts in the folder last used (#121).
 - The window benchmark passes on an unchanged `main` (#116), and its row for
   a running cloth no longer depends on how long Windows sleeps (#109).
 - A round of hardening and housekeeping: bad input and unexpected errors do

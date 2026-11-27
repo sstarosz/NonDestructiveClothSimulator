@@ -32,6 +32,9 @@ constexpr std::array<std::string_view, std::variant_size_v<OpData>> typeNames = 
 // Units by their names in a file, in Unit's order; never renamed once released.
 constexpr std::array<std::string_view, 4> unitNames = {"length", "angle", "fraction", "none"};
 static_assert(static_cast<std::size_t>(Unit::None) == 3);
+// Axes by their names in a file, in Axis's order; never renamed once released.
+constexpr std::array<std::string_view, 6> axisNames = {"x", "y", "z", "-x", "-y", "-z"};
+static_assert(static_cast<std::size_t>(Axis::MinusZ) == 5);
 
 static_assert(std::is_same_v<std::variant_alternative_t<0, OpData>, Rect>);
 static_assert(std::is_same_v<std::variant_alternative_t<4, OpData>, Offcut>);
@@ -266,9 +269,14 @@ const char* const firstLine = "clothcad 1";
 constexpr long long mostOfAnAvatar = 10'000'000;  // points, or triangles
 
 // The avatar's lines come last: its name and how many points and triangles
-// follow, then a line for each.
+// follow, how its file was read (only if not as it was), then a line for each
+// point and triangle.
 void write(std::string& out, const Avatar& avatar) {
     out += "avatar " + quoted(avatar.name) + " " + std::to_string(avatar.points.size()) + " " + std::to_string(avatar.triangles.size()) + "\n";
+    if (const AvatarImport& as = avatar.readAs; as != AvatarImport{})
+        out += "import " + shortest(as.unit) + " " + shortest(as.rescale) + " " + std::string(axisNames[static_cast<std::size_t>(as.up)]) + " " +
+               std::string(axisNames[static_cast<std::size_t>(as.facing)]) + " " + shortest(as.moved.x) + " " + shortest(as.moved.y) + " " +
+               shortest(as.moved.z) + "\n";
     for (const Point3& p : avatar.points) out += "v " + shortest(p.x) + " " + shortest(p.y) + " " + shortest(p.z) + "\n";
     for (const std::array<uint32_t, 3>& t : avatar.triangles) out += "t " + std::to_string(t[0]) + " " + std::to_string(t[1]) + " " + std::to_string(t[2]) + "\n";
 }
@@ -278,6 +286,7 @@ struct ReadingAvatar {
     std::shared_ptr<Avatar> avatar;
     std::size_t points = 0, triangles = 0;  // how many its first line announces
     std::size_t line = 0;                   // that line
+    bool imported = false;                  // its "import" line has come
 };
 
 // How the scene was left: a line for each thing frozen or hidden, then the
@@ -308,6 +317,30 @@ double finite(Words& words) {
     const double value = words.real();
     if (!std::isfinite(value)) throw Problem{"a number here is not a number"};
     return value;
+}
+
+Axis readAxis(Words& words) {
+    const std::string name = words.word();
+    const auto known = std::find(axisNames.begin(), axisNames.end(), name);
+    if (known == axisNames.end()) throw Problem{"\"" + name + "\" is not an axis"};
+    return static_cast<Axis>(known - axisNames.begin());
+}
+
+// What follows "import": the unit and the rescale, the axes that became y and
+// +z, and the shift.
+AvatarImport readImport(Words& words) {
+    AvatarImport as;
+    as.unit = finite(words);
+    if (as.unit <= 0.0) throw Problem{"the unit of the avatar's file must be above 0"};
+    as.rescale = finite(words);
+    if (as.rescale <= 0.0) throw Problem{"the avatar's scale must be above 0"};
+    as.up = readAxis(words);
+    as.facing = readAxis(words);
+    if (alongOneLine(as.up, as.facing)) throw Problem{"the avatar cannot face along the axis that is up"};
+    as.moved.x = finite(words);
+    as.moved.y = finite(words);
+    as.moved.z = finite(words);
+    return as;
 }
 
 // Three of the first `count` particles or points.
@@ -498,6 +531,11 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 body.points = words.count(mostOfAnAvatar);
                 body.triangles = words.count(mostOfAnAvatar);
                 body.line = lineNumber;
+            } else if (what == "import") {
+                if (!body.avatar) throw Problem{"an import comes before the avatar it is of"};
+                if (body.imported) throw Problem{"there is a second import of the avatar"};
+                body.avatar->readAs = readImport(words);
+                body.imported = true;
             } else if (what == "v") {
                 if (!body.avatar || body.avatar->points.size() == body.points) throw Problem{"there is a point more than the avatar announces"};
                 Point3 p;

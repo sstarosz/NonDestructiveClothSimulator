@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDockWidget>
 #include <QFile>
@@ -16,8 +17,10 @@
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
@@ -39,6 +42,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "AttributeEditor.h"
+#include "AvatarDialog.h"
 #include "Expect.h"
 #include "MainWindow.h"
 #include "Outliner.h"
@@ -51,6 +55,7 @@
 #include "clothcad/core/File.h"
 #include "clothcad/core/Text.h"
 #include "clothcad/session/Samples.h"
+#include "clothcad/sim/AvatarImport.h"
 #include "clothcad/sim/Layout.h"
 
 using namespace clothcad;
@@ -3360,6 +3365,52 @@ TEST_CASE("another avatar is an undo step; Ctrl+Z brings back the one before, an
     EXPECT((!w.window.shelf()->simulate()->isChecked() && !w.window.session().simulating()), "Play is up after an undo of the avatar");
 }
 
+TEST_CASE("Play pressed while a new avatar is worked out says so, and the cloth starts by itself when it is ready", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-waiting-XXXXXX");
+    REQUIRE(folder.isValid());
+    // A box 4 m across, under the panels: large, so that working it out takes a moment.
+    const QString path = folder.filePath("large.obj");
+    QFile file(path);
+    REQUIRE(file.open(QIODevice::WriteOnly));
+    file.write("v -200 0 -200\nv 200 0 -200\nv 200 60 -200\nv -200 60 -200\nv -200 0 200\nv 200 0 200\nv 200 60 200\nv -200 60 200\n"
+               "f 5 6 7 8\nf 2 1 4 3\nf 6 2 3 7\nf 1 5 8 4\nf 8 7 3 4\nf 1 2 6 5\n");
+    file.close();
+    auto* bar = w.window.statusBar()->findChild<QProgressBar*>("bodyProgress");
+    REQUIRE(bar != nullptr);
+    EXPECT(!bar->isVisible(), "no bar while there is nothing to wait for");
+    REQUIRE(w.window.loadAvatar(path));
+    w.window.tick();
+    REQUIRE(!w.window.session().bodyReady());
+    EXPECT((bar->isVisible() && bar->value() >= 0 && bar->value() <= 100 && bar->text().startsWith("Preparing the avatar")),
+           "a bar in the status line shows how far it is");
+
+    w.window.shelf()->simulate()->setChecked(true);
+    w.window.tick();
+    EXPECT((w.window.shelf()->simulate()->isChecked() && w.window.session().simulating()), "Play stays down");
+    EXPECT(!w.window.session().clothShown(), "the cloth waits");
+    EXPECT((w.window.helpLine().contains("avatar") && !w.window.helpLine().startsWith("Playing")), "and the help line says what for");
+    w.waitForTheBody();
+    EXPECT(!bar->isVisible(), "ready: the bar goes");
+    for (int i = 0; i < 10; ++i) w.window.tick();
+    EXPECT((w.window.session().clothShown() && w.window.session().cloth().time > 0.0), "then it plays, with no second press");
+    EXPECT(w.window.helpLine().startsWith("Playing"), "and says so");
+
+    // Pressed again while the next is worked out, and let go: nothing starts.
+    w.window.shelf()->undo()->trigger();
+    w.waitForTheBody();
+    w.window.shelf()->redo()->trigger();
+    w.window.tick();
+    REQUIRE(!w.window.session().bodyReady());
+    w.window.shelf()->simulate()->setChecked(true);
+    w.window.tick();
+    w.window.shelf()->simulate()->setChecked(false);
+    w.waitForTheBody();
+    w.window.tick();
+    EXPECT((!w.window.session().simulating() && !w.window.helpLine().startsWith("Playing")), "taken back, it stays back");
+}
+
 TEST_CASE("the file holds the avatar: it opens on its body wherever it is, with the OBJ file gone", "[qt]")
 {
     Window w;
@@ -3393,6 +3444,314 @@ TEST_CASE("the file holds the avatar: it opens on its body wherever it is, with 
     REQUIRE(save(old, older.toStdString()).empty());
     REQUIRE(w.window.openFile(older));
     EXPECT((w.doc().avatar() == shown && !w.window.isWindowModified()), "so does a file that names none, and it opens saved");
+}
+
+// ---- Choosing how an avatar's file is read ----
+
+namespace {
+
+// A box in metres, off the middle and off the floor, as an OBJ file in `folder`:
+// 0.5 wide, 1.75 high, 0.3 deep.
+QString metresFile(const QTemporaryDir& folder) {
+    const QString path = folder.filePath("metres.obj");
+    QFile file(path);
+    REQUIRE(file.open(QIODevice::WriteOnly));
+    file.write("v 1 -0.5 2\nv 1.5 -0.5 2\nv 1.5 1.25 2\nv 1 1.25 2\nv 1 -0.5 2.3\nv 1.5 -0.5 2.3\nv 1.5 1.25 2.3\nv 1 1.25 2.3\n"
+               "f 5 6 7 8\nf 2 1 4 3\nf 6 2 3 7\nf 1 5 8 4\nf 8 7 3 4\nf 1 2 6 5\n");
+    return path;
+}
+
+// The dialog that is open after choosing a file, and its parts.
+struct Choosing {
+    AvatarDialog* dialog;
+    ValueField *scale, *height;
+    QComboBox *unit, *up, *facing;
+    QPushButton *ok, *cancel;
+    explicit Choosing(Window& w) {
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);  // one that was closed is gone
+        dialog = w.window.findChild<AvatarDialog*>("avatarImport");
+        REQUIRE(dialog != nullptr);
+        REQUIRE(dialog->isVisible());
+        scale = dialog->findChild<ValueField*>("avatarScale");
+        height = dialog->findChild<ValueField*>("avatarHeight");
+        unit = dialog->findChild<QComboBox*>("avatarUnit");
+        up = dialog->findChild<QComboBox*>("avatarUp");
+        facing = dialog->findChild<QComboBox*>("avatarFacing");
+        auto* buttons = dialog->findChild<QDialogButtonBox*>();
+        REQUIRE((scale && height && unit && up && facing && buttons));
+        ok = buttons->button(QDialogButtonBox::Ok);
+        cancel = buttons->button(QDialogButtonBox::Cancel);
+    }
+    // As a person picks from a list.
+    static void pick(QComboBox* list, const QString& text) {
+        const int at = list->findText(text);
+        REQUIRE(at >= 0);
+        list->setCurrentIndex(at);
+    }
+    QStringList facings() const {
+        QStringList all;
+        for (int i = 0; i < facing->count(); ++i) all << facing->itemText(i);
+        return all;
+    }
+};
+
+// How high and how low points reach, in cm.
+template <class Points>
+std::pair<double, double> reachOf(const Points& points) {
+    double low = 1e30, high = -1e30;
+    for (const auto& p : points) low = std::min<double>(low, p.y), high = std::max<double>(high, p.y);
+    return {low, high};
+}
+std::pair<double, double> reach(const Document& doc) {
+    REQUIRE(doc.avatar());
+    return reachOf(doc.avatar()->points);
+}
+// The body the 3D view is given to draw.
+std::pair<double, double> shown(Window& w) { return reachOf(w.window.session().shownBody().points); }
+
+} // namespace
+
+TEST_CASE("choosing an avatar's file shows it in 3D beside a dialog with a guess; Cancel changes nothing, OK is one undo step", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-import-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString file = metresFile(folder);
+    const std::shared_ptr<const Avatar> before = w.doc().avatar();
+    const double was = shown(w).second;
+    w.window.shelf()->simulate()->setChecked(true);
+
+    w.window.chooseAvatar(file);
+    {
+        const Choosing choosing(w);
+        EXPECT((choosing.unit->currentText() == "m" && choosing.scale->text() == "100 %" && choosing.height->text() == "175 cm"),
+               "1.75 high: metres, as it is, a body of 175 cm");
+        EXPECT((choosing.up->currentText() == "Y" && choosing.facing->currentText() == "Z"), "y up, facing +z");
+        EXPECT((w.window.session().previewingBody() && w.window.session().shownBody().points.size() == 8), "the file's body is shown in 3D");
+        EXPECT_NEAR(shown(w).first, 0.0, "standing on the floor");
+        EXPECT_NEAR(shown(w).second, 175.0, "as tall as it would be");
+        EXPECT((w.doc().avatar() == before && !w.window.isWindowModified()), "and nothing is put on while it is chosen");
+        EXPECT(!w.window.shelf()->simulate()->isChecked(), "the cloth waits");
+        choosing.cancel->click();
+    }
+    EXPECT((!w.window.session().previewingBody() && shown(w).second == was), "cancelled: the avatar is shown again");
+    EXPECT((w.doc().avatar() == before && !w.window.isWindowModified() && !w.window.shelf()->undo()->isEnabled()), "nothing at all");
+    EXPECT(w.window.shelf()->simulate()->isChecked(), "and the cloth plays on");
+
+    w.window.chooseAvatar(file);
+    Choosing(w).ok->click();
+    w.waitForTheBody();
+    EXPECT((w.window.outliner()->bodyShown() == "metres.obj" && w.window.isWindowModified()), "put on");
+    EXPECT((!w.window.session().previewingBody() && w.window.session().bodySurface().points.size() == 8), "it is the body");
+    EXPECT(!w.window.shelf()->simulate()->isChecked(), "on another body the cloth starts again");
+    EXPECT_NEAR(reach(w.doc()).first, 0.0, "standing on the floor");
+    EXPECT_NEAR(reach(w.doc()).second, 175.0, "175 cm tall");
+    EXPECT((w.doc().avatar()->readAs.unit == 100.0 && w.doc().avatar()->readAs.moved != Point3{}), "and how its file was read is kept");
+    double middle = 0.0;
+    for (const Point3& p : w.doc().avatar()->points) middle += p.x;
+    EXPECT_NEAR(middle, 0.0, "in the middle");
+
+    w.window.shelf()->undo()->trigger();
+    w.waitForTheBody();
+    EXPECT((w.doc().avatar() == before && !w.window.shelf()->undo()->isEnabled()), "one step back, and there was no other");
+}
+
+TEST_CASE("in the avatar dialog the unit is how the file is read; a scale or a height resizes the body and leaves the unit", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-scale-XXXXXX");
+    REQUIRE(folder.isValid());
+    const std::shared_ptr<const Avatar> before = w.doc().avatar();
+    w.window.chooseAvatar(metresFile(folder));
+    const Choosing choosing(w);
+
+    type(choosing.height, "180");
+    EXPECT((choosing.height->text() == "180 cm" && choosing.scale->text() == "102.9 %" && choosing.unit->currentText() == "m"),
+           "a height typed: the scale follows, the unit stays");
+    EXPECT_NEAR(shown(w).second, 180.0, "and the 3D view with it");
+    type(choosing.scale, "200");
+    EXPECT((choosing.height->text() == "350 cm" && choosing.scale->text() == "200 %" && choosing.unit->currentText() == "m"), "a scale typed");
+    EXPECT_NEAR(shown(w).second, 350.0, "shown");
+    type(choosing.scale, "100 %");
+    Choosing::pick(choosing.unit, "cm");
+    EXPECT((choosing.scale->text() == "100 %" && choosing.height->text() == "1.75 cm"), "another unit: the file read in it");
+    EXPECT((!choosing.height->refused() && !choosing.scale->refused()), "a small body is a body all the same");
+    EXPECT_NEAR(shown(w).second, 1.75, "shown as small as that");
+    Choosing::pick(choosing.unit, "inch");
+    EXPECT(choosing.height->text() == "4.45 cm", "inches");
+    Choosing::pick(choosing.unit, "mm");
+    type(choosing.height, "175 cm");
+    EXPECT((choosing.unit->currentText() == "mm" && choosing.scale->text() == "100000 %"), "whatever the unit, the height can be typed");
+    Choosing::pick(choosing.unit, "m");
+    type(choosing.scale, "100");
+
+    for (ValueField* field : {choosing.height, choosing.scale}) {
+        for (const char* wrong : {"tall", "-3", "0", "1000000000000"}) {
+            type(field, wrong);
+            EXPECT(field->refused(), std::string("refused: ") + wrong);
+            choosing.ok->click();
+            EXPECT((choosing.dialog->isVisible() && w.doc().avatar() == before), "and OK waits");
+        }
+        EXPECT_NEAR(shown(w).second, 175.0, "what is shown stays");
+        type(field, field == choosing.height ? "168 cm" : "100 %");
+        EXPECT(!field->refused(), "until a number is typed");
+        type(choosing.scale, "100 %");
+        type(choosing.height, "175 cm");
+    }
+
+    EXPECT((choosing.facings() == QStringList{"Z", "X", "-Z", "-X"}), "with y up, a body faces along the floor");
+    Choosing::pick(choosing.up, "Z");
+    EXPECT((choosing.facings() == QStringList{"Y", "X", "-Y", "-X"}), "with z up, too");
+    EXPECT(choosing.facing->currentText() == "-Y", "facing as such files usually do");
+    EXPECT(choosing.height->text() == "30 cm", "the scale stays, so the height is the other side's");
+    EXPECT_NEAR(shown(w).second, 30.0, "shown lying down");
+    type(choosing.height, "170");
+    Choosing::pick(choosing.facing, "X");
+    choosing.ok->click();
+    w.waitForTheBody();
+    REQUIRE(w.doc().avatar());
+    const AvatarImport& read = w.doc().avatar()->readAs;
+    EXPECT((read.up == Axis::Z && read.facing == Axis::X && read.unit == 100.0), "the axes and the unit as chosen");
+    EXPECT_NEAR(read.rescale, 170.0 / 30.0, "the scale that makes it 170 cm");
+    EXPECT_NEAR(reach(w.doc()).first, 0.0, "on the floor");
+    EXPECT_NEAR(reach(w.doc()).second, 170.0, "that tall");
+}
+
+TEST_CASE("while an avatar is chosen only the dialog and the 3D camera take the hand; closing it gives the window back", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-held-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString file = metresFile(folder);
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    w.window.shelf()->layout(ViewLayout::TableOnly)->trigger();
+    const std::string pattern = toText(w.doc());
+    auto* open = w.window.findChild<QAction*>("fileNew");
+    REQUIRE(open != nullptr);
+
+    w.window.chooseAvatar(file);
+    EXPECT(w.window.viewLayout() == ViewLayout::SideBySide, "the 3D view is brought up: the body is seen there");
+    EXPECT((!w.window.table()->isEnabled() && !w.window.menuBar()->isEnabled() && !w.window.outliner()->isEnabled() &&
+            !w.window.parameters()->isEnabled() && !w.window.attributes()->isEnabled()),
+           "the table, the menus and the docks wait");
+    EXPECT((!open->isEnabled() && !w.window.shelf()->simulate()->isEnabled() && !w.window.shelf()->action(Tool::Move)->isEnabled()), "and so do their keys");
+    EXPECT(w.window.space()->isEnabled(), "the 3D view does not");
+    EXPECT(!w.window.space()->gizmo(), "with nothing to take hold of");
+    w.window.tick();
+    EXPECT(!w.window.shelf()->undo()->isEnabled(), "a frame changes nothing of that");
+    // What the 3D view reports meanwhile is not acted on.
+    emit w.window.space()->panelClicked(std::nullopt);
+    emit w.window.space()->gestured(session::MoveInSpace{front, {10, 0, 0}, session::DragPhase::Begin});
+    for (const Qt::Key key : {Qt::Key_Delete, Qt::Key_Space, Qt::Key_W}) emit w.window.space()->keyed(QKeyCombination(key));
+    EXPECT((toText(w.doc()) == pattern && w.window.selected() == front && !w.window.shelf()->simulate()->isChecked()), "the pattern and the choice stay");
+
+    emit w.window.space()->keyed(QKeyCombination(Qt::Key_Escape));
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    EXPECT((!w.window.findChild<AvatarDialog*>("avatarImport") && !w.window.session().previewingBody()), "Escape in the 3D view cancels");
+    EXPECT((w.window.table()->isEnabled() && w.window.menuBar()->isEnabled() && w.window.outliner()->isEnabled() &&
+            w.window.parameters()->isEnabled() && open->isEnabled() && w.window.shelf()->simulate()->isEnabled()),
+           "and the window is given back");
+    EXPECT(!w.window.shelf()->undo()->isEnabled(), "as it was: nothing to undo");
+    EXPECT(w.window.viewLayout() == ViewLayout::TableOnly, "in the layout it had");
+
+    // Choosing another file, or another document, ends the choosing first.
+    w.window.chooseAvatar(file);
+    w.window.chooseAvatar(file);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    EXPECT(w.window.findChildren<AvatarDialog*>().size() == 1, "one dialog at a time");
+    w.window.openSample(0);
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    EXPECT((!w.window.findChild<AvatarDialog*>("avatarImport") && !w.window.session().previewingBody() && open->isEnabled() &&
+            w.window.table()->isEnabled()),
+           "another document: no dialog, no preview, and the window is usable");
+    w.window.chooseAvatar(file);
+    EXPECT((w.window.close() && !w.window.session().previewingBody()), "and it closes");
+}
+
+TEST_CASE("each file dialog starts in the folder of the last file of its kind, also the next time the program runs", "[qt]")
+{
+    application();  // the folders below are beside the program
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-folder-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString settings = folder.filePath("settings.ini");
+    for (const char* name : {"patterns", "bodies", "exports"}) REQUIRE(QDir(folder.path()).mkdir(name));
+    const auto sub = [&](const char* name) { return QDir(folder.filePath(name)).canonicalPath(); };
+    const QString patterns = sub("patterns"), bodies = sub("bodies"), exports = sub("exports");
+    const QString cube = bodies + "/cube.obj";
+    REQUIRE(QFile::copy(cubeFile(folder), cube));
+    const QString assets = QDir(QCoreApplication::applicationDirPath() + "/assets").canonicalPath();
+    // Opens a menu item's file dialog and returns the folder it starts in and the name it offers, choosing nothing.
+    struct Start {
+        QString folder, name;
+    };
+    const auto startOf = [](Window& w, const char* menuItem) {
+        Start start;
+        QTimer look;
+        QObject::connect(&look, &QTimer::timeout, [&] {
+            if (auto* files = qobject_cast<QFileDialog*>(QApplication::activeModalWidget())) {
+                start.folder = files->directory().canonicalPath();
+                if (!files->selectedFiles().isEmpty()) start.name = QFileInfo(files->selectedFiles().front()).fileName();
+                files->reject();
+            }
+        });
+        look.start(0);
+        choose(w, menuItem);
+        return start;
+    };
+    {
+        Window w;
+        w.window.keepSettingsIn(settings);
+        EXPECT(startOf(w, "bodyAvatar").folder == assets, "at first, where the program's avatars are");
+
+        w.window.chooseAvatar(cube);
+        Choosing(w).cancel->click();
+        EXPECT(startOf(w, "bodyAvatar").folder == bodies, "then where the last avatar was chosen, also if it was not put on");
+        w.window.chooseAvatar("no/such/folder/avatar.obj");
+        EXPECT(startOf(w, "bodyAvatar").folder == bodies, "a folder that is not there is not kept");
+
+        REQUIRE(w.window.saveAs(patterns + "/shirt.clothcad"));
+        EXPECT(startOf(w, "fileOpen").folder == patterns, "Open starts where the pattern was saved");
+        const Start again = startOf(w, "fileSaveAs");
+        EXPECT((again.folder == patterns && again.name == "shirt.clothcad"), "and so does Save as, with the pattern's name");
+        const Start beside = startOf(w, "fileExportObj");
+        EXPECT((beside.folder == patterns && beside.name == "shirt.obj"), "a first export is offered beside the pattern");
+        REQUIRE(w.window.exportObj(exports + "/shirt.obj"));
+        EXPECT(startOf(w, "fileExportObj").folder == exports, "then where the last one went");
+        EXPECT((startOf(w, "fileOpen").folder == patterns && startOf(w, "bodyAvatar").folder == bodies), "each kind its own");
+    }
+    {
+        Window w;
+        w.window.keepSettingsIn(settings);
+        EXPECT((startOf(w, "fileOpen").folder == patterns && startOf(w, "fileExportObj").folder == exports && startOf(w, "bodyAvatar").folder == bodies),
+               "the next run starts there too");
+        // A new pattern's first Save is offered in the patterns' folder.
+        choose(w, "fileNew");
+        const Start first = startOf(w, "fileSave");
+        EXPECT((first.folder == patterns && first.name == "untitled.clothcad"), "with its name");
+        REQUIRE(w.window.openFile(patterns + "/shirt.clothcad"));
+        EXPECT(startOf(w, "fileOpen").folder == patterns, "opening keeps it");
+    }
+    {
+        Window w;
+        EXPECT(startOf(w, "bodyAvatar").folder == assets, "a window that keeps no settings reads none");
+        w.window.chooseAvatar(cube);
+        Choosing(w).cancel->click();
+        EXPECT(startOf(w, "bodyAvatar").folder == bodies, "and remembers for as long as it runs");
+    }
+    REQUIRE(QDir(bodies).removeRecursively());
+    Window w;
+    w.window.keepSettingsIn(settings);
+    EXPECT(startOf(w, "bodyAvatar").folder == assets, "a folder that has gone since is not offered");
+}
+
+TEST_CASE("an avatar file that cannot be read opens no dialog and says why", "[qt]")
+{
+    Window w;
+    const std::shared_ptr<const Avatar> before = w.doc().avatar();
+    w.window.chooseAvatar("no/such/avatar.obj");
+    EXPECT((!w.window.findChild<AvatarDialog*>("avatarImport") && !w.window.helpLine().isEmpty()), "no dialog, and why");
+    EXPECT((w.doc().avatar() == before && !w.window.isWindowModified()), "and the body stays");
 }
 
 TEST_CASE("the '*' follows what the file holds: looking leaves it saved; the body's looks, hiding, freezing and the cloth do not", "[qt]")

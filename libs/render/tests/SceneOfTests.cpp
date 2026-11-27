@@ -1,8 +1,10 @@
 // Unit tests of SceneOf.cpp: what of a session the 3D view shows.
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <numbers>
+#include <thread>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -51,7 +53,8 @@ TEST_CASE("the scene has the body, every panel and the floor")
     OrbitCamera camera;
     const Scene scene = sceneOf(session, camera, 1.5, {.selected = start.front});
     REQUIRE(scene.surfaces.size() == 3);
-    EXPECT((!scene.surfaces[0].triangles.empty() && scene.surfaces[0].triangles.size() == session.bodySurface().triangles.size() * 3), "the body first, whole");
+    EXPECT((!scene.surfaces[0].shownTriangles().empty() && scene.surfaces[0].shownTriangles().size() == session.bodySurface().triangles.size() * 3),
+           "the body first, whole");
     const Surface& front = scene.surfaces[1];
     EXPECT((front.colour.red == 1.0f && front.colour.blue < 0.5f), "the selected panel is amber");
     EXPECT((scene.surfaces[2].colour.blue > scene.surfaces[2].colour.green), "an instance is violet");
@@ -62,6 +65,65 @@ TEST_CASE("the scene has the body, every panel and the floor")
 
     const Scene bare = sceneOf(session, camera, 1.5, {.body = false, .mesh = true});
     EXPECT((bare.surfaces.size() == 2 && bare.lines.size() == 3), "without the body, and with the mesh's sides as lines");
+}
+
+TEST_CASE("a body being chosen is drawn in the avatar's place, also when that is hidden, and is framed")
+{
+    TwoPanels start;
+    session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    putOn(session, figure());
+    session.update();
+    OrbitCamera camera;
+    const sim::Surface tall{.points = {{0, 0, 0}, {10, 0, 0}, {0, 400, 0}}, .triangles = {{0, 1, 2}}};
+    session.previewBody(std::make_shared<const sim::Surface>(tall));
+    for (const bool body : {true, false}) {
+        const Scene scene = sceneOf(session, camera, 1.5, {.body = body});
+        REQUIRE(scene.surfaces.size() == 3);
+        EXPECT((scene.surfaces[0].shownPoints().size() == 3 && scene.surfaces[0].shownPoints()[2].y == 400.0f && !scene.surfaces[0].panel),
+               "the one being chosen, whether the avatar's is shown or hidden");
+    }
+    const auto box = extentOf(session);
+    REQUIRE(box);
+    EXPECT_NEAR(box->second.y, 400.0, "framing takes it in");
+    session.previewBody(nullptr);
+    EXPECT(sceneOf(session, camera, 1.5, {.body = false}).surfaces.size() == 2, "then the avatar's is hidden again");
+}
+
+TEST_CASE("a view that keeps the body's shape has it made once, until the body is another")
+{
+    TwoPanels start;
+    session::Session session(start.doc, session::Threading::OneStepPerAdvance);
+    putOn(session, figure());
+    for (int i = 0; i < 500 && !session.bodyReady(); ++i) {
+        session.update();
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    REQUIRE(session.bodyReady());
+    OrbitCamera camera;
+    BodyShape kept;
+    const Scene first = sceneOf(session, camera, 1.5, {}, &kept);
+    REQUIRE((first.surfaces.size() == 3 && first.surfaces[0].shape));
+    const std::shared_ptr<const Shape> shape = first.surfaces[0].shape;
+    EXPECT((first.surfaces[0].points.empty() && first.surfaces[0].shownPoints().size() == session.bodySurface().points.size()), "the body is a shape");
+    EXPECT((shape->normals.size() == shape->points.size() && !first.surfaces[1].shape), "with its normals; cloth is not one");
+
+    session.simulate(true);
+    for (int i = 0; i < 5; ++i) session.update();
+    const Scene moved = sceneOf(session, camera, 1.5, {.seeThroughBody = true}, &kept);
+    EXPECT(moved.surfaces[0].shape == shape, "the cloth has moved, however it is looked at: the same shape");
+    const auto framed = extentOf(session, &kept), plain = extentOf(session);
+    REQUIRE((framed && plain));
+    EXPECT((sim::length(framed->first - plain->first) == 0.0 && sim::length(framed->second - plain->second) == 0.0), "and framed as without it");
+    EXPECT(sceneOf(session, camera, 1.5, {.body = false}, &kept).surfaces.size() == 2, "hidden, it is not shown");
+
+    const sim::Surface tall{.points = {{0, 0, 0}, {10, 0, 0}, {0, 400, 0}}, .triangles = {{0, 1, 2}}};
+    session.previewBody(std::make_shared<const sim::Surface>(tall));
+    const Scene choosing = sceneOf(session, camera, 1.5, {}, &kept);
+    EXPECT((choosing.surfaces[0].shape != shape && choosing.surfaces[0].shownPoints().size() == 3), "another body, another shape");
+    EXPECT_NEAR(extentOf(session, &kept)->second.y, 400.0, "framed with it");
+    session.previewBody(nullptr);
+    EXPECT_NEAR(extentOf(session, &kept)->second.y, extentOf(session)->second.y, "a shape of another body is not taken for the one shown");
+    EXPECT(sceneOf(session, camera, 1.5, {}, &kept).surfaces[0].shownPoints().size() == session.bodySurface().points.size(), "and the avatar's is made again");
 }
 
 TEST_CASE("a see-through body lets light through, its nearest side alone; the cloth stays solid")
@@ -77,7 +139,7 @@ TEST_CASE("a see-through body lets light through, its nearest side alone; the cl
     EXPECT((solid.surfaces[0].colour.alpha == 1.0f && !solid.surfaces[0].nearestOnly), "the body is solid unless asked");
     const Surface& body = through.surfaces[0];
     EXPECT((body.colour.alpha > 0.2f && body.colour.alpha < 0.5f && body.nearestOnly), "see-through, and one sheet of it");
-    EXPECT((body.colour.red == solid.surfaces[0].colour.red && body.triangles == solid.surfaces[0].triangles), "the same body otherwise");
+    EXPECT((body.colour.red == solid.surfaces[0].colour.red && body.shownTriangles() == solid.surfaces[0].shownTriangles()), "the same body otherwise");
     EXPECT((through.surfaces[1].colour.alpha == 1.0f && through.surfaces[2].colour.alpha == 1.0f), "the panels are not");
 }
 

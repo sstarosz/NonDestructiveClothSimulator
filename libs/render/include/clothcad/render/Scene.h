@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -33,6 +34,18 @@ struct Matrix {
     float at(int row, int column) const { return values[static_cast<std::size_t>(column * 4 + row)]; }
 };
 
+// Geometry that stays as it was made, such as a body's: made once and shared by
+// every scene that shows it. The renderer hands it to the graphics card once,
+// not with every picture, and keeps it there while anything holds the shape.
+//
+//   auto shape = std::make_shared<const render::Shape>(render::Shape{.points = ..., .normals = ..., .triangles = ...});
+//   scene.surfaces.push_back({.colour = grey, .shape = shape});
+struct Shape {
+    std::vector<Point> points;
+    std::vector<Point> normals;            // one per point
+    std::vector<std::uint32_t> triangles;  // three points each
+};
+
 // Triangles lit from the light's side and from behind alike: cloth has two sides.
 // The front of a surface is the side its triangles run counter-clockwise on.
 // One whose colour lets light through (alpha below 1) is drawn after the
@@ -50,6 +63,12 @@ struct Surface {
     bool lit = true;                         // false: drawn in its colour alone, without light and shade (the gizmo)
     std::optional<Colour> back{};            // its colour seen from behind; none: the same as from the front
     bool nearestOnly = false;                // of one that lets light through: only its nearest side is blended in
+    std::shared_ptr<const Shape> shape{};    // its geometry, in place of the three lists above, which are then empty
+
+    // The geometry that is drawn and picked, wherever it is held.
+    const std::vector<Point>& shownPoints() const { return shape ? shape->points : points; }
+    const std::vector<Point>& shownNormals() const { return shape ? shape->normals : normals; }
+    const std::vector<std::uint32_t>& shownTriangles() const { return shape ? shape->triangles : triangles; }
 };
 
 // Straight lines, blended by their alpha.

@@ -6,7 +6,10 @@ read it back	0.0431576
 mesh the skirt at 2 cm (2,800 particles)	1.06658
 mesh the skirt at 1 cm (10,600 particles)	6.32027
 arrange its particles in space	0.0084305
-prepare a 19,600-triangle body to collide with	63.3436
+prepare a 19,600-triangle body to collide with	4.10605
+read a body's OBJ text, 396,000 triangles	4.21955
+guess its unit and stand it on the floor	0.776249
+prepare that body to collide with	49.4231
 cloth step, 2,800 particles, no body	1.10786
 cloth step, 2,800 particles, scanned body	1.18861
 cloth step, cloth passing through cloth	0.870552

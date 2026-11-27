@@ -119,6 +119,7 @@ private:
 
     render::OrbitCamera camera_;
     render::Scene scene_;  // without its camera, which is put in when it is drawn
+    render::BodyShape body_;  // made once for a body, however often the scene is
     std::optional<std::pair<sim::Vec3, sim::Vec3>> extent_;
     std::optional<PanelId> selected_;          // the panel the gizmo moves
     // What a drag on cloth does depends on these (session::clothDrag).

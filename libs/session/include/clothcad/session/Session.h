@@ -36,6 +36,7 @@ namespace clothcad::session {
 class Session {
 public:
     explicit Session(Document document = {}, Threading threading = Threading::OwnThread);
+    ~Session();  // a body still being worked out is given up
 
     Editor& editor() { return editor_; }
     const Editor& editor() const { return editor_; }
@@ -76,13 +77,26 @@ public:
     // with and the cloth falls to the floor. Another body ends the cloth; undo
     // and redo bring back the drape that hung on the body they come back to.
     bool bodyReady() const { return !preparing_.valid() && bodyOf_ == document().avatar(); }
-    const sim::Surface& bodySurface() const { return bodySurface_; }
+    // How far working out the body has got, from 0 to 1; empty while none is
+    // being worked out. Another avatar gives the work up at once and starts
+    // again: nothing waits for a body that is no longer wanted.
+    std::optional<double> bodyProgress() const;
+    const sim::Surface& bodySurface() const { return *bodySurface_; }
     // Whether the cloth meets the body. A hidden body is out of the simulation.
     void setBodyPresent(bool present);
     bool bodyPresent() const { return bodyPresent_; }
     // Drawn so that cloth inside it shows; the simulation is the same.
     void setBodySeeThrough(bool seeThrough);
     bool bodySeeThrough() const { return bodySeeThrough_; }
+    // A body shown in place of the avatar's while another is being chosen. It is
+    // only drawn: the document, the cloth and what it collides with stay as they
+    // are. Null: the avatar's own again. Opening a document ends it.
+    void previewBody(std::shared_ptr<const sim::Surface> body);
+    bool previewingBody() const { return preview_ != nullptr; }
+    // What to draw as the body: the one being chosen, else bodySurface(). As a
+    // snapshot, which a view may keep: another body is another one.
+    const std::shared_ptr<const sim::Surface>& sharedBody() const { return preview_ ? preview_ : bodySurface_; }
+    const sim::Surface& shownBody() const { return *sharedBody(); }
 
     // ---- Panels hidden and deactivated, seams hidden ----
     // None of this changes the document, is an undo step or starts a drape
@@ -104,7 +118,8 @@ public:
 
     // ---- The cloth in motion ----
     // Lets the cloth fall, or holds it where it is. It starts the first time,
-    // from where the panels are arranged, once the body is ready.
+    // from where the panels are arranged. While a body is being worked out the
+    // cloth waits, and what was asked is kept: it runs once the body is ready.
     void simulate(bool on) { simulating_ = on; }
     bool simulating() const { return simulating_; }
     // Back to the arrangement; the cloth is gone until it is simulated again.
@@ -192,8 +207,10 @@ private:
     std::shared_ptr<const Avatar> bodyOf_;  // the avatar the body is of
     bool bodyReplaced_ = false;             // another body came since the state of the history last looked at
     sim::Body body_;
-    sim::Surface bodySurface_;
+    std::shared_ptr<const sim::Surface> bodySurface_ = std::make_shared<const sim::Surface>();
+    std::shared_ptr<const sim::Surface> preview_;  // shown instead of it
     std::future<sim::Body> preparing_;
+    std::shared_ptr<sim::Progress> progress_;  // of the body being worked out; the work holds it too
     bool bodyPresent_ = true;
     bool bodySeeThrough_ = false;
     struct BodyInUse {
