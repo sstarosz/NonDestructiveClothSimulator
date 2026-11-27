@@ -28,6 +28,7 @@
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTreeWidgetItemIterator>
 #include <QScrollBar>
 #include <QToolBar>
 #include <QToolButton>
@@ -4480,6 +4481,17 @@ std::size_t trianglesOf(const sim::ClothMesh& mesh, const std::string& without =
 
 namespace {
 
+// A key pressed on a widget, as Qt delivers it.
+void pressKey(QWidget* widget, int key, const QString& text = {}) {
+    QKeyEvent pressed(QEvent::KeyPress, key, Qt::NoModifier, text);
+    QApplication::sendEvent(widget, &pressed);
+}
+
+// Typed letter by letter over what is selected.
+void typeKeys(QWidget* widget, const QString& text) {
+    for (const QChar letter : text) pressKey(widget, 0, QString(letter));
+}
+
 // The wheel turned one notch towards the user with the pointer over a widget, as
 // when a dock is scrolled down. It goes in where the system's events do: only
 // such a one does Qt hand on from a widget that does not take it, and give the
@@ -4619,6 +4631,80 @@ TEST_CASE("no card of the Attribute Editor is wider than the dock; what a length
             EXPECT((list->view()->minimumWidth() >= list->view()->sizeHintForColumn(0)), "opened, the list shows its entries whole");
     }
     EXPECT((setLengths >= 4), "the trousers' set lengths were among them");
+}
+
+TEST_CASE("Enter in a parameter's name renames it and leaves the box; Escape keeps the old name and leaves it", "[qt]")
+{
+    Window w;
+    w.window.activateWindow();  // as on a desktop: only there can a part of it have the focus
+    QApplication::processEvents();
+    REQUIRE(w.window.isActiveWindow());
+    const Param chest = w.parameter("chest");
+    QLineEdit* name = w.window.parameters()->nameField(chest);
+    REQUIRE(name != nullptr);
+    const auto begin = [&](const QString& typed) {
+        name->setFocus(Qt::MouseFocusReason);
+        name->selectAll();
+        typeKeys(name, typed);
+        REQUIRE((name->hasFocus() && name->text() == typed));
+    };
+
+    begin("bust");
+    pressKey(name, Qt::Key_Return);
+    w.window.tick();
+    EXPECT((w.doc().get(chest).name == "bust"), "Enter renames");
+    EXPECT((!name->hasFocus() && name->text() == "bust"), "and leaves the box");
+
+    begin("waist2");
+    pressKey(name, Qt::Key_Escape);
+    w.window.tick();
+    EXPECT((w.doc().get(chest).name == "bust" && name->text() == "bust"), "Escape keeps the old name");
+    EXPECT((!name->hasFocus()), "and leaves the box too");
+
+    begin("2 wrong");
+    pressKey(name, Qt::Key_Enter);
+    w.window.tick();
+    EXPECT((w.doc().get(chest).name == "bust" && name->text() == "bust" && !name->hasFocus()), "a name that is refused leaves the old one, and the box");
+    EXPECT((w.window.helpLine().contains("letters")), "with why");
+}
+
+TEST_CASE("Enter in the Outliner's rename box renames and closes it; Escape closes it with the old name", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    Outliner& outliner = *w.window.outliner();
+    const auto begin = [&](const QString& typed) {
+        QTreeWidgetItem* row = nullptr;
+        for (QTreeWidgetItemIterator at(&outliner); *at; ++at)
+            if ((*at)->text(0) == QString::fromStdString(w.doc().get(front).name)) row = *at;
+        REQUIRE(row != nullptr);
+        outliner.setCurrentItem(row);
+        w.window.tick();
+        emit outliner.itemDoubleClicked(outliner.currentItem(), 0);  // what a double click on the name does
+        auto* box = outliner.viewport()->findChild<QLineEdit*>();
+        REQUIRE(box != nullptr);
+        box->selectAll();
+        typeKeys(box, typed);
+        return QPointer<QLineEdit>(box);
+    };
+    const auto settle = [&] {
+        for (int i = 0; i < 3; ++i) {
+            QApplication::processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
+        w.window.tick();
+    };
+
+    QPointer<QLineEdit> box = begin("bodice");
+    pressKey(box, Qt::Key_Return);
+    settle();
+    EXPECT((w.doc().get(front).name == "bodice"), "Enter renames");
+    EXPECT((box.isNull()), "and the box is gone");
+
+    box = begin("skirt");
+    pressKey(box, Qt::Key_Escape);
+    settle();
+    EXPECT((w.doc().get(front).name == "bodice" && box.isNull()), "Escape keeps the old name, and the box is gone");
 }
 
 TEST_CASE("File > Export OBJ writes the garment, says how many panels went where, and why when it cannot", "[qt]")

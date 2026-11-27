@@ -65,6 +65,10 @@ In pull requests, in this order:
   `clothcad.exe` at its top (#160). Left: the merged branches are removed
   (#159). The icon and the program's file properties wait for a new name, in
   0.2 (#161).
+- Done: three window fixes from my notes. The mouse wheel passes over a list
+  without changing it, until the list is clicked (#145); a Set length's card
+  fits the dock, naming the corners it keeps in few words (#144); Enter and
+  Escape in a parameter's name leave the box (#143).
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
   another PC (#82).
 - Last, the release's own pull request, when all of the above is done: the
@@ -146,6 +150,14 @@ first and may push steps out.
 | --- | --- | --- | --- |
 | 24 | A new name for the app, more memorable, with a brand to go with it; then its icon, and the name and version in the program's file properties. Files saved under the old name keep opening | M | #161 |
 
+### From my notes of 26 November
+
+| # | Step | Size | Issues |
+| --- | --- | --- | --- |
+| 25 | On the table: adding points is easy, a paste follows the pointer until a click, guides to snap to, instances easy to tell from the background; the shelf and the toolbox show what the pointer is over | M | #133, #138, #141, #142, #135 |
+| 26 | The cloth: back to the start of the simulation with the pattern kept; a change half made while the cloth runs does not pull it apart | M | #136, #137 |
+| 27 | In 3D: F frames the selection; choose the point the scale gizmo scales about | S | #140, #139 |
+
 ### Cleanups, done with the step that touches the same code
 
 - With step 14 (new fields): typed names for the fields (#19), plain
@@ -172,7 +184,8 @@ decided when 0.2 is out; their issues are in the milestone "0.x".
 | Internal lines with free points, several segments, curves | M | | Pleats, pockets |
 | Curves of several segments per edge | M | | Armholes and necklines need more than one cubic |
 | Mirror across an internal line | S | | Fold lines inside a panel |
-| Positions along an edge in cm, not only as a fraction | S | | "3 cm from the corner" stays 3 cm when the edge grows |
+| Positions along an edge in cm, not only as a fraction | S | #134 | "3 cm from the corner" stays 3 cm when the edge grows |
+| A circle stretched one way becomes an ellipse | M | #132 | A circle can only be scaled evenly |
 
 ### Fitting tools
 
