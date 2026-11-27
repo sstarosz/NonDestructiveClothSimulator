@@ -1,15 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(Twintailor VERSION 0.1.0 LANGUAGES CXX)
 
-# Dependencies come from vcpkg (see vcpkg.json and CMakePresets.json).
-#
-#   libs/core   the document, formulas, evaluation, files      standard library only
-#   libs/sim    meshing, bodies, the cloth solver              core, CDT
-#   libs/session  a document being edited and all worked out from it: undo, mesh, body, the cloth's thread
-#   libs/render   the 3D view's drawing with Vulkan (Vulkan-Hpp), when the Vulkan SDK is found
-#   apps/qt     the window (Qt 6 Widgets), when Qt 6 and the Vulkan SDK are found
-#   examples/   seven garments as small programs
-#   tests/      integration tests and benchmarks; unit tests live beside each library
+# Dependencies come from vcpkg (see vcpkg.json and CMakePresets.json). What
+# each folder holds and may use: docs/architecture.md.
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

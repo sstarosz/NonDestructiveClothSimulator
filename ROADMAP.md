@@ -264,9 +264,5 @@ Agreed on 16 November. In this order; each step is something to try.
 
 ## Things to keep true
 
-- The core has no dependencies and never draws.
-- Every change goes through a verb of the document; a document is a value.
-- Evaluation, meshing and simulation never throw; problems are reported
-  where they are.
-- Every feature arrives with a test that fails without it.
-- Nothing is worked out per frame that has not changed; the benchmarks guard it.
+The rules every step must keep are in
+[`docs/architecture.md`](docs/architecture.md) ("Rules that must stay true").

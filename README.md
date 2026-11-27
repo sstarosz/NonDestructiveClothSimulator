@@ -501,21 +501,12 @@ metre, so files in cm need Scale 0.01 to get their real size.
 
 ## How the code is laid out
 
-| Folder | What is in it | Depends on |
-| --- | --- | --- |
-| `libs/core/` | The document (parameters, panels, operations, seams), formulas, evaluation to 2D outlines, files | nothing |
-| `libs/sim/` | Meshing, arrangement in space, bodies (an avatar's file read in its unit and axes), the cloth solver, the garment as OBJ text | `core`, CDT |
-| `libs/session/` | A document being edited, with undo and redo, and everything worked out from it; the cloth on its own thread; what a gesture on the table or in 3D changes (`Drafting`), and the tool in use; the recovery copy of unsaved work (`Autosave`) | `core`, `sim` |
-| `libs/render/` | The 3D view's drawing with Vulkan, through Vulkan-Hpp: `Scene` (plain data), `OrbitCamera`, `Renderer` (into a picture or a window), `sceneOf` a session, `Picking` and the move, rotate and scale `Gizmo`s. Built when the Vulkan SDK is found | `session`, Vulkan headers |
-| `apps/qt/` | The window (`twintailor`), laid out as Maya is: shelf, dockable Outliner, Parameters, Attribute Editor (operations as layers), 3D view and table. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 |
-| `examples/` | Seven small garments as programs, the sixth a T-shirt body, the seventh trousers | `core` |
-| `tests/` | Integration tests and benchmarks; each library's unit tests are in its own `tests/` and read and write no files (bodies are made in memory); tests on the project's avatar are in `tests/integration/AvatarTests.cpp` | everything |
-
-The core never draws and the window never computes: `evaluate(doc)` turns a
-document into outlines, `sim::meshOf` turns outlines into triangles,
-`sim::Cloth` moves them, and `session::Session` keeps all of that in step
-with the document as it is edited. A window only shows what the session
-holds and hands it what the user did.
+Libraries in `libs/` (`core`, `sim`, `session`, `render`), the window in
+`apps/qt/`, seven garments in `examples/`, tests beside each library and in
+`tests/`. The core never draws and the window never computes. What each part
+holds, what it may use and the rules that must stay true are in
+[`docs/architecture.md`](docs/architecture.md); the choices behind them in
+[`docs/decisions/`](docs/decisions/README.md).
 
 ## Known limits of 0.1
 
