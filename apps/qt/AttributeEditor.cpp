@@ -589,6 +589,7 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                         }
                         if (current < 0) list->insertItem(0, used), current = 0;  // nothing chosen, or a panel removed
                         list->setCurrentIndex(current);
+                        takeWheelOnlyWithFocus(*list);
                         fitItsPlace(*list);
                         const ReferenceId id = reference.id;
                         connect(list, &QComboBox::activated, this, [this, op, id, list](int chosen) {
@@ -617,6 +618,7 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                     keep->setObjectName("keep");
                     keep->addItems({"left of the line", "right of the line"});
                     keep->setCurrentIndex(cut->keep == Cut::Side::Left ? 0 : 1);
+                    takeWheelOnlyWithFocus(*keep);
                     fitItsPlace(*keep);
                     connect(keep, &QComboBox::activated, this, [this, op](int chosen) { emit cutSideChosen(op, chosen == 0 ? Cut::Side::Left : Cut::Side::Right); });
                     grid->addWidget(keep, line++, 1);
@@ -645,6 +647,7 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
                     keeps->setItemData(1, startInFull + " stays", Qt::ToolTipRole);
                     keeps->setItemData(2, endInFull + " stays", Qt::ToolTipRole);
                     keeps->setCurrentIndex(static_cast<int>(set->keeping));
+                    takeWheelOnlyWithFocus(*keeps);
                     fitItsPlace(*keeps);
                     keeps->setToolTip("Which corner of the edge stays where it is while the edge gets its length. "
                                       "On a half panel mirrored across an edge, keep the corner on the mirror.");
