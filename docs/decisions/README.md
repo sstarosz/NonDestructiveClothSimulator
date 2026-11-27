@@ -55,3 +55,4 @@ Write "reason not recorded" rather than guessing one.
 | 0023 | [Two kinds of internal line stay two operations](0023-two-kinds-of-internal-line.md) | 27 November 2026 |
 | 0024 | [Housekeeping before the 0.1 tag; breaking changes after it](0024-housekeeping-before-the-tag.md) | 27 November 2026 |
 | 0025 | [The work happens in the views, not in forms](0025-viewport-driven-interface.md) | 14 November 2026 |
+| 0026 | [What wins when goals clash; the drape is the artist's work](0026-what-wins-and-whose-the-drape-is.md) | 27 November 2026 |

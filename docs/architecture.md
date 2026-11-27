@@ -2,7 +2,7 @@
 
 What each part of the code holds, what it may use, and the rules that must
 stay true. This is the one place these are written: `README.md`,
-`ROADMAP.md`, `CLAUDE.md` and `CMakeLists.txt` link here instead of
+`ROADMAP.md`, `CLAUDE.md` and `CMakeLists.txt` send readers here instead of
 repeating them. When a rule changes, it changes here, in the same pull
 request, with a decision record in [`decisions/`](decisions/README.md) if it
 is a new choice.
@@ -133,7 +133,8 @@ only ones other code may include), `src/` (sources and private headers) and
 
 ### Performance
 
-The budgets and the measured times are in `README.md` ("Performance").
+The budgets and the measured times are in
+[`benchmarks.md`](benchmarks.md).
 
 - **Never work something out every frame that has not changed.** `Session`
   makes the mesh again only when `Editor::shapesVersion()` moves, and a 3D

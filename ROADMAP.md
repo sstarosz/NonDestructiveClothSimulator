@@ -67,7 +67,7 @@ In pull requests, in this order:
   `twintailor.exe` at its top (#160). Left: the merged branches are removed
   (#159). The icon and the program's file properties are for 0.2 (#161).
 - Done: the program has its name, Twintailor, in the window, the files, the
-  release and the code. A formula's teal is now Hatsune Miku's. Files saved
+  release and the code. A formula's teal is now #39C5BB. Files saved
   under the earlier name, Cloth CAD, keep opening.
 - Done: three window fixes from my notes. The mouse wheel passes over a list
   without changing it, until the list is clicked (#145); a Set length's card
@@ -92,7 +92,7 @@ In pull requests, in this order:
 - The zip, unpacked on a Windows PC that never built the project, starts,
   opens every sample, and drapes the trousers on the shipped avatar and on
   another OBJ. The exported OBJ opens in Blender with its UVs.
-- README "Known limits" is read through once more, and each one is still true.
+- `docs/known-limits.md` is read through once more, and each one is still true.
 
 **0.1 is out when** all of the above is done, the tests pass in CI, the
 benchmarks pass on my machine, and the Release is published.
@@ -249,7 +249,7 @@ Agreed on 16 November. In this order; each step is something to try.
 | --- | --- | --- |
 | 1 | Structure: libraries under `libs/` with public and private headers, C++23, vcpkg, Catch2 with one test file per source file, integration tests and benchmarks in CTest, a `session` library that owns the document, undo and redo, the mesh, the body and the cloth's thread, clear ownership | done |
 | 2 | Fixes: a hole where several panels share a seam corner; dragging a corner lags. The hole came from the body's friction holding cloth while seams pulled in, not from the shared corner: while sewing, nothing rubs now (band and skirt on the mannequin: widest stitch 3.3 cm before, 0.4 cm now). The lag came from making the mesh in the frame (64 ms a frame at 1 cm particles): it is made in the background now (4 ms a frame) | done |
-| 3 | Behaviour: a new panel gets a place in space once (wrapped into ±100 cm across and 0-200 cm up around the body, a step further forward each time round), then the table and space are independent; panels grow away from their seams, on the table and in space alike (an arrangement's anchor moves with the sewn edges that kept their length; a shape dragged by hand keeps its own coordinates instead); dragging draped cloth in 3D pulls it, as in Marvelous Designer, and the cloth runs while it is held; the gizmo carries a draped panel, drape and all; nothing starts a panel again except Reset; undo and redo bring the drape back (the last 64 states) | done |
+| 3 | Behaviour: a new panel gets a place in space once (wrapped into ±100 cm across and 0-200 cm up around the body, a step further forward each time round), then the table and space are independent; panels grow away from their seams, on the table and in space alike (an arrangement's anchor moves with the sewn edges that kept their length; a shape dragged by hand keeps its own coordinates instead); dragging draped cloth in 3D pulls it, and the cloth runs while it is held; the gizmo carries a draped panel, drape and all; nothing starts a panel again except Reset; undo and redo bring the drape back (the last 64 states) | done |
 | 4 | Adding points on an edge, so that shirts can be made: the AddPoint operation and the Point tool (a click on the mirrored side of a symmetric panel adds the point on the drawn side); the new corner is dragged like any other; sample and example 6 are a T-shirt body | done |
 | 5 | The Qt 6.12 window, laid out as approved (Maya-like: shelf, dockable panels, 3D left and table right, operations as layers, units everywhere). In pieces: (a) the frame: shelf, docks, help line, layouts, Outliner, Parameters, Attribute Editor with layers and the panel's particle distance, the body's eye in the Outliner, the table showing and selecting (done); (b) the table's gestures, through the shared `session::Drafting`: Select (move, corners, box select, handles, turning knob, length by double-click), every drawing tool, choosing a layer's edge, corner or line on the table, the cloth mesh over the panels (done); (c) the 3D view: our own Vulkan renderer with Vulkan-Hpp (`libs/render`), tested off screen: drawing the body, cloth and floor with a Maya camera (done); a click selects a panel, the move gizmo (an arrow per axis and a middle square, drawn in front of everything, `render/Gizmo`) or a drag on the panel carries it as one undo step, and dragging draped cloth pulls it (done); (d) the ImGui window compared feature by feature (what it had and the Qt window lacked was added: lengths on the table, seam ends linked, placing from the table, the grid's step, axes in 3D), its tests moved to the Qt window and `session::Drafting`, then removed with Dear ImGui and GLFW; the program is `twintailor` again | done |
 

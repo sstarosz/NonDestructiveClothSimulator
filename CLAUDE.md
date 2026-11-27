@@ -1,35 +1,61 @@
 # Instructions for Claude
 
 This is Twintailor: a parametric pattern CAD for clothing in C++23, with a 2D
-table, a 3D view and a cloth simulation. `README.md` says what it does,
+table, a 3D view and a cloth simulation. `README.md` says why it exists,
+[`docs/user-guide.md`](docs/user-guide.md) what it does,
+[`docs/known-limits.md`](docs/known-limits.md) what it cannot do yet and
 `ROADMAP.md` what is planned.
 
 **Before changing code, read [`docs/architecture.md`](docs/architecture.md)**:
 what each library holds and may use, and the rules that must stay true. The
 reasons behind them are in [`docs/decisions/`](docs/decisions/README.md).
 
-## What the owner cares about
+## Who it is for
 
-These came up again and again and outrank convenience:
+First artists who dress 3D characters; also people who sew real clothes. When
+their needs clash, the artists win. The program stays with designing clothes.
 
-1. **Non-destructive.** Nothing is baked in. Every result is recomputed from
-   the document; an edit to an early step must flow through everything after
-   it (later operations, copies, instances, seams, the draped cloth).
-2. **Strong types, no string lookups.** Things are named by typed handles,
+## What wins when goals clash
+
+The higher one wins
+([decision 0026](docs/decisions/0026-what-wins-and-whose-the-drape-is.md)):
+
+1. **Never lose work.** A crash, closing, saving or one wrong click never
+   throws away the pattern or the drape.
+2. **Non-destructive.** Nothing is baked into the pattern: an early step can be
+   changed and everything after it follows (the waist, changed after the
+   armholes were cut, leaves the cut in place).
+3. **Easy and forgiving to use.**
+4. **Fast.** The interface and the cloth as fast as they can be; nothing is
+   worked out per frame that has not changed.
+5. **More features.**
+
+Two rules about the cloth:
+
+- **The drape is the artist's work**, not only output: it is saved, can be
+  undone, and is kept through edits of the pattern as well as it can be.
+- **Realistic by default; the artist has the last word.** The simulation aims
+  for true folds, and the artist may hold, pull or freeze cloth into a shape
+  physics would not give.
+
+These are goals. Where the program falls short of them is in
+[`docs/known-limits.md`](docs/known-limits.md).
+
+## How the code should be
+
+1. **Strong types, no string lookups.** Things are named by typed handles,
    never by text or bare indices. Strings are for people to read.
-3. **Explicit types and a small, clean API.** Few verbs, each doing one
+2. **Explicit types and a small, clean API.** Few verbs, each doing one
    thing. Hide implementation in a library's `src/` or in the `.cpp`.
-4. **Code that reads like a DSL.** A plain struct describes a thing, a verb
+3. **Code that reads like a DSL.** A plain struct describes a thing, a verb
    takes it and returns a handle:
    `OpRef<Rect> rect = doc.add(panel, Rect{.width = waist / 2, .height = 4_cm});`
-5. **Easy to test.** Everything that matters works without a window.
-6. **Viewport-driven interface.** Work happens on the table and in the 3D
+4. **Easy to test.** Everything that matters works without a window.
+5. **Viewport-driven interface.** Work happens on the table and in the 3D
    view with a small shelf; the docks only show and fine-tune. Little text:
    units on every number, hints in the help line.
-7. **Small steps.** One contained piece at a time, with its limits written
+6. **Small steps.** One contained piece at a time, with its limits written
    down, not a large rewrite.
-8. **Fast.** The interface and the cloth as fast as they can be; nothing is
-   worked out per frame that has not changed.
 
 ## Look before you add
 
@@ -91,13 +117,17 @@ These came up again and again and outrank convenience:
   to choose, say what you chose and why.
 - Report briefly: what changed, how to use it, what is limited, what was and
   was not verified. Plain words; English is not the owner's first language.
-- When something is a real limitation, write it down (README "Known limits",
-  `ROADMAP.md`) instead of hiding it; the work to remove it becomes an issue
+- When something is a real limitation, write it down
+  (`docs/known-limits.md`, `ROADMAP.md`) instead of hiding it; the work to
+  remove it becomes an issue
   draft ([`docs/pull-requests-and-follow-ups.md`](docs/pull-requests-and-follow-ups.md)).
 - A choice made with the owner gets a record in `docs/decisions/`; a rule
   that changes is changed in `docs/architecture.md`, in the same pull request.
-- Keep `README.md` and `ROADMAP.md` current when a roadmap step lands or a
-  limit goes away.
+- Keep `docs/user-guide.md`, `docs/known-limits.md` and `ROADMAP.md` current
+  when a roadmap step lands or a limit goes away.
+- `README.md` stays short, for someone new: what a feature does goes to the
+  user guide, what it cannot do to the known limits. One fact has one place;
+  link to it instead of repeating it.
 - Do not leave stray files in the project, do not delete the owner's files,
   and do not add dependencies without saying so first. They go in
   `vcpkg.json` and are found with `find_package`.

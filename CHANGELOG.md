@@ -16,7 +16,7 @@ The program is not signed, so Windows warns about an unknown publisher:
 "Windows protected your PC". Choose "More info", then "Run anyway".
 
 A first garment, step by step:
-<https://github.com/sstarosz/Twintailor#using-twintailor>
+<https://github.com/sstarosz/Twintailor#a-first-garment-trousers>
 
 ### What it does
 
@@ -57,4 +57,4 @@ A first garment, step by step:
 - Without a Vulkan driver the table works, and the 3D view says what is
   missing.
 
-All of them: <https://github.com/sstarosz/Twintailor#known-limits-of-01>
+All of them: <https://github.com/sstarosz/Twintailor/blob/main/docs/known-limits.md>

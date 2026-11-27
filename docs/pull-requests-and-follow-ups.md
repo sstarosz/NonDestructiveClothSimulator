@@ -31,7 +31,8 @@ of what you built), keep the change small and note it for later:
    `python scratch/make_issues.py --status`.
 5. A pull request that finishes an issue says `Closes #N`; one that only
    moves it forward says `Refs #N` and what is still open on it.
-6. A limit users must know is also written in `README.md` ("Known limits")
+6. A limit users must know is also written in
+   [`known-limits.md`](known-limits.md)
    or `ROADMAP.md`; the issue is for the work to remove it.
 7. A cleanup that is small, inside the code you already changed and covered
    by tests is done now, not noted.

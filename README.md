@@ -1,12 +1,42 @@
-# Twintailor 0.1
+# Twintailor
 
-A pattern CAD for clothing in which nothing is ever baked in. Every panel is
-a short list of operations (rectangle, curve, added point, set length, cut, mirror ...) whose values
-can be numbers or formulas over named parameters. Change the waist and every
-panel, copy, instance and seam that depends on it follows, and the cloth on
-the body follows too.
+A pattern CAD for clothing in which nothing is ever baked in. Draw a pattern,
+sew it, drape it on your own character, change any measurement while it hangs,
+and take it into Blender or Maya.
 
-## Using Twintailor
+Every panel is a short list of operations (rectangle, curve, added point, set
+length, cut, mirror ...) whose values can be numbers or formulas over named
+parameters. Change the waist and every panel, copy, instance and seam that
+depends on it follows, and the cloth on the body follows too.
+
+## Why
+
+Patterns should be easy to edit, and no step should be final.
+
+- **Who it is for:** first, artists who dress 3D characters; also people who
+  sew real clothes.
+- **Forgiving:** every step of a pattern stays editable, so a mistake made early
+  can be put right later without doing the rest again.
+- **Parametric:** measurements are named parameters, so that a garment can be
+  adapted to another body.
+- **Scope:** designing clothes. What helps with that may come; the rest does
+  not.
+
+## What it does
+
+- **Patterns on a table:** shapes, curves, internal lines, cuts, mirrors and
+  instances, each step a layer you can change or switch off.
+- **Parameters and formulas** such as `waist / 4 + ease`.
+- **Seams** that follow their edges through every edit.
+- **Cloth in 3D** on an avatar read from your OBJ file: arrange the panels,
+  simulate, pull the cloth, and keep editing the pattern while it stays draped.
+- **One file** holds the whole scene; unsaved work is copied for after a crash.
+- **Export** the garment as OBJ, with the pattern as UVs.
+
+More in the [user guide](docs/user-guide.md), and what it cannot do yet in
+[known limits](docs/known-limits.md).
+
+## Try it
 
 ### What you need
 
@@ -26,7 +56,7 @@ The program is not signed, so Windows warns the first time ("Windows
 protected your PC"): choose "More info", then "Run anyway". Help > About
 shows the version; please name it when you report a problem.
 
-### A first garment: trousers
+## A first garment: trousers
 
 The window has the 3D view on the left and the pattern on its table on the
 right. It opens on a T-shirt.
@@ -47,627 +77,35 @@ right. It opens on a T-shirt.
    beside Play, drops the cloth again from where the panels are placed.
 7. Save with Ctrl+S. The file holds the pattern, the avatar and the drape.
 8. Take it out with File > Export OBJ… (Ctrl+E), for Blender or Maya: see
-   [Export](#export).
+   [Export](docs/user-guide.md#export).
 
 To dress your own character, choose Body > Avatar from OBJ…. It must be one
 closed surface; it may be in any unit and have any axis up (see [Your own
-avatar](#your-own-avatar)).
+avatar](docs/user-guide.md#your-own-avatar)).
 
-### Your own avatar
+## Build it
 
-An OBJ file does not say its unit or which way is up, so after you choose one
-a small dialog opens, filled in with a guess, and the 3D view shows the body
-as you choose it, with your panels around it:
-
-- **File unit**: what the file's numbers are in: mm, cm, m or inch.
-- **Scale**: makes the body larger or smaller than the file has it. 100 % is
-  the file as it is.
-- **Height**: how tall the body comes out. Type one (`172`) to set the scale
-  that gives it. Both numbers can be pulled sideways too.
-- **Up** and **Facing**: the file's axes that point up, and out of the body's
-  front.
-
-While the dialog is open you can turn, move and zoom the 3D view (Alt and the
-mouse, the wheel, F); the rest of the window waits, and so does the cloth. OK
-puts the avatar on, its feet on the floor, in the middle, as one undo step.
-Cancel, or Escape, changes nothing.
-
-After OK the program works out how the cloth collides with the new body, with
-a bar at the bottom of the window while it does: a blink for one like the shipped avatar,
-one or two seconds for a model of millions of triangles. You can press Play
-meanwhile; the cloth starts when the body is ready.
-
-Every file dialog starts in the folder of the last file of its kind: patterns
-(Open and Save), avatars, and exports (a first export is offered beside the
-pattern). This is remembered from one start of the program to the next.
-
-The guess takes the longest side of the file's box as up (y, then z, if one is
-barely longer), and the unit in which the body is 120 to 230 cm tall, at
-100 %. A model that is that tall in no unit (many generated models are about 1
-unit tall) is taken in the nearest unit and scaled to 170 cm. Facing cannot be
-read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
-
-## What 0.1 does
-
-- **Patterns in 2D**: rectangles, circles, rings, points added on any edge
-  (the Point tool) to shape a shoulder, a waist or an armhole, free curves, internal
-  lines, cuts and splits, mirrors that keep both halves in step, instances
-  and mirrored instances, moving single corners or groups of them, and
-  scaling a panel along its own x and y (the scale gizmo changes the lengths
-  of its rectangle, circle or ring, or a Scale layer), and giving any one
-  edge its own length (the Set length layer): a trousers' waist and ankle,
-  which a rectangle's top and bottom cannot say, or a T-shirt's shoulder.
-  The Length tool (Draft tab): click an edge, then type its length in a bar
-  on the table. A double-click on an edge's length label opens the same bar;
-  on an edge nothing sets it adds a Set length layer as long as the edge is
-  now. What is typed shows at once, with the outline as it was dashed beside
-  it and an arrow for each end that moved. Enter (or the tick) keeps it,
-  Escape (the cross, or a click elsewhere) takes all of it back, even a
-  layer that was made for it; a length that cannot be is said under the field
-  and Enter waits. Where the shape has a setting for the edge (a rectangle's
-  width or height) a list in the bar says which is typed: "Edge only", a
-  length of its own, so the top and bottom of a rectangle can differ, or the
-  shape's setting, where the opposite edge follows (the tool starts on "Edge
-  only", a double-click on the shape's setting). For an own length three
-  anchors show on the edge, "Left", "Midpoint" and "Right" (Top and Bottom
-  for an edge that runs up; in a row beside it where the edge is short on the
-  screen): a click on one says which end stays where it is, and the end
-  that stays is marked on the edge.
-- **Parameters and formulas**: `waist / 4 + ease`, with limits per field;
-  an edit that would break something is refused and says why. A name too long
-  for the Parameters dock shows its start, and whole in its tooltip.
-- **Timeline**: every step of a panel can be changed, switched off, or looked
-  back at.
-- **Seams** between named edges, which follow the edges through every edit.
-  The Sew tool (S) joins the ends nearest your two clicks: click both edges
-  near the ends that should meet. Over the second edge, dotted links show
-  which ends will meet before you click. The twist button on a seam's card
-  swaps them.
-- **Instances come sewn**: an instance (or mirrored instance) is sewn as its
-  source is, in the same undo step: a seam within the source is made within
-  the instance, and a seam to a neighbour is made once the neighbour has an
-  instance of the same kind too, whichever of the two is made first. Select a
-  front and a back sewn together and press "Mirrored instance": the other leg
-  comes with its seams, laid out on the table as the mirror image of the two.
-  The centre seams, between a panel and its own instance, you sew by hand.
-  For seams made on a source after its instance, select the instances and
-  press "Sew as source" (Sew tab). The copies are ordinary seams that you can
-  reverse or delete. The Trousers sample (File > Samples) is made this way:
-  a front and a back for one leg, the other leg a mirrored instance of both.
-- **The other side stands in place**: a mirrored instance of a panel that
-  stands at one side of the body is put in space as its mirror image (across
-  the body's middle, with the same wrap), so a second leg drapes without
-  arranging it by hand. This is its first place only: moving the source later
-  leaves it where it is.
-- **3D**: panels arranged around a body (each sample opens on the avatar in
-  `assets/`; Body > Avatar from OBJ… puts another into the pattern, in the
-  file's own unit and axes, as one undo step), meshed and simulated: gravity,
-  seams drawing closed, cloth against body, floor and cloth. Another avatar
-  starts the cloth again; undo and redo go back to the avatar before, with the
-  cloth that hung on it.
-- **Front and back**: a panel's front is the side the table shows, drawn in
-  the panel's colour; its back is a darker, cooler shade of it (grey cloth,
-  the amber selection and violet instances alike). A panel that has not been
-  turned in space has its front towards +z, where the body faces.
-- **Seams in 3D**: while a seam is open, both its edges are lined in blue and
-  a thin line runs from each point to the point it is sewn to, so you see which
-  end meets which: the lines of a twisted seam cross. Once the seam has closed
-  its lines are gone. Choosing a seam's row in the Outliner shows it in amber,
-  open or closed, in 3D, and lights it on the table. The eye on a seam's row
-  hides its lines; the eye on "Seams" hides or shows all of them.
-- **A seam left open**: if a seam is still open 3 seconds after its thread is
-  drawn in, its lines in 3D turn red and its card in the Attribute Editor says
-  "Left open: 4 cm apart. Move the panels closer, then Reset." Both go once it
-  closes.
-- **Hide and deactivate panels**: each panel's row in the Outliner has an eye,
-  which hides it in the 3D view only (it is still simulated), and a button that
-  deactivates it, as in Marvelous Designer: it stays where it is, seen through,
-  nothing touches it and its seams hold nothing, until it is activated again.
-  Neither changes the pattern or is an undo step; both are saved with the file,
-  so a part of a garment simulated and then deactivated stays as it was.
-- **Smooth across seams**: where a seam has closed, the cloth on both sides is
-  shaded as one piece.
-- **See-through body**: View > See-through body, or the button beside the eye
-  on the body's row in the Outliner, draws the body as one sheet of dark glass.
-  Cloth that has gone into the body, or is behind it, shows through, and can be
-  clicked and dragged through it. The body is still in the simulation.
-- **Dragging cloth in 3D**: while the cloth plays, a drag pulls it by the
-  particle under the mouse, whatever the tool. Paused, it stands still: with
-  Move (W) a drag on the selected panel moves it in space, drape and all, with
-  Select (Q) a drag does nothing, and the Pull tool (H) pulls the cloth, which
-  runs while it is held. The help line says which happens. A draped panel whose
-  wrap you change bends with it and keeps how it hangs.
-- **Gizmos as in Maya**, in the 3D view and on the table alike: Q selects
-  only, W moves (an arrow per axis, a square per plane, the middle across
-  the view), E turns (a ring per axis, one about the line of sight, and
-  between them a ball that turns it freely, as Maya's trackball; on the
-  table one ring), R scales along the panel's own x and y, or evenly by
-  the square between them or the middle; its z is grey, since a panel has no
-  thickness. In 3D they are drawn in flat colours, in front of everything.
-  Ctrl: whole centimetres, steps of 15°, steps of 10 %.
-  Once there is cloth, the 3D gizmo stands on the selected panel's cloth and
-  follows it; turning is about where it stands.
-  Moving and turning only place a panel; scaling changes its shape. A panel
-  that starts with a rectangle, a circle or a ring of plain numbers is scaled
-  by those numbers, with no layer added; if a formula sets a length, or the
-  panel starts with an instance, the scale is a Scale layer, which can be
-  edited, switched off or undone like any other. A Scale layer you add by hand
-  stays yours: the gizmo changes it. Whichever way, the middle of the panel's
-  box stays where it was on the table and in space. Several selected panels
-  scale together (evenly): on the table about the middle of the group, in 3D
-  each about its own place.
-- **Editing on the table**, and in 3D on the selected panels: Delete removes
-  the selected panels, or, with corners selected, the ones added with the
-  Point tool; Ctrl+C remembers the panels, Ctrl+V pastes copies with their
-  middle under the pointer, each in its place in the group (a copy follows the
-  same parameters and is turned on the table as its panel is), Ctrl+D
-  duplicates the selected panels just right of them.
-  Each is one undo step. The table's origin is drawn
-  with its grid: the x axis in red, the y axis in green. The keys work while
-  the table (or the 3D view) has the focus, so typing in a field or in the
-  Outliner is left alone.
-- **Selecting several panels**: Shift- or Ctrl-click adds a panel to the
-  selection or, on a selected one, takes it out; a box dragged on empty table
-  selects the panels it touches (Shift or Ctrl adds them to the ones
-  selected). Dragging one of the selected panels, or their move gizmo, moves
-  them all, and the rotate gizmo turns them all about the middle of the group;
-  each is one undo step. A click on one of them selects it alone. The last one
-  added is the one the docks show; the others are drawn as selected, and the
-  gizmo stands at the middle of the group.
-- **Selecting corners**: with one panel chosen, a box dragged on empty table
-  that touches only that panel selects its corners inside it (Shift adds them
-  to the ones already selected; Shift-click on a corner adds or takes it out);
-  a click on empty table, or a box over nothing, chooses nothing.
-- **Along one axis**: Shift held while a corner (or the selected corners), a
-  curve handle, or a panel (or the selected panels, by the panel or by the
-  middle of the move gizmo) is dragged keeps it on the table's x or y,
-  whichever the pointer moved furthest along first; a dashed line in that
-  axis's colour shows it. The other coordinate does not change at all. With
-  Ctrl as well, the free one is put on the grid.
-- **Live link**: edit the pattern while the cloth is draped and it stays
-  draped.
-- **Files**: save and open (`.twintail`, plain text), undo. One file holds
-  the whole scene, so it opens the same on another computer: the pattern, where
-  its panels stand, the avatar itself (its points and triangles, not a path to
-  the OBJ file, and how that file was read), and the scene as you left it: the
-  draped cloth, particle by particle, the panels deactivated, the panels and
-  seams hidden, and the body hidden or see-through. An opened file stands still, as it was saved; Play
-  carries on from there. A new pattern, or a file saved without an avatar,
-  takes the body that is shown. With the shipped avatar a file is about 650 kB,
-  about 950 kB with the trousers draped. Names of files and folders may use any
-  letters. Files saved by 0.1 open in every later version, as do the
-  `.clothcad` files saved while the program was called Cloth CAD. A file with a
-  line that cannot be right (a number that is not one, a particle distance
-  outside 0.5 to 5 cm) is not opened, and the line is named.
-- **Unsaved work is not lost by accident**: the title shows "*" while the
-  file differs from what you see, and closing the window, New, Open and a
-  sample ask first (Save, Don't Save, Cancel). Whatever the file holds counts,
-  the cloth too: playing or pulling it shows "*". Undone, or put back, counts
-  as saved. Hiding, deactivating and the body's looks are not undo steps. Not
-  in the file, so no "*": the selection, the tool, the cameras and which views
-  are shown. Save first takes what is typed in a field, and writes the new file
-  beside the old one before it takes its place. If another program holds the
-  old file, Save and Export OBJ try again for about half a second; then they say
-  that the file could not be written, and the old one is as it was.
-- **After a crash**: while there are unsaved changes a recovery copy is
-  written about every 30 seconds (on Windows in
-  `%LOCALAPPDATA%\Twintailor\recovery`); your file changes only when you save.
-  If the program stopped before the work was saved, the next start offers the
-  copy: Open (Save then writes it to the pattern's own file), Delete, or Not
-  Now, which asks again at the next start.
-- **After an error**: if the program meets an error it cannot go on from (out
-  of memory in the middle of a change), it writes the recovery copy at once,
-  says what happened and where the work is, and closes. If what fails is
-  making the avatar ready for the cloth, the cloth mesh, the cloth or a
-  recovery copy, the help line says so and the program goes on.
-- **The window** is laid out as Maya is: a row of actions under the menu
-  (undo, redo, play and pause, reset, cloth mesh), a shelf of tools to make
-  things (Draft, Sew, Simulate), a toolbox at the left edge (Select, Move,
-  Rotate, Scale, and the view layouts), the 3D
-  view and the table side by side (or stacked, or either one alone), and dockable panels
-  that fold and stack as tabs (tabs on top): the Outliner (which also shows
-  or hides the body, or makes it see-through) and Parameters on the left, the Attribute
-  Editor on the right (a panel's operations as layers, and how fine its cloth is).
-  Its 3D view is drawn by the graphics card, with Vulkan.
-
-## Building
-
-Needs CMake 3.25 or newer, a C++23 compiler (Visual Studio 2022 17.10 or
-newer, GCC 12, Clang 17) and vcpkg; the libraries in `vcpkg.json` (Catch2,
-CDT) are built by vcpkg the first time. The window also needs Qt 6 (6.12 on
-Windows: the presets point `CMAKE_PREFIX_PATH` at it; its tests use Qt Test,
-which comes with Qt) and the Vulkan SDK (its headers, with Vulkan-Hpp, and
-`glslangValidator` for the shaders); CMake finds the SDK through the
-`VULKAN_SDK` variable its installer sets. Without them, everything but the
-window is built. The program is
-`twintailor`; on Windows Qt's libraries are copied next to it when it is built,
-and the avatars (the OBJ files in `assets/`) go in an `assets/` folder beside
-it, where the window looks for them.
-
-**Use a Release (or RelWithDebInfo) build to work in.** A Debug build runs
-the cloth five to ten times slower, so it moves in slow motion; the interface
-stays responsive either way. With the Visual Studio presets (they expect the
-environment variable `VCPKG_ROOT`, which Visual Studio's developer prompt
-sets):
+Windows, Visual Studio, vcpkg, Qt 6.12 and the Vulkan SDK:
 
     cmake --preset x64-win-msvc2026
     cmake --build --preset x64-win-msvc2026-release
-    ctest --preset x64-win-msvc2026-release        # everything
-    ctest --preset x64-win-msvc2026-unit           # unit tests only
-    ctest --preset x64-win-msvc2026-integration    # integration tests only
-    ctest --preset x64-win-msvc2026-benchmarks     # benchmarks, with their tables
+    ctest --preset x64-win-msvc2026-release
 
-Without the presets: `cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake`.
-`-DTWINTAILOR_WINDOW=OFF` builds everything but the program that opens a
-window, for machines without a display. A warning stops the build;
-`-DTWINTAILOR_WARNINGS_AS_ERRORS=OFF` lets it through, only for trying
-something out with another compiler.
+Details, other setups and releases: [building](docs/building.md).
 
-A package to hand out, with the program, Qt's libraries, the compiler's
-runtime, the avatars and the licences in `<folder>` (Qt's plugins in
-`<folder>/plugins`):
+## Documentation
 
-    cmake --install out/build/x64-win-msvc2026 --config Release --prefix <folder>
+| Page | What is in it |
+| --- | --- |
+| [User guide](docs/user-guide.md) | Everything the program does |
+| [Known limits](docs/known-limits.md) | What it cannot do yet |
+| [Roadmap](ROADMAP.md) | What comes next |
+| [Building](docs/building.md) | Building, testing, releasing |
+| [Architecture](docs/architecture.md) | The parts of the code and the rules that stay true |
+| [Decisions](docs/decisions/README.md) | Why things are the way they are |
+| [Performance](docs/benchmarks.md) | Time budgets and benchmarks |
 
-`cmake/CheckPackage.cmake` says what that folder must hold and may hold, and
-starts the installed program; the test "release: the installed folder is
-complete" runs it. Whatever ships is listed in `THIRD-PARTY.md`.
-`licenses/qt-third-party.txt` was taken from the documentation of Qt 6.12.0:
-another version of Qt needs it, and `THIRD-PARTY.md`, brought up to date.
+## Licence
 
-### Continuous integration
-
-Every pull request and every push to `main` is built and tested by GitHub
-Actions (`.github/workflows/ci.yml`): Windows, MSVC, Release, Qt 6.12 and
-the Vulkan SDK, then the unit and integration tests.
-To run the same tests locally:
-
-    ctest --preset x64-win-msvc2026-ci
-
-The Vulkan SDK is named by its number and each action by its commit, with the
-version in a comment, so that a commit is built the same way on another day.
-To take a newer one, change both together; the test "release: the workflows
-name exact tools" refuses a floating name. Not fixed: GitHub's runner images
-(with MSVC, CMake, Ninja and vcpkg) and the Python that fetches Qt.
-
-The runner has no graphics card, so the renderer's tests are skipped there,
-and the benchmarks are not run there (shared machines are too noisy for
-their limits): run them on your own machine when `sim`, `session` or the
-drawing changed.
-
-### Making a release
-
-1. Set the version in `project()` in `CMakeLists.txt` (and in `vcpkg.json`),
-   and write the section `## <version>` in `CHANGELOG.md`.
-2. Tag that commit and push the tag: `v0.1.0`, or `v0.1.0-rc1` to try it.
-3. `.github/workflows/release.yml` checks the tag against the version, builds
-   and tests as for a pull request, installs, starts the installed program,
-   zips the folder and makes a **draft** GitHub Release with the changelog's
-   section as its notes.
-4. Try the zip on a PC that never built the project, then publish the draft.
-
-## Performance
-
-What a frame and a cloth step may cost is checked by two benchmark programs,
-`twintailor_core_and_sim_benchmarks` (core, meshing, cloth) and
-`twintailor_qt_window_benchmarks` (whole frames of the window, 1600 x 900,
-without a screen: there the 3D view is drawn off screen and read back, which
-costs more than showing it). Each measurement is held to a limit in
-milliseconds and to its own baseline (`tests/benchmarks/baselines/`): a test fails
-if it gets more than 1.4 times slower than the baseline. Times are measured
-against a fixed piece of arithmetic first, so a baseline taken on one machine
-still means something on another. That does not make up for another compiler:
-code that one compiler makes faster than another is not measured fairly, so
-baselines are written with MSVC, as the owner builds. In a build that is not
-optimised the benchmarks do nothing and pass.
-
-Run them on an idle machine, with the program closed: a cloth running in it
-slows every row (on 26 November nine rows of the window's benchmark failed
-while it ran, and none once it was closed). The benchmarks preset runs a
-benchmark that fails up to three times, and it fails only if every run does:
-a real slowdown fails each time, a moment of load on the machine rarely does.
-
-After a change that makes something faster, or a deliberate trade, write new
-baselines from an optimised build and commit them with the change:
-
-    twintailor_core_and_sim_benchmarks tests/benchmarks/baselines/CoreAndSim.txt --update
-    twintailor_qt_window_benchmarks    tests/benchmarks/baselines/QtWindow.txt --update
-
-The budgets, and the times measured on 26 November 2026 (Windows 11, MSVC,
-no screen, an idle machine):
-
-| What | Limit | Now |
-| --- | --- | --- |
-| A frame with nothing changing, both views shown | 1 ms | 0.003 ms |
-| A frame while dragging a panel on the table | 8 ms | 1.2-1.4 ms |
-| A frame while dragging a corner, 3D shown, 1 cm particles | 16 ms | 4-6 ms |
-| The 3D view orbited (drawn off screen and read back) | 60 ms | 5 ms |
-| A frame that brings new cloth from its own thread, 3D shown (27 November) | 16 ms | 5 ms |
-| A frame with a cloth step in it, 3D shown | 40 ms | 23 ms |
-| One cloth step, 2,800 particles, on a body | 16 ms | 10 ms |
-| One cloth step, the trousers (2,900 particles), on the avatar | 16 ms | 9-10 ms |
-| Meshing a skirt at 2 cm | 25 ms | 8 ms |
-| Reading an avatar's OBJ, 400,000 triangles (27 November) | 250 ms | 25 ms |
-| Preparing an avatar of 400,000 triangles to collide with (27 November) | 1500 ms | 340 ms |
-| A frame with a cloth step in it, 3D shown, an avatar of 1.4 million triangles (27 November) | 50 ms | 17 ms |
-
-What working at 4K and on a T-shirt costs, per frame, mean of 40 frames spaced as a 60 Hz screen
-would (Windows 11, MSVC, no screen, an idle machine; the 3D view's picture is
-read back here, which the real window does not do):
-
-| What | Limit | Now |
-| --- | --- | --- |
-| The table paints itself, 3840 x 2160 | 8 ms | 3-4 ms |
-| Dragging a panel on the table at 4K | 16 ms | 4-6 ms |
-| Dragging a corner at 4K, 3D shown | 16 ms | 4-5 ms |
-| Dragging a corner at 4K, table only | 16 ms | 7 ms |
-| Zooming the table at 4K (its floor is drawn again every frame) | 16 ms | 12 ms |
-| Dragging a corner at 4K, a panel filling the table | 16 ms | 9 ms |
-| Carrying a T-shirt panel in 3D with the gizmo | 24 ms | 7 ms |
-| Orbiting the 3D view at 4K, solid body / see-through | 120 ms | 40 / 41 ms |
-| Dragging a length parameter on the T-shirt | 16 ms | 8-9 ms |
-
-A drag also reports its slowest 1 frame in 20 (held to twice the limit) and its
-worst frame, because what a drag feels like is its slow frames.
-
-**In the real window**, View > Frame times shows the same in the status bar,
-four times a second, over the last 60 of each: how far apart the 3D view's
-and the table's pictures are (a gap of more than a quarter second is a pause,
-not a frame), and how long a change of the document, the window's tick, the
-table's painting and the 3D view's drawing take, then the cloth's latest step,
-its particles and whether it runs, sews or is paused. These are the numbers to
-read on the 4K screen while dragging; the benchmarks run without a screen and
-read the 3D picture back, which the real window does not do.
-
-How it is kept fast:
-
-- **A body is made ready to draw once.** Its triangles are handed to the
-  graphics card when the avatar changes, not with every picture
-  (`render::Shape`): a frame with the cloth moving costs the same however
-  detailed the body is.
-- **Nothing is worked out again unless it changed.** The mesh is made only
-  when the outlines change; the 3D picture is drawn only when the camera, the
-  view's size or what it shows has changed. An unchanged frame costs the same
-  with or without the 3D view.
-- **The window ticks once for every picture of its screen** (every 4 ms at
-  240 Hz, 16 ms at 60 Hz; `FrameTimes::tickMilliseconds`), so a panel carried
-  in 3D is shown at the screen's next picture. On a 240 Hz screen a fixed
-  16 ms tick showed one picture in four. A tick with nothing new costs
-  0.02 ms. The cloth makes at most 60 steps a second, to keep pace with the
-  clock, so a running cloth is shown at 60 pictures a second on any screen.
-- **The cloth runs on a thread of its own** (`libs/session` `Simulation`), so the
-  interface never waits for a step; it picks up where the particles are
-  whenever there is news.
-- **A step asks the body only where cloth may touch it.** A particle that
-  has not moved far enough since the step began to reach the body is not
-  checked against it in the step's 60 rounds. How far is enough follows from
-  how steeply the body's distance grid changes (`DistanceField::steepest`):
-  on a clean avatar most of a garment is skipped, on overlapping surfaces
-  nothing is, so the drape is the same either way. The search for cloth
-  touching cloth keeps its table from step to step and looks through each
-  slot of it once.
-- **The mesh is made in the background** (`Session`). While a corner is
-  dragged the 3D view shows the last mesh made and takes the next one when it
-  is done, always made from the newest outlines; a frame never waits for it.
-- **The 3D view is drawn by the graphics card** (`libs/render`, Vulkan), and
-  its scene is made again only when what it shows has changed.
-- **The table is painted only when what it shows changed.** A panel carried
-  in space, or a change in a dock that the table does not show, does not paint
-  it again (about 3 ms of each frame at 4K).
-- **The table keeps its floor.** The background and grid are drawn once into
-  a picture and copied until the view moves (`TableView::paintFloor`): at 4K
-  the grid's lines cost more than everything else on the table together. The
-  mesh's thousands of lines go in one batch, without smoothing; only outlines
-  and labels are smoothed, and a long thick outline is drawn side by side
-  with square caps, because Qt strokes it as a polygon or with round caps
-  twenty times slower.
-- **The docks are set in place.** After every change, each step of a drag
-  included, the window shows the document again. A seam's card, a layer's
-  summary, an Outliner row and a field are made or set again only when what
-  they say changed, not when only a number moved.
-
-`-DTWINTAILOR_WINDOW=OFF` builds everything but the window program;
-`libs/core` alone has no dependencies.
-
-## Export
-
-File > Export OBJ… (Ctrl+E) writes the garment to a Wavefront OBJ file, for
-Blender, Maya or any other 3D program:
-
-- **The cloth as it hangs.** Before Play, or after Reset, the panels flat (or
-  wrapped) where they are arranged in space. It is always the pattern as it is
-  now, also with only the table shown. Exporting does not step the cloth,
-  change the pattern or clear the "*".
-- **In the units and axes of the avatar's file**, so it lines up with the
-  character it was draped on: an avatar loaded in metres with Z up gets its
-  garment in metres with Z up, and one given a height of its own gets it in the
-  numbers of its file again. The first line names the unit. The shipped avatar
-  is in cm, Y up. The body is not in the file: load your own avatar file beside
-  it.
-- **One group per panel**, named after it (spaces become `_`; a name used
-  twice gets a number). Hidden panels are left out, and the help line says how
-  many; deactivated panels are written where they stand.
-- **UVs are the pattern as it lies on the table**: each panel turned and placed
-  as there, all of it in the square from 0 to 1 with one scale both ways. Move
-  panels apart on the table to keep their UVs apart. Hiding a panel does not
-  move the others' UVs.
-- **Normals** are smooth across closed seams, as the 3D view shades them, and
-  each panel's front (the side the table shows) is the front of its faces.
-
-In Blender, File > Import > Wavefront (.obj) brings the garment in as one
-object; switch on "Split by Group" for one object per panel. Give the garment
-and the avatar the same Scale and axes there. Blender reads one unit as a
-metre, so files in cm need Scale 0.01 to get their real size.
-
-## How the code is laid out
-
-Libraries in `libs/` (`core`, `sim`, `session`, `render`), the window in
-`apps/qt/`, seven garments in `examples/`, tests beside each library and in
-`tests/`. The core never draws and the window never computes. What each part
-holds, what it may use and the rules that must stay true are in
-[`docs/architecture.md`](docs/architecture.md); the choices behind them in
-[`docs/decisions/`](docs/decisions/README.md).
-
-## Known limits of 0.1
-
-- Cloth keeps clear of cloth by keeping particles apart, so layers rest
-  about 1 cm apart, and cloth pulled open or moving very fast can slip
-  through.
-- One fabric for everything, with fixed properties; no pins in the window.
-- The exported OBJ is the cloth alone, without thickness or seam allowance,
-  and with no materials file (`.mtl`). Panels are not welded: the two sides of
-  a seam are separate points, which lie together only where the seam closed. A
-  panel that shows its back on the outside in the 3D view is inside out in the
-  file too. Panels that overlap on the table overlap in the UVs. All panels
-  shown are written; a selection cannot be exported on its own.
-- The avatar must be one closed surface.
-- How an avatar's file was read (unit, scale, axes) is chosen when it is
-  loaded: to change it, load the file again. The guess of which way the body
-  faces is only a convention.
-- A very detailed avatar is heavy. With models of 1.5 to 2 million triangles
-  the dialog opens after 0.3 to 0.8 s (longer the first time a file is read
-  from disk), each change in it takes 0.1 to 0.2 s, the cloth can collide with
-  the body 1 to 2 s after OK, and the pattern's file is 80 to 155 MB and takes
-  a second or two to save or open. A model reduced to some tens of thousands
-  of triangles avoids all of it.
-- Seams join whole edges, one to one.
-- Delete on a corner works only for corners added with the Point tool; any
-  other corner is part of a shape, and the help line names the layer to
-  change or remove. Deleting a panel that an instance or a seam uses
-  is allowed: they show a problem until it is put right, and undo brings the
-  panel back. In 3D, Delete takes whole panels and Paste has no place on
-  the table, so the copies go beside the originals.
-- Several selected panels are selected, moved, turned, scaled evenly, copied,
-  pasted, duplicated and deleted together, but the docks, corners and lengths
-  work on one panel only: the shown one, or the single panel selected. They
-  cannot be stretched one way together (the help line says so). The 3D view
-  and the Outliner show the shown panel only. The instance buttons and "Sew as
-  source" work on all the selected panels. A paste or Ctrl+D does not copy
-  seams, nor a panel's place and wrap in space. An instance of a turned panel
-  is not turned.
-- An instance's seams are copied when it is made, or by "Sew as source"; they
-  do not follow later changes: a seam removed, reversed or moved on the source
-  stays as it was on the instances. A plain and a mirrored instance are never
-  sewn together this way. An instance's seam is found only towards instances
-  of the panels its own source is sewn to (a back right that follows the front
-  left, not the front right, is not found). Of several instances still free,
-  the newest is taken. An edge of an instance that you have sewn by hand to
-  something else gets the source's seam as well. Ticking "Mirrored" on one of
-  two sewn instances later twists their seams (reverse them). A panel made an
-  instance by adding the layer, or given another source, is not sewn by itself:
-  press "Sew as source".
-- Only a mirrored instance made by the button (or "Add beside") is placed in
-  space from its source, and only once. A plain instance, a copy, a panel made
-  an instance by adding the layer and a mirrored instance of a panel on the
-  body's middle (its anchor less than a quarter of its width to a side) stand
-  where the table has them.
-- The see-through body shows cloth inside or behind it, not the body inside
-  the cloth: draped cloth hides what it covers. Only the body's nearest side
-  shows (not the torso behind an arm). A deactivated panel and the body are
-  tinted as if the body were in front, whichever is. Like hiding the body, it
-  is saved in the file and is not an undo step.
-- A panel grows away from its sewn edges that kept their length. If every
-  sewn edge changed (only side seams, and the panel got longer) it grows about
-  the middle of those edges; a turn of the outline itself is not followed.
-- While seams are pulled shut the cloth slides on the body without friction.
-  A stitch pulls its two ends together firmly, so where pieces do not fit the
-  cloth usually stretches, even into the body, and the seam closes: no seam is
-  then reported as open. Only a seam still open when the cloth gives up (3
-  seconds after the thread is drawn in) is reported; one that opens later is
-  not. A change of the pattern or a move in space draws the seams in again.
-- Where three or more panel corners are sewn into one point (a band's side
-  seam meeting a skirt), the stitches there pull against each other and that
-  corner stays up to about 0.8 cm open. Pulling such a corner shut at once
-  was tried and taken back: it held a band that a seam had pulled through
-  the body in that wrong place, instead of letting it slide free.
-- While a corner is dragged, the 3D view shows the mesh a frame or a few
-  behind the outline (more with fine particles).
-- A new panel stands where the table has it only within ±100 cm across and
-  0-200 cm up around the body; further out it wraps round, a step further
-  forward each time, and may then stand in front of another panel.
-- Pulling the cloth holds one particle; the cloth runs while it is held and
-  stops again when it is let go, if it was paused.
-- Moving a draped panel's place carries its drape rigidly. A change of its
-  wrap bends it, each particle keeping its distance from where the panel was
-  arranged; cloth that hangs far from there may go into the body or other
-  cloth until the simulation runs (press Reset to start flat on the curve).
-- Undo and redo bring back the drape of the last 64 states.
-- The move and rotate gizmos work along the axes of space (or of the table),
-  not the panel's own; only the scale gizmo follows the panel's own axes.
-  On draped cloth the 3D gizmo stands at one spot of the panel (its anchor's,
-  which on a ring or a cut panel may be near an edge), and the scale gizmo's
-  handles keep the directions the panel is arranged in, not the drape's. The scale gizmo's z handle does nothing; seen from the
-  front it points at the eye and is too short to show.
-- Set length moves the two corners of an edge along the edge until it has
-  the length; the edges beside it slant. It keeps both ends moving evenly, or
-  the start or the end where it is (the anchors on the table, or the layer's
-  "Keeps" list; on a half panel the table keeps the corner on the mirror
-  itself). It works on straight edges and circular
-  arcs (an arc keeps its angle); a free curve, a whole circle and a full
-  ring's closing slit cannot be given a length, and the layer says so. Lines
-  drawn before it keep their places, as they do for a moved corner. The ends
-  of an edge whose length a formula sets cannot be dragged. A Set length
-  added from the list starts at 20 cm, so choosing its edge makes the edge
-  jump; the Length tool and a double-click start from the edge's length.
-  On a rectangle, a double-click on its top types the width, which the
-  bottom shares, until "Edge only" is chosen. Scaling a
-  panel that has a Set length adds a Scale layer instead of changing the
-  rectangle's numbers.
-- A Scale layer scales about the middle of the outline's box as it is at
-  that layer. On a symmetric panel it scales the drawn half, before the
-  mirror: the whole stays symmetric, and the gizmo moves the panel so that its
-  middle stays where it was on the table. An
-  arc stretched more one way than the other stays a circular arc between its
-  moved ends, and a whole circle can only be scaled evenly. A Scale set by a
-  formula is not dragged (the gizmo says so); type it in the Attribute
-  Editor.
-- Q, W, E and R replace the Rectangle tool's old key R; Rectangle is chosen
-  from the shelf.
-- A point added on a sewn edge splits it: the seam then sews only the part
-  before the point, and the part after it must be sewn on its own.
-- The body is always an avatar read from an OBJ file. A pattern keeps its
-  points and triangles, not its materials or textures, and does not follow
-  later changes of the OBJ file: load it again. The samples read the avatar
-  beside the program; without it a sample opens on the body that is shown,
-  and with no body the cloth falls to the floor. Working out how to collide
-  with another avatar takes about a tenth of a second for one like the shipped
-  one and a second or two for millions of triangles, after loading it and after
-  undo; it uses all of the processor's cores but one.
-  The avatar that comes with the program was generated by AI, and its mesh
-  is uneven.
-- The saved cloth is the one drape that is shown. The drapes kept for undo are
-  not saved, nor is the undo history; an opened cloth is at rest. If a later
-  version meshes a panel differently, its cloth is carried over, as after a
-  change of the pattern, and may move a little.
-- Because the cloth is part of the file, a running simulation always shows
-  "*", also when it has come to rest.
-- A recovery copy can be up to half a minute old. It is offered when the
-  program starts, one at a time. A power cut at the very moment of a save may
-  still lose that file: the program does not wait for the disk to have it.
-- A crash that is not an error the program raises (memory used wrongly, a
-  fault in a driver, a power cut) still ends it without a word: only the last
-  recovery copy is there then.
-- A file cut short between two lines (a copy or a download that broke off)
-  opens with what is left in it, without a word, unless the cut is inside the
-  avatar or the draped cloth.
-- After an avatar could not be made ready for the cloth (out of memory), the
-  cloth waits until another avatar is put on or the program is started again.
-- A panel far too large for its particle distance (a mistyped width) has no
-  cloth: it is not shown in 3D, and the table says why only with Cloth mesh
-  switched on.
-- The avatar's armpits pinch a top without sleeves (sample 6) at its
-  underarm points: a few edges there stretch up to about 30 %.
-- Hiding or deactivating is not an undo step; a panel or seam deleted and
-  brought back by undo is shown and active.
-  A panel activated again where cloth has moved into it is pushed apart from it
-  at once, which can jolt.
-- Cloth does not resist folding across a seam as it does inside a panel, and a
-  pressed seam is shaded round like any other fold.
-- A seam is chosen only by its row in the Outliner, not by clicking it on the
-  table or in 3D. Where the graphics card draws no wide lines, the seams' lines
-  in 3D are one pixel wide.
-- The 3D view draws without smoothing of edges (no multisampling) and one
-  picture at a time (the processor waits for each before the next). Drawing
-  into a window is checked only by hand: the tests draw off screen.
-
-See `ROADMAP.md` for what comes next.
+MIT, see [`LICENSE`](LICENSE). What else is in the package:
+[`THIRD-PARTY.md`](THIRD-PARTY.md).

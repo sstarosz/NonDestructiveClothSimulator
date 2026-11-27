@@ -133,7 +133,7 @@ TEST_CASE("a band sewn shut, with a skirt sewn to it, closes every seam on a bod
         EXPECT((!cloth.sewing()), "the sewing is over");
         // Where the band's own seam meets the skirt, four particles are sewn
         // into one point and pull against each other: that corner stays up to
-        // about 0.8 cm open (README, Known limits). Every other stitch closes.
+        // about 0.8 cm open (docs/known-limits.md). Every other stitch closes.
         EXPECT((widest < 1.0), "no stitch is left open, but for a little at the corner where three seams meet");
     }
 }
@@ -184,7 +184,7 @@ TEST_CASE("a T-shirt body shaped with added points sews shut on a body")
     EXPECT((deepest > 0.1), "no particle is inside the body");
     EXPECT((lowest > 70.0), "it hangs from the shoulders, not lower");
     // The avatar's armpits pinch the cloth at the underarm points: a few
-    // edges there stretch up to about 30% (README, Known limits).
+    // edges there stretch up to about 30% (docs/known-limits.md).
     std::size_t stretched = 0;
     for (std::size_t p = 0; p < mesh.panels.size(); ++p)
         for (const auto& t : mesh.panels[p].triangles)

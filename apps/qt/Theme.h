@@ -3,7 +3,7 @@
 // something. The meanings are the same everywhere in the window:
 // teal = driven by a formula, violet = an instance, pink = symmetry,
 // blue = a seam, amber = selected, orange = a seam whose edges differ in length.
-// The teal is Hatsune Miku's, #39C5BB: formulas are what the program is about.
+// The teal is #39C5BB: formulas are what the program is about.
 //
 //   theme::apply(app);
 //   painter.setPen(theme::seam);

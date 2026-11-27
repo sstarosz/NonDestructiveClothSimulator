@@ -20,4 +20,4 @@ even when the avatar's OBJ has moved.
 ## What we gave up
 
 Small files: an avatar of 1.5 to 2 million triangles makes a file of 80 to
-155 MB (README, "Known limits").
+155 MB ([known limits](../known-limits.md)).
