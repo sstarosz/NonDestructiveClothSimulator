@@ -107,6 +107,30 @@ void onADetailedAvatar(MainWindow& window, perf::Report& report) {
     window.shelf()->simulate()->setChecked(false);
 }
 
+// The cloth playing on its own thread. A frame that brings a new state of the
+// cloth draws the 3D picture again, and a frame that brings none costs next to
+// nothing, so each kind is timed by itself: how many there are of each depends
+// on how long a sleep of Windows lasts (4 ms or 15.6 ms), which other programs
+// decide.
+void clothOnItsOwnThread(MainWindow& window, perf::Report& report) {
+    perf::Frames fresh, same;
+    const auto timed = [&] {
+        const double before = window.session().cloth().time;
+        const double one = perf::bestMilliseconds([&] { frame(window); }, 1);
+        (window.session().cloth().time > before ? fresh : same).add(one);
+    };
+    const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (fresh.count() < 40 && std::chrono::steady_clock::now() < limit) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(4));  // the cloth steps meanwhile
+        timed();
+        timed();  // at once after it: nearly always nothing new
+    }
+    report.expect(fresh.count() >= 40 && same.count() >= 20, "the cloth moves without the frames stepping it");
+    report.record("own-thread cloth: a frame with a new state", 16.0, fresh.mean());
+    // So short that it moves threefold with how long the sleep before it was: its limit alone judges it.
+    report.record("own-thread cloth: a frame with nothing new", 1.0, same.mean(), false);
+}
+
 // Which widgets are painted, how often and how big: what a change makes Qt paint.
 class PaintCounter : public QObject {
 public:
@@ -557,15 +581,7 @@ int main(int argc, char** argv) {
         window.setThreading(session::Threading::OwnThread);
         window.shelf()->simulate()->setChecked(true);
         for (int i = 0; i < 3; ++i) frame(window);
-        const double timeBefore = window.session().clothShown() ? window.session().cloth().time : 0.0;
-        double sum = 0.0;
-        const int watched = 90;
-        for (int i = 0; i < watched; ++i) {
-            sum += perf::bestMilliseconds([&] { frame(window); }, 1);
-            std::this_thread::sleep_for(std::chrono::milliseconds(4));  // as a screen's refresh would space frames out
-        }
-        report.record("frame while the cloth runs on its own thread, 3D shown", 16.0, sum / watched);
-        report.expect(window.session().clothShown() && window.session().cloth().time > timeBefore, "the cloth moves without the frames stepping it");
+        clothOnItsOwnThread(window, report);
         window.shelf()->simulate()->setChecked(false);
 
         // What follows is what the owner feels: the slow frames, not the best

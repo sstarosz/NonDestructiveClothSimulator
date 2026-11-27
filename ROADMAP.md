@@ -51,8 +51,10 @@ In pull requests, in this order:
   in a second or two instead of most of a minute, with a progress bar at the
   bottom of the window; the cloth plays on it as smoothly as on a small one;
   and every file dialog starts in the folder last used (#121).
-- The window benchmark passes on an unchanged `main` (#116), and its row for
-  a running cloth no longer depends on how long Windows sleeps (#109).
+- Done: the window benchmark's row for a running cloth no longer depends on how
+  long Windows sleeps: frames with new cloth and frames without are timed apart
+  (#109). On 27 November the benchmark passed on an unchanged `main` three times
+  in a row on an idle machine (#116); why it failed on 26 November is not known.
 - Done: hardening, so that bad input and errors do not lose work. A panel of a
   size out of all reason is refused before any memory is taken for its mesh
   (#152). A file with a number that is not a number, or a particle distance
