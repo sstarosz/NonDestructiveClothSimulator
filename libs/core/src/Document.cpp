@@ -1,4 +1,4 @@
-#include "clothcad/core/Document.h"
+#include "twintailor/core/Document.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -6,12 +6,12 @@
 #include "internal/FieldAccess.h"
 #include "internal/References.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 
 [[noreturn]] void unknown(const char* what) {
-    throw std::out_of_range(std::string("clothcad::Document: unknown ") + what);
+    throw std::out_of_range(std::string("twintailor::Document: unknown ") + what);
 }
 
 } // namespace
@@ -24,7 +24,7 @@ PanelCopy::PanelCopy(PanelId panel, std::vector<std::pair<OpId, OpId>> operation
 OpId PanelCopy::operator[](OpId original) const {
     for (const auto& [from, to] : operations_)
         if (from == original) return to;
-    throw std::out_of_range("clothcad::PanelCopy: operation is not part of the copied panel");
+    throw std::out_of_range("twintailor::PanelCopy: operation is not part of the copied panel");
 }
 
 // ---- Private lookups --------------------------------------------------------
@@ -222,15 +222,15 @@ const Seam& Document::get(SeamId seam) const {
 
 void Document::set(OpId operation, FieldId field, Expr value) {
     Expr* target = fieldAt(data(operation), field.index);
-    if (!target) throw std::out_of_range("clothcad::Document: the operation has no such field");
+    if (!target) throw std::out_of_range("twintailor::Document: the operation has no such field");
     *target = std::move(value);
 }
 
 void Document::set(OpId operation, ReferenceId reference, Reference value) {
     switch (setReferenceAt(data(operation), reference.index, value)) {
     case ReferenceChange::Done: return;
-    case ReferenceChange::NoSuchReference: throw std::out_of_range("clothcad::Document: the operation has no such reference");
-    case ReferenceChange::WrongKind: throw std::invalid_argument("clothcad::Document: that kind of thing cannot be used for this reference");
+    case ReferenceChange::NoSuchReference: throw std::out_of_range("twintailor::Document: the operation has no such reference");
+    case ReferenceChange::WrongKind: throw std::invalid_argument("twintailor::Document: that kind of thing cannot be used for this reference");
     }
 }
 
@@ -264,7 +264,7 @@ void Document::move(OpId operation, std::size_t index) {
         auto& ops = p.operations;
         const auto it = std::find_if(ops.begin(), ops.end(), [&](const OperationEntry& o) { return o.id == operation; });
         if (it == ops.end()) continue;
-        if (index >= ops.size()) throw std::out_of_range("clothcad::Document: move index is past the end of the panel");
+        if (index >= ops.size()) throw std::out_of_range("twintailor::Document: move index is past the end of the panel");
         const auto target = ops.begin() + static_cast<std::ptrdiff_t>(index);
         if (it < target) std::rotate(it, it + 1, target + 1);
         else std::rotate(target, it, it + 1);
@@ -351,4 +351,4 @@ const OpData& Document::get(OpId operation) const {
     unknown("operation");
 }
 
-} // namespace clothcad
+} // namespace twintailor

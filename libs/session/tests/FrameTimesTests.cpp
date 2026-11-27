@@ -4,9 +4,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/session/FrameTimes.h"
+#include "twintailor/session/FrameTimes.h"
 
-using namespace clothcad;
+using namespace twintailor;
 using session::FrameTimes;
 
 TEST_CASE("a view's frames are the spaces between its pictures; a pause is not a frame")

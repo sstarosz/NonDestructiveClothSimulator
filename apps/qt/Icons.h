@@ -9,7 +9,7 @@
 
 #include "Theme.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 enum class Icon {
     Select, Move, Rotate, Scale, Rectangle, Circle, Ring, Point, Curve, Line, Mirror, Cut, Split, Sew, Pull,
@@ -20,4 +20,4 @@ enum class Icon {
 
 QIcon icon(Icon which, QColor colour = theme::text);
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

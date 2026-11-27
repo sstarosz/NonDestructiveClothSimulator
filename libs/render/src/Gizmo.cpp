@@ -1,4 +1,4 @@
-#include "clothcad/render/Gizmo.h"
+#include "twintailor/render/Gizmo.h"
 
 #include <algorithm>
 #include <array>
@@ -6,10 +6,10 @@
 #include <numbers>
 #include <vector>
 
-#include "clothcad/render/SceneOf.h"
-#include "clothcad/sim/Layout.h"
+#include "twintailor/render/SceneOf.h"
+#include "twintailor/sim/Layout.h"
 
-namespace clothcad::render {
+namespace twintailor::render {
 
 namespace {
 
@@ -511,4 +511,4 @@ void addCornerAxes(Scene& scene, const OrbitCamera& camera, ViewSize size, doubl
     }
 }
 
-} // namespace clothcad::render
+} // namespace twintailor::render

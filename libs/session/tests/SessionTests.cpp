@@ -13,10 +13,10 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/session/Session.h"
+#include "twintailor/session/Session.h"
 
-using namespace clothcad;
-using namespace clothcad::session;
+using namespace twintailor;
+using namespace twintailor::session;
 
 namespace {
 

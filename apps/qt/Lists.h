@@ -8,7 +8,7 @@
 
 class QComboBox;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 // The wheel changes the list only once it has the focus. Otherwise it goes on
 // to whatever holds the list, so that a dock scrolled with the pointer over a
@@ -19,4 +19,4 @@ void takeWheelOnlyWithFocus(QComboBox& list);
 // too long for it is cut off; opened, the entries are shown whole.
 void fitItsPlace(QComboBox& list);
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

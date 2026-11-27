@@ -8,9 +8,9 @@
 #include <cstdlib>
 #include <string>
 
-#include "clothcad/core/Text.h"
+#include "twintailor/core/Text.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -121,7 +121,7 @@ void ValueField::mouseMoveEvent(QMouseEvent* event) {
     drag_->moving = true;
     if (!first && value == drag_->value) return;
     drag_->value = value;
-    emit dragged(value, first ? clothcad::session::DragPhase::Begin : clothcad::session::DragPhase::Continue);
+    emit dragged(value, first ? twintailor::session::DragPhase::Begin : twintailor::session::DragPhase::Continue);
 }
 
 void ValueField::mouseReleaseEvent(QMouseEvent* event) {
@@ -129,12 +129,12 @@ void ValueField::mouseReleaseEvent(QMouseEvent* event) {
     const Drag was = *drag_;
     drag_.reset();
     if (dragWhileTyping_) {
-        if (was.moving) emit dragged(was.value, clothcad::session::DragPhase::End);
+        if (was.moving) emit dragged(was.value, twintailor::session::DragPhase::End);
         else QLineEdit::mouseReleaseEvent(event);
         return;
     }
     if (was.moving) {
-        emit dragged(was.value, clothcad::session::DragPhase::End);
+        emit dragged(was.value, twintailor::session::DragPhase::End);
     } else {
         // A click without a drag: type.
         setFocus(Qt::MouseFocusReason);
@@ -183,4 +183,4 @@ void ValueField::refuse(const QString& why) {
     setToolTip(why);
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

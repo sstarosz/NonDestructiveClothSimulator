@@ -1,14 +1,14 @@
-#include "clothcad/core/Fields.h"
+#include "twintailor/core/Fields.h"
 
 #include <cmath>
 #include <cstdio>
 #include <limits>
 #include <type_traits>
 
-#include "clothcad/core/Document.h"
+#include "twintailor/core/Document.h"
 #include "internal/FieldAccess.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 
@@ -280,4 +280,4 @@ Expr* fieldAt(OpData& operation, std::size_t index) {
     return found;
 }
 
-} // namespace clothcad
+} // namespace twintailor

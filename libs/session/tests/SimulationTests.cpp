@@ -9,11 +9,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/session/Simulation.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/session/Simulation.h"
 
-using namespace clothcad;
-using namespace clothcad::session;
+using namespace twintailor;
+using namespace twintailor::session;
 
 namespace {
 

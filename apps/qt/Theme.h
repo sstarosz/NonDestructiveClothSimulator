@@ -3,6 +3,7 @@
 // something. The meanings are the same everywhere in the window:
 // teal = driven by a formula, violet = an instance, pink = symmetry,
 // blue = a seam, amber = selected, orange = a seam whose edges differ in length.
+// The teal is Hatsune Miku's, #39C5BB: formulas are what the program is about.
 //
 //   theme::apply(app);
 //   painter.setPen(theme::seam);
@@ -11,9 +12,9 @@
 
 class QApplication;
 
-namespace clothcad::ui::theme {
+namespace twintailor::ui::theme {
 
-inline const QColor formula{110, 219, 199};
+inline const QColor formula{57, 197, 187};
 inline const QColor instance{191, 158, 242};
 inline const QColor symmetry{242, 128, 199};
 inline const QColor seam{115, 173, 255};
@@ -41,4 +42,4 @@ inline const QColor cardBandOpen{35, 37, 41};
 
 void apply(QApplication& app);
 
-} // namespace clothcad::ui::theme
+} // namespace twintailor::ui::theme

@@ -21,14 +21,14 @@
 #include <optional>
 
 #include "ValueField.h"
-#include "clothcad/session/Drafting.h"
+#include "twintailor/session/Drafting.h"
 
 class QComboBox;
 class QLabel;
 class QLineEdit;
 class QToolButton;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 
 class LengthCard : public QFrame {
@@ -73,4 +73,4 @@ private:
     QLabel* problem_ = nullptr;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

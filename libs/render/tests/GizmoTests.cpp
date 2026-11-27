@@ -7,11 +7,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/render/Gizmo.h"
-#include "clothcad/sim/Layout.h"
+#include "twintailor/render/Gizmo.h"
+#include "twintailor/sim/Layout.h"
 
-using namespace clothcad;
-using namespace clothcad::render;
+using namespace twintailor;
+using namespace twintailor::render;
 using session::GizmoMode;
 
 namespace {

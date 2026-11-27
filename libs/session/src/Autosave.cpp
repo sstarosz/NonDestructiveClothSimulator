@@ -1,4 +1,4 @@
-#include "clothcad/session/Autosave.h"
+#include "twintailor/session/Autosave.h"
 
 #include <chrono>
 #include <exception>
@@ -8,12 +8,12 @@
 #include <utility>
 #include <variant>
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
 // The two files of a copy: the pattern with its scene, and whose it is.
-std::string patternIn(const std::string& folder) { return folder + "/pattern.clothcad"; }
+std::string patternIn(const std::string& folder) { return folder + "/pattern.twintail"; }
 std::string aboutIn(const std::string& folder) { return folder + "/belongs-to.txt"; }
 
 }  // namespace
@@ -24,7 +24,7 @@ bool hasRecovery(const std::string& folder) {
 }
 
 std::expected<Recovery, std::string> readRecovery(const std::string& folder) {
-    std::variant<SavedScene, FileError> opened = clothcad::open(patternIn(folder));
+    std::variant<SavedScene, FileError> opened = twintailor::open(patternIn(folder));
     if (const FileError* problem = std::get_if<FileError>(&opened))
         return std::unexpected(problem->line ? "line " + std::to_string(problem->line) + ": " + problem->message : problem->message);
     Recovery found{.title = {}, .path = {}, .scene = std::move(std::get<SavedScene>(opened))};
@@ -111,4 +111,4 @@ std::optional<std::string> Autosave::finished() {
     return "The recovery copy could not be written (" + failed + "). Save your work.";
 }
 
-}  // namespace clothcad::session
+}  // namespace twintailor::session

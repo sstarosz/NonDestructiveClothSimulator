@@ -24,9 +24,9 @@
 #include "Lists.h"
 #include "Section.h"
 #include "ValueField.h"
-#include "clothcad/core/Text.h"
+#include "twintailor/core/Text.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -274,7 +274,7 @@ void AttributeEditor::show(const Document& doc, const Result& shapes, std::optio
     offers_ = panel ? session::offersFor(doc, *panel) : std::vector<session::Offered>{};
     page_->setVisible(panel.has_value());
     if (!panel) return;
-    const clothcad::Panel& p = doc.get(*panel);  // QFrame has a Panel of its own
+    const twintailor::Panel& p = doc.get(*panel);  // QFrame has a Panel of its own
     rebuildLayers(doc, shapes);
 
     const Arrangement& at = p.arrangement;
@@ -884,4 +884,4 @@ ValueField* AttributeEditor::tableField(int which) const {
     return which >= 0 && which < static_cast<int>(table_.size()) ? table_[static_cast<std::size_t>(which)] : nullptr;
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

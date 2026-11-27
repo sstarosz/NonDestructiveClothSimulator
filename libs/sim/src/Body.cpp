@@ -1,7 +1,7 @@
-#include "clothcad/sim/Body.h"
+#include "twintailor/sim/Body.h"
 
-#include "clothcad/core/File.h"
-#include "clothcad/sim/AvatarImport.h"
+#include "twintailor/core/File.h"
+#include "twintailor/sim/AvatarImport.h"
 
 #include <algorithm>
 #include <atomic>
@@ -15,7 +15,7 @@
 #include <string_view>
 #include <thread>
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 Contact contactWith(const Capsule& c, Vec3 point) {
     const Vec3 axis = c.b - c.a;
@@ -494,4 +494,4 @@ Body bodyFrom(const Surface& surface, Progress* progress) {
     return body;
 }
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

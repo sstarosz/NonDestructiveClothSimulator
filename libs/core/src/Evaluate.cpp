@@ -1,4 +1,4 @@
-#include "clothcad/core/Evaluate.h"
+#include "twintailor/core/Evaluate.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,12 +7,12 @@
 #include <stdexcept>
 #include <utility>
 
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Fields.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Fields.h"
 #include "internal/ExprNode.h"
 #include "internal/Outline.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 
@@ -567,7 +567,7 @@ private:
 const SeamResult& Result::operator[](SeamId seam) const {
     for (const SeamResult& s : seams)
         if (s.seam == seam) return s;
-    throw std::out_of_range("clothcad::Result: unknown seam");
+    throw std::out_of_range("twintailor::Result: unknown seam");
 }
 
 bool Result::failed(Param parameter) const {
@@ -587,13 +587,13 @@ bool Result::failed(OpId operation) const {
 double Result::operator[](Param parameter) const {
     for (const ParameterValue& v : values)
         if (v.parameter == parameter) return v.value;
-    throw std::out_of_range("clothcad::Result: parameter has no value");
+    throw std::out_of_range("twintailor::Result: parameter has no value");
 }
 
 const Pattern& Result::operator[](PanelId panel) const {
     for (const PanelResult& p : panels)
         if (p.panel == panel) return p.pattern;
-    throw std::out_of_range("clothcad::Result: unknown panel");
+    throw std::out_of_range("twintailor::Result: unknown panel");
 }
 
 namespace {
@@ -682,4 +682,4 @@ Result evaluate(const Document& doc) {
     }
 }
 
-} // namespace clothcad
+} // namespace twintailor

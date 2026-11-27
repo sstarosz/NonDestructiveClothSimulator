@@ -1,45 +1,45 @@
 # Tests on the project's avatar (assets/avatarV1.obj): read from its file
 # and dressed. Labelled "integration"; the unit tests read no files.
-add_executable(clothcad_avatar_tests AvatarTests.cpp)
-target_link_libraries(clothcad_avatar_tests PRIVATE clothcad::session Catch2::Catch2WithMain)
+add_executable(twintailor_avatar_tests AvatarTests.cpp)
+target_link_libraries(twintailor_avatar_tests PRIVATE twintailor::session Catch2::Catch2WithMain)
 # Avatar.h and Expect.h, and the solver tests' helpers (run, worstStretch).
-target_include_directories(clothcad_avatar_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${PROJECT_SOURCE_DIR}/libs/sim/tests)
-target_compile_definitions(clothcad_avatar_tests PRIVATE CLOTHCAD_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets")
-clothcad_warnings(clothcad_avatar_tests)
-catch_discover_tests(clothcad_avatar_tests TEST_PREFIX "avatar: " PROPERTIES LABELS integration)
+target_include_directories(twintailor_avatar_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support ${PROJECT_SOURCE_DIR}/libs/sim/tests)
+target_compile_definitions(twintailor_avatar_tests PRIVATE TWINTAILOR_ASSETS_DIR="${PROJECT_SOURCE_DIR}/assets")
+twintailor_warnings(twintailor_avatar_tests)
+catch_discover_tests(twintailor_avatar_tests TEST_PREFIX "avatar: " PROPERTIES LABELS integration)
 
 # The recovery copy, which is written to disk. Labelled "integration".
-add_executable(clothcad_autosave_tests AutosaveTests.cpp)
-target_link_libraries(clothcad_autosave_tests PRIVATE clothcad::session Catch2::Catch2WithMain)
-target_include_directories(clothcad_autosave_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-target_compile_definitions(clothcad_autosave_tests PRIVATE CLOTHCAD_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/autosave")
-clothcad_warnings(clothcad_autosave_tests)
-catch_discover_tests(clothcad_autosave_tests TEST_PREFIX "autosave: " PROPERTIES LABELS integration)
+add_executable(twintailor_autosave_tests AutosaveTests.cpp)
+target_link_libraries(twintailor_autosave_tests PRIVATE twintailor::session Catch2::Catch2WithMain)
+target_include_directories(twintailor_autosave_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(twintailor_autosave_tests PRIVATE TWINTAILOR_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/autosave")
+twintailor_warnings(twintailor_autosave_tests)
+catch_discover_tests(twintailor_autosave_tests TEST_PREFIX "autosave: " PROPERTIES LABELS integration)
 
 # Saving over a file that another program holds. Labelled "integration".
-add_executable(clothcad_saving_tests SavingTests.cpp)
-target_link_libraries(clothcad_saving_tests PRIVATE clothcad::core Catch2::Catch2WithMain)
-target_include_directories(clothcad_saving_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-target_compile_definitions(clothcad_saving_tests PRIVATE CLOTHCAD_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/saving")
-clothcad_warnings(clothcad_saving_tests)
-catch_discover_tests(clothcad_saving_tests TEST_PREFIX "saving: " PROPERTIES LABELS integration)
+add_executable(twintailor_saving_tests SavingTests.cpp)
+target_link_libraries(twintailor_saving_tests PRIVATE twintailor::core Catch2::Catch2WithMain)
+target_include_directories(twintailor_saving_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(twintailor_saving_tests PRIVATE TWINTAILOR_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/saving")
+twintailor_warnings(twintailor_saving_tests)
+catch_discover_tests(twintailor_saving_tests TEST_PREFIX "saving: " PROPERTIES LABELS integration)
 
 # Damaged files, from reading them to meshing what opens. Labelled "integration".
-add_executable(clothcad_damaged_file_tests DamagedFileTests.cpp)
-target_link_libraries(clothcad_damaged_file_tests PRIVATE clothcad::session Catch2::Catch2WithMain)
-target_include_directories(clothcad_damaged_file_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-clothcad_warnings(clothcad_damaged_file_tests)
-catch_discover_tests(clothcad_damaged_file_tests TEST_PREFIX "damaged files: " PROPERTIES LABELS integration)
+add_executable(twintailor_damaged_file_tests DamagedFileTests.cpp)
+target_link_libraries(twintailor_damaged_file_tests PRIVATE twintailor::session Catch2::Catch2WithMain)
+target_include_directories(twintailor_damaged_file_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+twintailor_warnings(twintailor_damaged_file_tests)
+catch_discover_tests(twintailor_damaged_file_tests TEST_PREFIX "damaged files: " PROPERTIES LABELS integration)
 
 # Work on other threads that fails. Its own program: it brings its own
 # operator new, which runs out of memory when a test says so. Labelled "integration".
-add_executable(clothcad_failure_tests FailureTests.cpp)
-target_link_libraries(clothcad_failure_tests PRIVATE clothcad::session Catch2::Catch2WithMain)
-target_include_directories(clothcad_failure_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-target_compile_definitions(clothcad_failure_tests PRIVATE CLOTHCAD_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/failure")
-clothcad_warnings(clothcad_failure_tests)
+add_executable(twintailor_failure_tests FailureTests.cpp)
+target_link_libraries(twintailor_failure_tests PRIVATE twintailor::session Catch2::Catch2WithMain)
+target_include_directories(twintailor_failure_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(twintailor_failure_tests PRIVATE TWINTAILOR_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/failure")
+twintailor_warnings(twintailor_failure_tests)
 # A failure that is not caught ends or hangs the program: each test has a time of its own.
-catch_discover_tests(clothcad_failure_tests TEST_PREFIX "failures: " PROPERTIES LABELS integration TIMEOUT 120)
+catch_discover_tests(twintailor_failure_tests TEST_PREFIX "failures: " PROPERTIES LABELS integration TIMEOUT 120)
 
 # Tests that run the whole window: driven through its widgets by mouse and
 # keys, without a screen. Labelled "integration", as the examples are (see
@@ -48,17 +48,17 @@ catch_discover_tests(clothcad_failure_tests TEST_PREFIX "failures: " PROPERTIES 
 # Built when the window is. Its tests are listed when ctest runs (not when
 # built), with Qt's libraries on the path; the avatars are put beside them,
 # as beside the program.
-if(TARGET clothcad_qt_ui)
+if(TARGET twintailor_qt_ui)
     # Targets are seen only where Qt was found. Qt Test sends keys as the system does;
     # it is for the tests only and is not shipped.
     find_package(Qt6 6.2 REQUIRED COMPONENTS Core Test)
-    add_executable(clothcad_qt_window_tests QtWindowTests.cpp)
-    target_link_libraries(clothcad_qt_window_tests PRIVATE clothcad::qt_ui Qt6::Test Catch2::Catch2WithMain)
-    target_include_directories(clothcad_qt_window_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
-    clothcad_warnings(clothcad_qt_window_tests)
-    clothcad_avatars_beside(clothcad_qt_window_tests)
-    target_compile_definitions(clothcad_qt_window_tests PRIVATE CLOTHCAD_PROJECT_VERSION="${PROJECT_VERSION}")
-    catch_discover_tests(clothcad_qt_window_tests
+    add_executable(twintailor_qt_window_tests QtWindowTests.cpp)
+    target_link_libraries(twintailor_qt_window_tests PRIVATE twintailor::qt_ui Qt6::Test Catch2::Catch2WithMain)
+    target_include_directories(twintailor_qt_window_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    twintailor_warnings(twintailor_qt_window_tests)
+    twintailor_avatars_beside(twintailor_qt_window_tests)
+    target_compile_definitions(twintailor_qt_window_tests PRIVATE TWINTAILOR_PROJECT_VERSION="${PROJECT_VERSION}")
+    catch_discover_tests(twintailor_qt_window_tests
         TEST_PREFIX "qt: "
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
         DISCOVERY_MODE PRE_TEST
@@ -86,11 +86,11 @@ foreach(tag "v99.0.0" "${PROJECT_VERSION}" "v${PROJECT_VERSION}-beta")
     set_tests_properties("release: the tag ${tag} is refused" PROPERTIES LABELS integration WILL_FAIL TRUE)
 endforeach()
 
-if(TARGET clothcad)
-    add_test(NAME "release: clothcad --version prints the version and ends" COMMAND clothcad --version)
-    set_tests_properties("release: clothcad --version prints the version and ends" PROPERTIES
+if(TARGET twintailor)
+    add_test(NAME "release: twintailor --version prints the version and ends" COMMAND twintailor --version)
+    set_tests_properties("release: twintailor --version prints the version and ends" PROPERTIES
         LABELS integration TIMEOUT 60
-        PASS_REGULAR_EXPRESSION "Cloth CAD ${version_pattern} \\(([0-9a-f]+|unknown)\\)")
+        PASS_REGULAR_EXPRESSION "Twintailor ${version_pattern} \\(([0-9a-f]+|unknown)\\)")
     # A Debug build is not handed out: its libraries are not in the package.
     add_test(NAME "release: the installed folder is complete, and its program starts"
         COMMAND ${CMAKE_COMMAND} -DBUILD=${CMAKE_BINARY_DIR} -DCONFIG=$<CONFIG>

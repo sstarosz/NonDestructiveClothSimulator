@@ -1,12 +1,12 @@
-#include "clothcad/session/Lengths.h"
+#include "twintailor/session/Lengths.h"
 
 #include <cmath>
 
-#include "clothcad/core/Fields.h"
-#include "clothcad/core/Text.h"
-#include "clothcad/session/Locks.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/core/Text.h"
+#include "twintailor/session/Locks.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 namespace {
 
@@ -60,4 +60,4 @@ std::vector<EdgeLength> lengthsOf(const Document& doc, const Result& shapes, Pan
     return lengths;
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

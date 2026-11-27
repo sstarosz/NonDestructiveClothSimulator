@@ -1,6 +1,6 @@
 #include "internal/References.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 
@@ -53,4 +53,4 @@ void remapReferences(OpData& operation, const Mapping& mapping) {
     std::visit([&](auto& op) { remapIn(op, mapping); }, operation);
 }
 
-} // namespace clothcad
+} // namespace twintailor

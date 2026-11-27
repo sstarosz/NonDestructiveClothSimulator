@@ -3,7 +3,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 Section::Section(const QString& title, QWidget* parent) : QWidget(parent), title_(title) {
     header_ = new QPushButton(title, this);
@@ -29,4 +29,4 @@ void Section::setOpen(bool open) {
 
 bool Section::isOpen() const { return content_->isVisible(); }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

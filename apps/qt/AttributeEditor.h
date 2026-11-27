@@ -15,18 +15,18 @@
 #include <QScrollArea>
 #include <optional>
 
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/core/Fields.h"
-#include "clothcad/session/Drafting.h"
-#include "clothcad/session/Offers.h"
-#include "clothcad/sim/Cloth.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/session/Drafting.h"
+#include "twintailor/session/Offers.h"
+#include "twintailor/sim/Cloth.h"
 
 class QLabel;
 class QPropertyAnimation;
 class QVBoxLayout;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class Section;
 class ValueField;
@@ -74,37 +74,37 @@ public:
     QString meshShown() const;  // the words under the distance, empty if none
 
 signals:
-    void layerSwitched(clothcad::OpId layer, bool on);
+    void layerSwitched(twintailor::OpId layer, bool on);
     // A layer dragged to a place among the panel's operations (oldest first).
-    void layerMoved(clothcad::OpId layer, std::size_t to);
-    void layerRemoved(clothcad::OpId layer);
+    void layerMoved(twintailor::OpId layer, std::size_t to);
+    void layerRemoved(twintailor::OpId layer);
     // Show the panel as of a step; empty: as it is now, with every step.
-    void stepViewed(std::optional<clothcad::OpId> layer);
-    void fieldTyped(clothcad::OpId layer, clothcad::FieldId field, QString text);
+    void stepViewed(std::optional<twintailor::OpId> layer);
+    void fieldTyped(twintailor::OpId layer, twintailor::FieldId field, QString text);
     // In space: 0 x, 1 y, 2 z, 3 turn, 4 tilt, 5 roll, 6 wrap. On the table: 0 x, 1 y, 2 angle.
-    void spaceTyped(clothcad::PanelId panel, int which, QString text);
-    void tableTyped(clothcad::PanelId panel, int which, QString text);
+    void spaceTyped(twintailor::PanelId panel, int which, QString text);
+    void tableTyped(twintailor::PanelId panel, int which, QString text);
     // The same fields dragged: the number, in the field's unit, and where in one drag it is.
-    void fieldDragged(clothcad::OpId layer, clothcad::FieldId field, double value, clothcad::session::DragPhase phase);
-    void spaceDragged(clothcad::PanelId panel, int which, double value, clothcad::session::DragPhase phase);
-    void tableDragged(clothcad::PanelId panel, int which, double value, clothcad::session::DragPhase phase);
+    void fieldDragged(twintailor::OpId layer, twintailor::FieldId field, double value, twintailor::session::DragPhase phase);
+    void spaceDragged(twintailor::PanelId panel, int which, double value, twintailor::session::DragPhase phase);
+    void tableDragged(twintailor::PanelId panel, int which, double value, twintailor::session::DragPhase phase);
     // The panel's particle distance, typed or dragged.
-    void particleDistanceTyped(clothcad::PanelId panel, QString text);
-    void particleDistanceDragged(clothcad::PanelId panel, double value, clothcad::session::DragPhase phase);
+    void particleDistanceTyped(twintailor::PanelId panel, QString text);
+    void particleDistanceDragged(twintailor::PanelId panel, double value, twintailor::session::DragPhase phase);
     // A layer was opened or closed: show again.
     void layerOpened();
     // The name of an edge, corner or line a layer uses was clicked: choose another on the table.
-    void referenceClicked(clothcad::OpId layer, clothcad::ReferenceId reference);
+    void referenceClicked(twintailor::OpId layer, twintailor::ReferenceId reference);
     // A panel a layer uses (an instance's source) was chosen from the list.
-    void panelReferenceChosen(clothcad::OpId layer, clothcad::ReferenceId reference, clothcad::PanelId panel);
+    void panelReferenceChosen(twintailor::OpId layer, twintailor::ReferenceId reference, twintailor::PanelId panel);
     // The open layer's choices: which side a cut keeps, which end a length keeps, a mirror applied last, an instance mirrored.
-    void cutSideChosen(clothcad::OpId layer, clothcad::Cut::Side side);
-    void lengthKeepingChosen(clothcad::OpId layer, clothcad::SetLength::Keeping keeping);
-    void mirrorLastChanged(clothcad::OpId layer, bool last);
-    void instanceMirroredChanged(clothcad::OpId layer, bool mirrored);
-    void seamReversed(clothcad::SeamId seam, bool reversed);
+    void cutSideChosen(twintailor::OpId layer, twintailor::Cut::Side side);
+    void lengthKeepingChosen(twintailor::OpId layer, twintailor::SetLength::Keeping keeping);
+    void mirrorLastChanged(twintailor::OpId layer, bool last);
+    void instanceMirroredChanged(twintailor::OpId layer, bool mirrored);
+    void seamReversed(twintailor::SeamId seam, bool reversed);
     // An operation chosen from the "+ Add operation" list.
-    void operationOffered(clothcad::PanelId panel, clothcad::session::Offer offer);
+    void operationOffered(twintailor::PanelId panel, twintailor::session::Offer offer);
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;  // dragging a layer by its name
@@ -185,4 +185,4 @@ private:
     std::string shownLayers_;  // what the layer rows were made from, to make them again only when it changes
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

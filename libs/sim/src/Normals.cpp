@@ -1,11 +1,11 @@
-#include "clothcad/sim/Normals.h"
+#include "twintailor/sim/Normals.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <numeric>
 #include <utility>
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 std::vector<std::vector<Vec3>> clothNormals(const ClothMesh& mesh, const Placement& positions) {
     // For every panel's particles, the faces around each added up.
@@ -76,4 +76,4 @@ std::vector<std::vector<Vec3>> clothNormals(const ClothMesh& mesh, const Placeme
     return sums;
 }
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

@@ -2,7 +2,7 @@
 
 #include <exception>
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 bool Application::notify(QObject* receiver, QEvent* event) {
     try {
@@ -17,4 +17,4 @@ bool Application::notify(QObject* receiver, QEvent* event) {
     return true;  // the event is done with
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

@@ -1,7 +1,7 @@
 # Panels in space: meshing, arrangement, bodies and the cloth solver.
 find_package(CDT CONFIG REQUIRED)
 find_package(Threads REQUIRED)
-clothcad_library(sim
+twintailor_library(sim
     SOURCES
         src/AvatarImport.cpp
         src/Body.cpp
@@ -10,9 +10,9 @@ clothcad_library(sim
         src/Layout.cpp
         src/Mesh.cpp
         src/Normals.cpp
-    DEPENDS clothcad::core
+    DEPENDS twintailor::core
     PRIVATE_DEPENDS CDT::CDT Threads::Threads
 )
-if(CLOTHCAD_BUILD_TESTS)
+if(TWINTAILOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

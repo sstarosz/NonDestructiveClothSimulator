@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(NonDestructiveClothCad VERSION 0.1.0 LANGUAGES CXX)
+project(Twintailor VERSION 0.1.0 LANGUAGES CXX)
 
 # Dependencies come from vcpkg (see vcpkg.json and CMakePresets.json).
 #
@@ -16,19 +16,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(CLOTHCAD_BUILD_TESTS "Unit tests, integration tests and benchmarks" ON)
-option(CLOTHCAD_BUILD_EXAMPLES "The seven garment examples" ON)
-option(CLOTHCAD_BUILD_QT_APP "The window, when Qt 6 and the Vulkan SDK are found" ON)
+option(TWINTAILOR_BUILD_TESTS "Unit tests, integration tests and benchmarks" ON)
+option(TWINTAILOR_BUILD_EXAMPLES "The seven garment examples" ON)
+option(TWINTAILOR_BUILD_QT_APP "The window, when Qt 6 and the Vulkan SDK are found" ON)
 # Off: build the window's code and its tests, but not the program that opens
 # a window. For machines without a display, such as a build server.
-option(CLOTHCAD_WINDOW "Build the program that opens a window" ON)
+option(TWINTAILOR_WINDOW "Build the program that opens a window" ON)
 # Warnings are defects: a warning stops the build. Off only to try something
 # out with a compiler that warns about things the project's compilers do not.
-option(CLOTHCAD_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
+option(TWINTAILOR_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 
-include(cmake/ClothCad.cmake)
+include(cmake/Twintailor.cmake)
 
-if(CLOTHCAD_BUILD_TESTS)
+if(TWINTAILOR_BUILD_TESTS)
     enable_testing()
     find_package(Catch2 3 CONFIG REQUIRED)
     include(Catch)
@@ -38,12 +38,12 @@ add_subdirectory(libs/core)
 add_subdirectory(libs/sim)
 add_subdirectory(libs/session)
 add_subdirectory(libs/render)
-if(CLOTHCAD_BUILD_QT_APP)
+if(TWINTAILOR_BUILD_QT_APP)
     add_subdirectory(apps/qt)
 endif()
-if(CLOTHCAD_BUILD_EXAMPLES)
+if(TWINTAILOR_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
-if(CLOTHCAD_BUILD_TESTS)
+if(TWINTAILOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

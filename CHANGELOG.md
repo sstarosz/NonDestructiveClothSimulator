@@ -2,22 +2,21 @@
 
 ## 0.1.0
 
-The first release of Non-Destructive Cloth CAD: a pattern CAD for clothing in
-which nothing is baked in. Draw a pattern, sew it, drape it on your own
-character, change any measurement while it hangs, and take it into Blender or
-Maya.
+The first release of Twintailor: a pattern CAD for clothing in which nothing
+is baked in. Draw a pattern, sew it, drape it on your own character, change any
+measurement while it hangs, and take it into Blender or Maya.
 
 ### Start
 
 Windows 10 or 11 (x64) and a graphics card with a Vulkan 1.1 driver. Unpack
-the zip (right-click, Extract All) and open `clothcad.exe` in it. There is no
+the zip (right-click, Extract All) and open `twintailor.exe` in it. There is no
 installer.
 
 The program is not signed, so Windows warns about an unknown publisher:
 "Windows protected your PC". Choose "More info", then "Run anyway".
 
 A first garment, step by step:
-<https://github.com/sstarosz/NonDestructiveClothSimulator#using-cloth-cad>
+<https://github.com/sstarosz/Twintailor#using-twintailor>
 
 ### What it does
 
@@ -58,4 +57,4 @@ A first garment, step by step:
 - Without a Vulkan driver the table works, and the 3D view says what is
   missing.
 
-All of them: <https://github.com/sstarosz/NonDestructiveClothSimulator#known-limits-of-01>
+All of them: <https://github.com/sstarosz/Twintailor#known-limits-of-01>

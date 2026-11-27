@@ -22,10 +22,10 @@
 #include <string>
 #include <vector>
 
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class Outliner : public QTreeWidget {
     Q_OBJECT
@@ -64,20 +64,20 @@ public:
     void removeSeam(SeamId seam) { emit seamDeleteRequested(seam); }  // as "Delete" in a seam's menu
 
 signals:
-    void panelChosen(clothcad::PanelId panel);
-    void seamChosen(clothcad::SeamId seam);
-    void renamed(clothcad::PanelId panel, QString name);
-    void copyRequested(clothcad::PanelId panel);
-    void deleteRequested(clothcad::PanelId panel);
+    void panelChosen(twintailor::PanelId panel);
+    void seamChosen(twintailor::SeamId seam);
+    void renamed(twintailor::PanelId panel, QString name);
+    void copyRequested(twintailor::PanelId panel);
+    void deleteRequested(twintailor::PanelId panel);
     // Base only: a panel kept as a base for instances, not cut from cloth.
-    void baseOnlyChanged(clothcad::PanelId panel, bool baseOnly);
-    void seamDeleteRequested(clothcad::SeamId seam);
+    void baseOnlyChanged(twintailor::PanelId panel, bool baseOnly);
+    void seamDeleteRequested(twintailor::SeamId seam);
     // The body's eye was clicked: shown or hidden.
     void bodyShownChanged(bool shown);
     void bodySeeThroughChanged(bool seeThrough);
-    void panelShownChanged(clothcad::PanelId panel, bool shown);
-    void panelActiveChanged(clothcad::PanelId panel, bool active);
-    void seamShownChanged(clothcad::SeamId seam, bool shown);
+    void panelShownChanged(twintailor::PanelId panel, bool shown);
+    void panelActiveChanged(twintailor::PanelId panel, bool active);
+    void seamShownChanged(twintailor::SeamId seam, bool shown);
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
@@ -108,4 +108,4 @@ private:
     std::string shown_;     // what the rows were made from: they are made again only when it changes
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

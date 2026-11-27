@@ -6,13 +6,13 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Expect.h"
-#include "clothcad/session/Drafting.h"
-#include "clothcad/session/Locks.h"
-#include "clothcad/sim/Layout.h"
-#include "clothcad/sim/Mesh.h"
+#include "twintailor/session/Drafting.h"
+#include "twintailor/session/Locks.h"
+#include "twintailor/sim/Layout.h"
+#include "twintailor/sim/Mesh.h"
 
-using namespace clothcad;
-using namespace clothcad::session;
+using namespace twintailor;
+using namespace twintailor::session;
 
 namespace {
 
@@ -124,7 +124,7 @@ TEST_CASE("a panel turns about the middle of its box; a corner of a turned panel
     drafting.handle(editor, RotatePanel{box, 0.0, DragPhase::Begin});
     drafting.handle(editor, RotatePanel{box, -90.0, DragPhase::End});
     const Panel& turned = editor.document().get(box);
-    const Vec2 middle = clothcad::turned(Vec2{10.0, 5.0}, turned.angle);
+    const Vec2 middle = twintailor::turned(Vec2{10.0, 5.0}, turned.angle);
     EXPECT((std::abs(turned.angle + 90.0) < 1e-9), "it turns by the angle given");
     EXPECT((std::abs(turned.x + middle.x - 20.0) < 1e-9 && std::abs(turned.y + middle.y - 15.0) < 1e-9), "about the middle of its box, which stays put");
     EXPECT((editor.document().operations(box).size() == 1), "turning only places it");

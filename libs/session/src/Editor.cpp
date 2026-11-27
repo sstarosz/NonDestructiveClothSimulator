@@ -1,14 +1,14 @@
-#include "clothcad/session/Editor.h"
+#include "twintailor/session/Editor.h"
 
 #include <algorithm>
 #include <exception>
 #include <utility>
 
-#include "clothcad/core/Drawing.h"
-#include "clothcad/core/Fields.h"
-#include "clothcad/sim/Layout.h"
+#include "twintailor/core/Drawing.h"
+#include "twintailor/core/Fields.h"
+#include "twintailor/sim/Layout.h"
 
-namespace clothcad::session {
+namespace twintailor::session {
 
 Editor::Editor(Document document) : document_(std::move(document)), shapes_(std::make_shared<const Result>(evaluate(document_))) {
     placeNewPanels();
@@ -140,4 +140,4 @@ std::string Editor::newProblemIn(const Result& after, const Document& changed) c
     return "it would cause a problem";
 }
 
-} // namespace clothcad::session
+} // namespace twintailor::session

@@ -1,9 +1,9 @@
-#include "clothcad/sim/AvatarImport.h"
+#include "twintailor/sim/AvatarImport.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace clothcad::sim {
+namespace twintailor::sim {
 
 namespace {
 
@@ -106,4 +106,4 @@ Vec3 inFile(const AvatarImport& how, Vec3 point) {
 
 Vec3 directionInFile(const AvatarImport& how, Vec3 direction) { return Frame(how).turnBack(direction); }
 
-} // namespace clothcad::sim
+} // namespace twintailor::sim

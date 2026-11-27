@@ -1,4 +1,4 @@
-#include "clothcad/core/Text.h"
+#include "twintailor/core/Text.h"
 
 #include <cctype>
 #include <cstdio>
@@ -7,7 +7,7 @@
 
 #include "internal/ExprNode.h"
 
-namespace clothcad {
+namespace twintailor {
 
 namespace {
 constexpr std::string_view degreeSign = "\u00B0";  // °, as UTF-8
@@ -272,4 +272,4 @@ std::string formatValue(double value, Unit unit) {
     return plain(value, 3);
 }
 
-} // namespace clothcad
+} // namespace twintailor

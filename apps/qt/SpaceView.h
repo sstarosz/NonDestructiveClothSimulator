@@ -29,19 +29,19 @@
 #include <memory>
 #include <optional>
 
-#include "clothcad/render/Camera.h"
-#include "clothcad/render/Gizmo.h"
-#include "clothcad/render/Picking.h"
-#include "clothcad/render/Renderer.h"
-#include "clothcad/render/Scene.h"
-#include "clothcad/render/SceneOf.h"
-#include "clothcad/session/Drafting.h"
-#include "clothcad/session/Session.h"
+#include "twintailor/render/Camera.h"
+#include "twintailor/render/Gizmo.h"
+#include "twintailor/render/Picking.h"
+#include "twintailor/render/Renderer.h"
+#include "twintailor/render/Scene.h"
+#include "twintailor/render/SceneOf.h"
+#include "twintailor/session/Drafting.h"
+#include "twintailor/session/Session.h"
 
 class QLabel;
 class QVulkanInstance;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class SpaceWindow;
 class SpacePicture;
@@ -87,12 +87,12 @@ public:
 
 signals:
     // A click (not a drag) with the left button: the panel under it, if any.
-    void panelClicked(std::optional<clothcad::PanelId> panel);
+    void panelClicked(std::optional<twintailor::PanelId> panel);
     // The selected panel dragged by its gizmo or by itself: carried
     // (MoveInSpace), turned (TurnInSpace) or scaled (ScalePanel).
-    void gestured(const clothcad::session::Gesture& gesture);
+    void gestured(const twintailor::session::Gesture& gesture);
     // The draped cloth pulled by a particle (an index into its panel's mesh) towards `to`, in space.
-    void clothPulled(clothcad::PanelId panel, std::uint32_t point, clothcad::sim::Vec3 to, clothcad::session::DragPhase phase);
+    void clothPulled(twintailor::PanelId panel, std::uint32_t point, twintailor::sim::Vec3 to, twintailor::session::DragPhase phase);
     // What the handle under the mouse does.
     void hinted(const QString& next);
     // A key the view does not use itself (Q, W, E, R, Space, Delete, Ctrl+C ...): the window may.
@@ -166,4 +166,4 @@ private:
     std::optional<render::GizmoHandle> hovered_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

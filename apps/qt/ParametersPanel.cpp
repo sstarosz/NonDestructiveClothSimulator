@@ -12,7 +12,7 @@
 #include "Theme.h"
 #include "ValueField.h"
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 // A parameter's name: one too long for the box shows its start, not its end.
 // Enter takes what was typed and Escape puts the name back; both leave the box,
@@ -151,4 +151,4 @@ QString ParametersPanel::problemShown(Param parameter) const {
 
 void ParametersPanel::remove(Param parameter) { emit removeRequested(parameter); }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

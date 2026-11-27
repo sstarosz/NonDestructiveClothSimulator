@@ -8,7 +8,7 @@
 
 class QPushButton;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class Section : public QWidget {
     Q_OBJECT
@@ -24,4 +24,4 @@ private:
     QWidget* content_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

@@ -8,15 +8,15 @@
 
 #include <QWidget>
 
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/session/Drafting.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/session/Drafting.h"
 
 class QGridLayout;
 class QLabel;
 class QLineEdit;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class NameField;
 class ValueField;
@@ -32,10 +32,10 @@ public:
     void remove(Param parameter);  // as a click on its bin
 
 signals:
-    void valueTyped(clothcad::Param parameter, QString text);
-    void valueDragged(clothcad::Param parameter, double value, clothcad::session::DragPhase phase);
-    void renamed(clothcad::Param parameter, QString name);
-    void removeRequested(clothcad::Param parameter);
+    void valueTyped(twintailor::Param parameter, QString text);
+    void valueDragged(twintailor::Param parameter, double value, twintailor::session::DragPhase phase);
+    void renamed(twintailor::Param parameter, QString name);
+    void removeRequested(twintailor::Param parameter);
     void addRequested();
 
 private:
@@ -49,4 +49,4 @@ private:
     std::vector<Row> rows_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

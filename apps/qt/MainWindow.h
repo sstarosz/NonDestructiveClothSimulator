@@ -25,10 +25,10 @@
 
 #include "Outliner.h"
 #include "Shelf.h"
-#include "clothcad/session/Autosave.h"
-#include "clothcad/session/Drafting.h"
-#include "clothcad/session/FrameTimes.h"
-#include "clothcad/session/Session.h"
+#include "twintailor/session/Autosave.h"
+#include "twintailor/session/Drafting.h"
+#include "twintailor/session/FrameTimes.h"
+#include "twintailor/session/Session.h"
 
 class QDockWidget;
 class QLabel;
@@ -38,7 +38,7 @@ class QShortcut;
 class QSplitter;
 class QTimer;
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 class AttributeEditor;
 class AvatarDialog;
@@ -274,4 +274,4 @@ private:
     QString title_;
 };
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

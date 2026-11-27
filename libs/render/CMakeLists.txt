@@ -23,7 +23,7 @@ foreach(shader surface.vert:surfaceVertexCode surface.frag:surfaceFragmentCode l
     list(APPEND shader_headers ${out})
 endforeach()
 
-clothcad_library(render
+twintailor_library(render
     SOURCES
         src/Camera.cpp
         src/Gizmo.cpp
@@ -31,16 +31,16 @@ clothcad_library(render
         src/Renderer.cpp
         src/SceneOf.cpp
         ${shader_headers}
-    DEPENDS clothcad::session
+    DEPENDS twintailor::session
     PRIVATE_DEPENDS Vulkan::Headers
 )
-target_include_directories(clothcad_render PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(twintailor_render PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 # Vulkan-Hpp finds Vulkan's functions when the program runs.
-target_compile_definitions(clothcad_render PRIVATE VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
+target_compile_definitions(twintailor_render PRIVATE VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
 if(CMAKE_DL_LIBS)
-    target_link_libraries(clothcad_render PRIVATE ${CMAKE_DL_LIBS})
+    target_link_libraries(twintailor_render PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
-if(CLOTHCAD_BUILD_TESTS)
+if(TWINTAILOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

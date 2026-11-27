@@ -3,9 +3,9 @@
 
 #include <memory>
 
-#include "clothcad/core/Expr.h"
+#include "twintailor/core/Expr.h"
 
-namespace clothcad {
+namespace twintailor {
 
 struct ExprNode {
     enum class Kind { Number, Parameter, Add, Subtract, Multiply, Divide, Negate, Min, Max, Abs };
@@ -22,4 +22,4 @@ struct ExprAccess {
     static Expr make(ExprNode node) { return Expr(std::make_shared<const ExprNode>(std::move(node))); }
 };
 
-} // namespace clothcad
+} // namespace twintailor

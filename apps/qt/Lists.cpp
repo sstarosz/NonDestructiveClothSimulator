@@ -4,7 +4,7 @@
 #include <QComboBox>
 #include <QEvent>
 
-namespace clothcad::ui {
+namespace twintailor::ui {
 
 namespace {
 
@@ -35,4 +35,4 @@ void fitItsPlace(QComboBox& list) {
     list.view()->setMinimumWidth(list.view()->sizeHintForColumn(0));
 }
 
-} // namespace clothcad::ui
+} // namespace twintailor::ui

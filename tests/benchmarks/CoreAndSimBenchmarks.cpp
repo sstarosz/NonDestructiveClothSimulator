@@ -10,19 +10,19 @@
 #include <string>
 
 #include "Avatar.h"
-#include "clothcad/core/Document.h"
-#include "clothcad/core/Evaluate.h"
-#include "clothcad/core/File.h"
-#include "clothcad/sim/AvatarImport.h"
-#include "clothcad/sim/Body.h"
-#include "clothcad/sim/Cloth.h"
-#include "clothcad/sim/Layout.h"
-#include "clothcad/sim/Mesh.h"
-#include "clothcad/session/Samples.h"
+#include "twintailor/core/Document.h"
+#include "twintailor/core/Evaluate.h"
+#include "twintailor/core/File.h"
+#include "twintailor/sim/AvatarImport.h"
+#include "twintailor/sim/Body.h"
+#include "twintailor/sim/Cloth.h"
+#include "twintailor/sim/Layout.h"
+#include "twintailor/sim/Mesh.h"
+#include "twintailor/session/Samples.h"
 #include "Perf.h"
 
-using namespace clothcad;
-using namespace clothcad::sim;
+using namespace twintailor;
+using namespace twintailor::sim;
 
 // A garment the size of a skirt: front and back, sewn down both sides.
 static Document skirt() {

@@ -6,12 +6,12 @@
 #include <utility>
 #include <vector>
 
-#include "clothcad/core/Operations.h"
+#include "twintailor/core/Operations.h"
 
-namespace clothcad {
+namespace twintailor {
 
 // Replaces every operation id found in `operation`'s references by its
 // partner in `mapping` (original -> copy). Ids not in the mapping are kept.
 void remapReferences(OpData& operation, const std::vector<std::pair<OpId, OpId>>& mapping);
 
-} // namespace clothcad
+} // namespace twintailor

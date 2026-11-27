@@ -1,6 +1,6 @@
 # Instructions for Claude
 
-This is Non-Destructive Cloth CAD: a parametric pattern CAD for clothing in
+This is Twintailor: a parametric pattern CAD for clothing in
 C++23, with a 2D table, a 3D view and a cloth simulation. Read `README.md`
 for what it does and `ROADMAP.md` for what is planned. 
 
@@ -35,16 +35,16 @@ These came up again and again and outrank convenience:
 | `libs/sim/` | Meshing, arrangement in space, bodies, the cloth solver | `core`, CDT |
 | `libs/session/` | One document being edited and all worked out from it: `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table or in the 3D view changes, and the tool in use, from `Tools`), `TableGizmo` (the table's gizmo), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples`, `Autosave` (the recovery copy of unsaved work), `FrameTimes` (what the window's frames take, for View > Frame times) | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan through Vulkan-Hpp (`vk::raii`, loaded at run time, no VMA): `Scene` is plain data, `Renderer` draws it into a picture (tests) or a window's `Swapchain`; `sceneOf` turns a session into a scene; `Picking` finds what is under the mouse, `Gizmo` is the move, rotate and scale gizmo. Its tests skip where there is no Vulkan | `session`, Vulkan headers |
-| `apps/qt/` | The window (`clothcad`, Qt 6 Widgets): `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `TableView`, `SpaceView` only show and report | `session`, `render`, Qt 6 Widgets |
+| `apps/qt/` | The window (`twintailor`, Qt 6 Widgets): `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `TableView`, `SpaceView` only show and report | `session`, `render`, Qt 6 Widgets |
 | `examples/` | Seven garments as small programs; they also run as tests | `core` |
 | `tests/integration/` | The whole window, driven through its widgets without a screen (`QtWindowTests`) | anything |
 | `tests/benchmarks/` | Frame and step times against baselines (`Perf.h`) | anything |
 
-Each library has `include/clothcad/<library>/` (its public headers, the only
+Each library has `include/twintailor/<library>/` (its public headers, the only
 ones other code may include), `src/` (sources and private headers) and
 `tests/` (one test file per source file: `src/Editor.cpp` is tested by
-`tests/EditorTests.cpp`). CMake makes it with `clothcad_library()` from
-`cmake/ClothCad.cmake`, as `clothcad::<library>`.
+`tests/EditorTests.cpp`). CMake makes it with `twintailor_library()` from
+`cmake/Twintailor.cmake`, as `twintailor::<library>`.
 
 Never make `core` depend on anything, never put drawing in `core`, `sim` or
 `session`, and never put computing in a window: a window shows what the
@@ -122,7 +122,7 @@ Never make `core` depend on anything, never put drawing in `core`, `sim` or
 
 ## Adding an operation: every place it must appear
 
-1. `libs/core/include/clothcad/core/Operations.h`: the struct, its `Names` (roles as enums), and the
+1. `libs/core/include/twintailor/core/Operations.h`: the struct, its `Names` (roles as enums), and the
    `OpData` variant.
 2. `libs/core/src/Fields.cpp`: `describe` (label, fields, limits),
    `describeReferences`, and `dimensions` if a field is an edge's length.
@@ -195,8 +195,8 @@ the budgets are in `README.md` ("Performance").
   compiler, or cannot run the window, say exactly that. Never report
   something as working that you have not run or seen; name the part you
   could not check.
-- Treat warnings as defects (`clothcad_warnings()`: `/W4`, or `-Wall -Wextra
-  -Wpedantic -Wshadow`). They stop the build (`CLOTHCAD_WARNINGS_AS_ERRORS`
+- Treat warnings as defects (`twintailor_warnings()`: `/W4`, or `-Wall -Wextra
+  -Wpedantic -Wshadow`). They stop the build (`TWINTAILOR_WARNINGS_AS_ERRORS`
   is on by default); fix the warning, never turn the option off to get past it.
 
 ## How to work with the owner
