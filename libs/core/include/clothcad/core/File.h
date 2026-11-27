@@ -78,7 +78,8 @@ std::variant<SavedScene, FileError> fromText(std::string_view text);
 
 // Writes a file. Returns why it could not, or nothing. The file is written
 // beside the old one and then takes its place, so that a save which fails
-// leaves the old file as it was.
+// leaves the old file as it was. Where another program holds the old file, that
+// is tried again for about half a second before it fails.
 std::string save(const Document& doc, const std::string& path, const SceneState& state = {});
 std::variant<SavedScene, FileError> open(const std::string& path);
 

@@ -16,6 +16,14 @@ target_compile_definitions(clothcad_autosave_tests PRIVATE CLOTHCAD_TEST_FOLDER=
 clothcad_warnings(clothcad_autosave_tests)
 catch_discover_tests(clothcad_autosave_tests TEST_PREFIX "autosave: " PROPERTIES LABELS integration)
 
+# Saving over a file that another program holds. Labelled "integration".
+add_executable(clothcad_saving_tests SavingTests.cpp)
+target_link_libraries(clothcad_saving_tests PRIVATE clothcad::core Catch2::Catch2WithMain)
+target_include_directories(clothcad_saving_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(clothcad_saving_tests PRIVATE CLOTHCAD_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/saving")
+clothcad_warnings(clothcad_saving_tests)
+catch_discover_tests(clothcad_saving_tests TEST_PREFIX "saving: " PROPERTIES LABELS integration)
+
 # Damaged files, from reading them to meshing what opens. Labelled "integration".
 add_executable(clothcad_damaged_file_tests DamagedFileTests.cpp)
 target_link_libraries(clothcad_damaged_file_tests PRIVATE clothcad::session Catch2::Catch2WithMain)

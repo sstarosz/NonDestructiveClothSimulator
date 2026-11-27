@@ -36,6 +36,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <fstream>
 #include <numbers>
 #include <random>
 #include <thread>
@@ -4748,6 +4749,48 @@ TEST_CASE("File > Export OBJ writes the garment, says how many panels went where
     };
     const QByteArray old = bytes();
     EXPECT((!w.window.exportObj(path) && w.window.helpLine().contains("hidden") && bytes() == old), "with nothing to write, the file is left as it was");
+}
+
+TEST_CASE("Export OBJ replaces a file that another program holds for a moment; one that stays held is left, and why is said", "[qt]")
+{
+    Window w;
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/clothcad-held-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString path = folder.filePath("shirt.obj");
+    const auto bytes = [&] {
+        QFile file(path);
+        REQUIRE(file.open(QIODevice::ReadOnly));
+        return file.readAll();
+    };
+    REQUIRE(w.window.exportObj(path));
+    const QByteArray whole = bytes();
+    const auto putOldInItsPlace = [&] {
+        QFile file(path);
+        REQUIRE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        REQUIRE(file.write("old") == 3);
+    };
+
+    putOldInItsPlace();
+    std::ifstream held(filePath(path.toStdString()), std::ios::binary);
+    REQUIRE(held.is_open());
+    std::thread other([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        held.close();
+    });
+    const bool exported = w.window.exportObj(path);
+    other.join();
+    EXPECT(exported, "it is exported once the file is let go");
+    EXPECT(bytes() == whole, "the whole garment is in the file");
+
+#ifdef _WIN32  // elsewhere a file that is read can still be replaced
+    putOldInItsPlace();
+    const std::ifstream kept(filePath(path.toStdString()), std::ios::binary);
+    REQUIRE(kept.is_open());
+    EXPECT(!w.window.exportObj(path), "a file that stays held is not replaced");
+    EXPECT(w.window.helpLine().startsWith("Could not write"), "and why is said");
+    EXPECT(bytes() == "old", "the old file is as it was");
+    EXPECT(QDir(folder.path()).entryList(QDir::Files).size() == 1, "nothing is left beside it");
+#endif
 }
 
 TEST_CASE("Export OBJ writes the pattern as it is, also with only the table shown; with nothing to export it is greyed", "[qt]")

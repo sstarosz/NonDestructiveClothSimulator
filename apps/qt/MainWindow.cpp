@@ -25,6 +25,8 @@
 #include <QTimer>
 #include <QToolBar>
 #include <QUuid>
+#include <chrono>
+#include <thread>
 
 #include "AttributeEditor.h"
 #include "AvatarDialog.h"
@@ -681,11 +683,18 @@ bool MainWindow::exportObj(const QString& path) {
         return false;
     }
     // Written beside the file and then put in its place: one that fails leaves the old file.
-    QSaveFile file(path);
+    // Another program may hold the file for a moment, so a replacing that fails is tried
+    // again after growing waits, about half a second in all, as clothcad::save does.
     const auto size = static_cast<qint64>(obj->text.size());
-    if (!file.open(QIODevice::WriteOnly) || file.write(obj->text.data(), size) != size || !file.commit()) {
-        say(QString("Could not write %1 (%2). Choose another place and export again.").arg(QDir::toNativeSeparators(path), file.errorString()), true);
-        return false;
+    for (std::chrono::milliseconds wait{1};; wait *= 2) {
+        QSaveFile file(path);
+        const bool written = file.open(QIODevice::WriteOnly) && file.write(obj->text.data(), size) == size;
+        if (written && file.commit()) break;
+        if (!written || wait > std::chrono::milliseconds{256}) {
+            say(QString("Could not write %1 (%2). Choose another place and export again.").arg(QDir::toNativeSeparators(path), file.errorString()), true);
+            return false;
+        }
+        std::this_thread::sleep_for(wait);
     }
     QString words = QString("Exported %1 %2 to %3.").arg(obj->panels).arg(obj->panels == 1 ? "panel" : "panels", QDir::toNativeSeparators(path));
     if (obj->leftOut > 0) words += QString(" Left out: %1 hidden.").arg(obj->leftOut);
