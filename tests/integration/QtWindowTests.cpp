@@ -4959,3 +4959,27 @@ TEST_CASE("the README's first garment: the trousers drape, take a wider waist, a
     EXPECT(w.window.exportObj(folder.filePath("trousers.obj")), "and it is exported");
 }
 
+
+// Numbers start again in every pattern, so its first panel and shape have those of the last one's.
+TEST_CASE("a layer of another pattern that has the same number is shown as what it is", "[qt]")
+{
+    Window w;
+    // Opens a pattern of one panel with this shape, selects the panel and says what its layer's card is called.
+    const auto cardOf = [&](auto shape) {
+        Document doc;
+        const PanelId panel = doc.add(Panel{.name = "panel"});
+        const OpId layer = doc.add(panel, shape);
+        w.window.open(std::move(doc), "pattern");
+        w.window.select(panel);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QWidget* card = w.window.attributes()->findChild<QWidget*>(QString("layer%1").arg(layer.value));
+        REQUIRE(card != nullptr);
+        QPushButton* name = card->findChild<QPushButton*>("layerName");
+        REQUIRE(name != nullptr);
+        return name->text();
+    };
+    EXPECT(cardOf(RingSector{.innerLength = 60_cm, .sweep = 180_deg, .depth = 30_cm}) == "Ring sector", "three numbers");
+    // The same numbers name a shape with two now: its card is made for it, and no third number is read.
+    EXPECT(cardOf(Rect{.width = 40_cm, .height = 20_cm}) == "Rectangle", "two numbers");
+    EXPECT(cardOf(Circle{.radius = 10_cm}) == "Circle", "and another two, called by their own name");
+}

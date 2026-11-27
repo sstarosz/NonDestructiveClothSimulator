@@ -470,9 +470,12 @@ void AttributeEditor::rebuildLayers(const Document& doc, const Result& shapes) {
             if (which == op) return words;
         return QString();
     };
+    // A number does not say which operation it is: numbers start again in another pattern, and after an undo.
+    // So each row's kind is part of what it was made from, or its fields would be read from another operation.
     std::string signature = std::to_string(panel_->value) + "@" + (viewed_ ? std::to_string(viewed_->value) : "-");
     for (OpId op : order)
-        signature += "," + std::to_string(op.value) + (doc.enabled(op) ? "+" : "-") + (isOpen(op) ? "o" : "c") + problemOf(op).toStdString() + choicesOf(doc.get(op), doc);
+        signature += "," + std::to_string(op.value) + ":" + std::to_string(doc.get(op).index()) + (doc.enabled(op) ? "+" : "-") + (isOpen(op) ? "o" : "c") +
+                     problemOf(op).toStdString() + choicesOf(doc.get(op), doc);
     if (signature != shownLayers_) {
         // Everything is made, laid out and then painted at once, so that the rows never show blank.
         page_->setUpdatesEnabled(false);
