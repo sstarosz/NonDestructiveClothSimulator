@@ -81,8 +81,9 @@ In pull requests, in this order:
 **Before the tag**, checked by hand on the 4K display:
 
 - Alt pressed during a number drag does not open the menu bar (#6).
-- Space and the tool keys typed into a field, a parameter's name and the
-  Outliner's rename box do only that (#33, which also gets its test).
+- Done: Space and the tool keys typed into a field, a parameter's name, the
+  Outliner's rename box and the box for a length on the table do only that. A
+  test sends them as the system does (#33).
 - The window looks right after the Cloth tab change (#30).
 - The zip, unpacked on a Windows PC that never built the project, starts,
   opens every sample, and drapes the trousers on the shipped avatar and on
