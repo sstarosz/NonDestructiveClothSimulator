@@ -25,6 +25,7 @@ add_library(clothcad_qt_ui STATIC
     AvatarDialog.cpp
     Icons.cpp
     LengthCard.cpp
+    Lists.cpp
     MainWindow.cpp
     Outliner.cpp
     ParametersPanel.cpp

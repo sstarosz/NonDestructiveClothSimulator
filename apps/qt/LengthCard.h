@@ -58,6 +58,8 @@ signals:
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
+    // The wheel stays on the bar, as clicks do: the table zoomed under it would move what is being typed about.
+    void wheelEvent(QWheelEvent* event) override;
 
 private:
     void commit();

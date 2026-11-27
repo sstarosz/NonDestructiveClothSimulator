@@ -18,6 +18,7 @@ class QLineEdit;
 
 namespace clothcad::ui {
 
+class NameField;
 class ValueField;
 
 class ParametersPanel : public QWidget {
@@ -41,7 +42,7 @@ private:
     QGridLayout* grid_;
     struct Row {
         Param parameter;
-        QLineEdit* name;
+        NameField* name;
         ValueField* field;
         QLabel* problem;
     };

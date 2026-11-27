@@ -10,7 +10,9 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
+#include "Lists.h"
 #include "Theme.h"
 #include "ValueField.h"
 #include "clothcad/core/Text.h"
@@ -70,6 +72,7 @@ LengthCard::LengthCard(QWidget* parent) : QFrame(parent) {
     scope_ = new QComboBox(this);
     scope_->setObjectName("lengthScope");
     scope_->setFocusPolicy(Qt::ClickFocus);
+    takeWheelOnlyWithFocus(*scope_);
     scope_->addItems({"Edge only", "Shape's setting"});
     scope_->setToolTip("Edge only: this edge gets a length of its own and the rest of the shape keeps its setting.\n"
                        "The shape's setting: the shape sets this edge, and the edge opposite it with it.");
@@ -158,6 +161,8 @@ void LengthCard::cancel() {
     dismiss();
     emit cancelled();
 }
+
+void LengthCard::wheelEvent(QWheelEvent* event) { event->accept(); }
 
 bool LengthCard::eventFilter(QObject* watched, QEvent* event) {
     // Enter and Escape are the bar's, not the field's: the field would close itself.

@@ -214,6 +214,14 @@ std::string edgeName(const EdgeRef& edge, const Document& doc) {
     return viaWords(edge.via, doc) + std::string(edgeRoleName(doc.get(edge.op), edge.role));
 }
 
+std::string shortName(const CornerRef& corner, const Document& doc) {
+    if (!doc.contains(corner.op)) return {};
+    std::string_view role = cornerRoleName(doc.get(corner.op), corner.role);
+    constexpr std::string_view said = " corner";  // a list of corners need not say that they are
+    if (role.ends_with(said)) role.remove_suffix(said.size());
+    return viaWords(corner.via, doc) + std::string(role);
+}
+
 std::string nameOf(const Reference& reference, const Document& doc) {
     if (const EdgeRef* edge = std::get_if<EdgeRef>(&reference)) {
         if (!doc.contains(edge->op)) return missing(edge->op);

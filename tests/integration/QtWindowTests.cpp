@@ -28,6 +28,7 @@
 #include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTreeWidgetItemIterator>
 #include <QScrollBar>
 #include <QToolBar>
 #include <QToolButton>
@@ -61,6 +62,13 @@
 
 using namespace clothcad;
 using namespace clothcad::ui;
+
+// How the system's wheel comes into Qt: declared here as Qt's own test headers
+// declare it (QtTest/qtestwheel.h), so that Qt Test need not be linked.
+QT_BEGIN_NAMESPACE
+Q_GUI_EXPORT void qt_handleWheelEvent(QWindow* window, const QPointF& local, const QPointF& global, QPoint pixelDelta, QPoint angleDelta,
+                                      Qt::KeyboardModifiers mods, Qt::ScrollPhase phase);
+QT_END_NAMESPACE
 
 namespace {
 
@@ -886,7 +894,8 @@ TEST_CASE("the Length tool on the shelf gives a clicked edge a length of its own
 
     QComboBox* keeps = w.window.attributes()->findChild<QComboBox*>("keeps");
     REQUIRE(keeps != nullptr);
-    EXPECT((keeps->count() == 3 && keeps->currentIndex() == 0 && keeps->itemText(1).contains("corner")), "the layer offers what to keep, in words of corners, and starts with both ends moving");
+    EXPECT((keeps->count() == 3 && keeps->currentIndex() == 0 && keeps->itemText(1).endsWith(" stays") &&
+            keeps->itemData(1, Qt::ToolTipRole).toString().contains("corner")), "the layer offers what to keep, in words of corners, and starts with both ends moving");
     const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
     const auto topRightX = [&] { return w.window.session().editor().shapes()[plain].position(rect.topRight()).x; };
     EXPECT_NEAR((topRightX()), (35.0), "with both ends moving, the top-right corner went out 5 cm");
@@ -4467,6 +4476,236 @@ std::size_t trianglesOf(const sim::ClothMesh& mesh, const std::string& without =
 }
 
 } // namespace
+
+// ---- The owner's notes: lists and names in the docks ----
+
+namespace {
+
+// A key pressed on a widget, as Qt delivers it.
+void pressKey(QWidget* widget, int key, const QString& text = {}) {
+    QKeyEvent pressed(QEvent::KeyPress, key, Qt::NoModifier, text);
+    QApplication::sendEvent(widget, &pressed);
+}
+
+// Typed letter by letter over what is selected.
+void typeKeys(QWidget* widget, const QString& text) {
+    for (const QChar letter : text) pressKey(widget, 0, QString(letter));
+}
+
+// The wheel turned one notch towards the user with the pointer over a widget, as
+// when a dock is scrolled down. It goes in where the system's events do: only
+// such a one does Qt hand on from a widget that does not take it, and give the
+// focus to a widget that asks for it by the wheel.
+void wheelDown(QWidget* widget) {
+    QWidget* top = widget->window();
+    const QPoint at = widget->mapTo(top, widget->rect().center());
+    REQUIRE(top->childAt(at) == widget);  // seen, and under the pointer
+    qt_handleWheelEvent(top->windowHandle(), at, top->mapToGlobal(at), QPoint(), QPoint(0, -120), Qt::NoModifier, Qt::NoScrollPhase);
+    QApplication::processEvents();
+}
+
+// A frame, and the layouts it asked for done, one pass of events after another.
+void settle(Window& w) {
+    w.window.tick();
+    for (int i = 0; i < 5; ++i) QApplication::processEvents();
+}
+
+// Two panels with every list the Attribute Editor has: an instance's source, a cut's side, what a set length keeps.
+struct Lists : Window {
+    PanelId cut, instance;
+    OpId set;
+    Lists() {
+        Document doc;
+        cut = doc.add(Panel{.name = "cut"});
+        const OpRef<Rect> rect = doc.add(cut, Rect{.width = 30_cm, .height = 40_cm});
+        // Under the cut and the set length, layers enough that their list has to be scrolled.
+        for (int i = 0; i < 10; ++i) doc.add(cut, Scale{.x = 1.0, .y = 1.0});
+        const OpRef<LineBetween> line = doc.add(cut, LineBetween{.from = {rect.left(), 0.5}, .to = {rect.right(), 0.5}});
+        doc.add(cut, Cut{.along = line.line()});
+        set = doc.add(cut, SetLength{.edge = rect.bottom(), .length = 25_cm});
+        instance = doc.add(Panel{.name = "instance", .x = 50});
+        doc.add(instance, Instance{.source = cut});
+        window.open(std::move(doc), "lists");
+        window.activateWindow();  // as on a desktop: only there can a part of it have the focus
+        window.tick();
+        QApplication::processEvents();
+        REQUIRE(window.isActiveWindow());
+    }
+    // A list of the panel shown now.
+    QComboBox* list(const char* name) {
+        QComboBox* found = window.attributes()->findChild<QComboBox*>(name);
+        REQUIRE(found != nullptr);
+        return found;
+    }
+};
+
+} // namespace
+
+TEST_CASE("the wheel over a list of the Attribute Editor scrolls the dock and changes nothing, until the list is clicked", "[qt]")
+{
+    Lists w;
+    for (const char* name : {"keeps", "keep", "panelReference"}) {
+        INFO(name);
+        w.window.select(std::string_view(name) == "panelReference" ? w.instance : w.cut);
+        settle(w);
+        QComboBox* list = w.list(name);
+        EXPECT((list->focusPolicy() != Qt::WheelFocus), "the wheel does not give it the focus");
+        QScrollArea* around = w.window.attributes()->findChild<QScrollArea*>("layerScroll");
+        // An instance has one short card: nothing to scroll, but still nothing to change.
+        if (std::string_view(name) != "panelReference") REQUIRE(around->verticalScrollBar()->maximum() > 0);
+        around->verticalScrollBar()->setValue(0);
+        w.window.table()->setFocus();
+        const std::uint64_t version = w.window.session().editor().version();
+        const int chosen = list->currentIndex();
+        // Over a list that could go further down: the wheel would choose the next entry.
+        if (chosen + 1 >= list->count()) list->insertItem(list->count(), "one more");
+        wheelDown(list);
+        w.window.tick();
+        EXPECT((w.window.session().editor().version() == version && w.list(name)->currentIndex() == chosen), "nothing is changed");
+        if (std::string_view(name) != "panelReference") EXPECT((around->verticalScrollBar()->value() > 0), "and the layers scroll on");
+    }
+
+    // Clicked, it has the focus and takes the wheel, as any list.
+    w.window.select(w.cut);
+    settle(w);
+    w.window.attributes()->findChild<QScrollArea*>("layerScroll")->verticalScrollBar()->setValue(0);
+    QComboBox* keeps = w.list("keeps");
+    keeps->setFocus(Qt::MouseFocusReason);
+    REQUIRE(keeps->hasFocus());
+    wheelDown(keeps);
+    w.window.tick();
+    EXPECT((std::get<SetLength>(w.doc().get(w.set)).keeping == SetLength::Keeping::Start), "the next entry is chosen");
+}
+
+TEST_CASE("the wheel over the length bar changes nothing, not over its list and not over its words", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    TableView* table = w.table();
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    QComboBox* scope = table->lengthCard()->findChild<QComboBox*>("lengthScope");
+    REQUIRE((scope != nullptr && scope->isVisible()));
+    scope->setCurrentIndex(0);
+    settle(w);  // the table has its place and its zoom
+    const std::uint64_t version = w.window.session().editor().version();
+    const double zoom = table->scale();
+    wheelDown(scope);
+    w.window.tick();
+    EXPECT((scope->currentIndex() == 0 && w.window.session().editor().version() == version), "nothing is chosen and nothing changed");
+    EXPECT((table->scale() == zoom), "nor is the table zoomed under the bar");
+    wheelDown(table->lengthCard()->findChild<QLabel*>("lengthCaption"));
+    EXPECT((table->scale() == zoom), "nor over the rest of the bar");
+    EXPECT((table->lengthEditor() != nullptr), "which stays");
+}
+
+TEST_CASE("no card of the Attribute Editor is wider than the dock; what a length keeps is said in few words", "[qt]")
+{
+    Window w;
+    choose(w, "fileSample6");
+    w.waitForTheBody();
+    AttributeEditor& editor = *w.window.attributes();
+    // A name as long as a person might give: the instances' list of sources holds it.
+    const PanelId front = w.panel("right front");
+    emit w.window.outliner()->renamed(front, "right front of the long summer trousers");
+    std::size_t setLengths = 0;
+    for (PanelId panel : w.doc().panels()) {
+        w.window.select(panel);
+        for (OpId op : w.doc().operations(panel)) editor.openLayer(op);
+        settle(w);
+        QScrollArea* layers = editor.findChild<QScrollArea*>("layerScroll");
+        INFO(w.doc().get(panel).name << ": the layers want " << layers->widget()->minimumSizeHint().width() << " px, the dock shows " << layers->viewport()->width());
+        EXPECT((layers->widget()->minimumSizeHint().width() <= layers->viewport()->width()), "every card fits in the dock");
+        EXPECT((layers->horizontalScrollBar()->maximum() == 0), "so nothing is scrolled to sideways");
+        for (QComboBox* list : layers->findChildren<QComboBox*>("keeps")) {
+            ++setLengths;
+            REQUIRE(list->count() == 3);
+            EXPECT((list->itemText(0) == "both ends move evenly" && list->itemText(1).endsWith(" stays") && !list->itemText(1).contains("Rectangle")),
+                   "the corner without the layer it comes from");
+            EXPECT((list->itemData(1, Qt::ToolTipRole).toString().contains(" of ")), "which the tooltip says");
+        }
+        // Asked of the list that opens, not by opening it: each window opened off screen is one more thing to
+        // close, and Qt's platform without a screen crashed as the program ended after many of them.
+        for (QComboBox* list : layers->findChildren<QComboBox*>())
+            EXPECT((list->view()->minimumWidth() >= list->view()->sizeHintForColumn(0)), "opened, the list shows its entries whole");
+    }
+    EXPECT((setLengths >= 4), "the trousers' set lengths were among them");
+}
+
+TEST_CASE("Enter in a parameter's name renames it and leaves the box; Escape keeps the old name and leaves it", "[qt]")
+{
+    Window w;
+    w.window.activateWindow();  // as on a desktop: only there can a part of it have the focus
+    QApplication::processEvents();
+    REQUIRE(w.window.isActiveWindow());
+    const Param chest = w.parameter("chest");
+    QLineEdit* name = w.window.parameters()->nameField(chest);
+    REQUIRE(name != nullptr);
+    const auto begin = [&](const QString& typed) {
+        name->setFocus(Qt::MouseFocusReason);
+        name->selectAll();
+        typeKeys(name, typed);
+        REQUIRE((name->hasFocus() && name->text() == typed));
+    };
+
+    begin("bust");
+    pressKey(name, Qt::Key_Return);
+    w.window.tick();
+    EXPECT((w.doc().get(chest).name == "bust"), "Enter renames");
+    EXPECT((!name->hasFocus() && name->text() == "bust"), "and leaves the box");
+
+    begin("waist2");
+    pressKey(name, Qt::Key_Escape);
+    w.window.tick();
+    EXPECT((w.doc().get(chest).name == "bust" && name->text() == "bust"), "Escape keeps the old name");
+    EXPECT((!name->hasFocus()), "and leaves the box too");
+
+    begin("2 wrong");
+    pressKey(name, Qt::Key_Enter);
+    w.window.tick();
+    EXPECT((w.doc().get(chest).name == "bust" && name->text() == "bust" && !name->hasFocus()), "a name that is refused leaves the old one, and the box");
+    EXPECT((w.window.helpLine().contains("letters")), "with why");
+}
+
+TEST_CASE("Enter in the Outliner's rename box renames and closes it; Escape closes it with the old name", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    Outliner& outliner = *w.window.outliner();
+    const auto begin = [&](const QString& typed) {
+        QTreeWidgetItem* row = nullptr;
+        for (QTreeWidgetItemIterator at(&outliner); *at; ++at)
+            if ((*at)->text(0) == QString::fromStdString(w.doc().get(front).name)) row = *at;
+        REQUIRE(row != nullptr);
+        outliner.setCurrentItem(row);
+        w.window.tick();
+        emit outliner.itemDoubleClicked(outliner.currentItem(), 0);  // what a double click on the name does
+        auto* box = outliner.viewport()->findChild<QLineEdit*>();
+        REQUIRE(box != nullptr);
+        box->selectAll();
+        typeKeys(box, typed);
+        return QPointer<QLineEdit>(box);
+    };
+    const auto settle = [&] {
+        for (int i = 0; i < 3; ++i) {
+            QApplication::processEvents();
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
+        w.window.tick();
+    };
+
+    QPointer<QLineEdit> box = begin("bodice");
+    pressKey(box, Qt::Key_Return);
+    settle();
+    EXPECT((w.doc().get(front).name == "bodice"), "Enter renames");
+    EXPECT((box.isNull()), "and the box is gone");
+
+    box = begin("skirt");
+    pressKey(box, Qt::Key_Escape);
+    settle();
+    EXPECT((w.doc().get(front).name == "bodice" && box.isNull()), "Escape keeps the old name, and the box is gone");
+}
 
 TEST_CASE("File > Export OBJ writes the garment, says how many panels went where, and why when it cannot", "[qt]")
 {

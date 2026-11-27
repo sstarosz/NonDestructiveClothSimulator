@@ -2,6 +2,7 @@
 
 #include <QFocusEvent>
 #include <QGridLayout>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QToolButton>
@@ -13,21 +14,45 @@
 
 namespace clothcad::ui {
 
-namespace {
-
 // A parameter's name: one too long for the box shows its start, not its end.
+// Enter takes what was typed and Escape puts the name back; both leave the box,
+// as in a value's field.
 class NameField : public QLineEdit {
 public:
     using QLineEdit::QLineEdit;
 
+    // The name the document has: shown unless it is being typed over.
+    void showName(const QString& name) {
+        named_ = name;
+        if (hasFocus()) return;
+        setText(name);
+        setCursorPosition(0);  // setText leaves it at the end, scrolled there
+    }
+
 protected:
+    // What was typed is reported once, as the box loses the focus (editingFinished).
+    void keyPressEvent(QKeyEvent* event) override {
+        switch (event->key()) {
+        case Qt::Key_Escape:
+            setText(named_);
+            setModified(false);
+            [[fallthrough]];
+        case Qt::Key_Return:
+        case Qt::Key_Enter:
+            clearFocus();
+            event->accept();
+            return;
+        default: QLineEdit::keyPressEvent(event);
+        }
+    }
     void focusOutEvent(QFocusEvent* event) override {
         QLineEdit::focusOutEvent(event);
         if (event->reason() != Qt::PopupFocusReason) setCursorPosition(0);  // its menu works on what is selected
     }
-};
 
-} // namespace
+private:
+    QString named_;
+};
 
 ParametersPanel::ParametersPanel(QWidget* parent) : QWidget(parent) {
     setObjectName("parameters");
@@ -95,10 +120,7 @@ void ParametersPanel::show(const Document& doc, const Result& shapes) {
     }
     for (const Row& row : rows_) {
         const QString name = QString::fromStdString(doc.get(row.parameter).name);
-        if (!row.name->hasFocus()) {
-            row.name->setText(name);
-            row.name->setCursorPosition(0);  // setText leaves it at the end, scrolled there
-        }
+        row.name->showName(name);
         row.name->setToolTip(name + "\nThe name formulas use: letters, digits and underscores, starting with a letter.");
         row.field->show(doc.get(row.parameter).value, doc, shapes);
         QString words;
