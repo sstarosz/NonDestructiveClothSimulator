@@ -71,6 +71,9 @@ public:
     // False: there is nothing to take hold of, the hold is over (a new mesh, a
     // reset), or the edit is.
     bool preview(Edit edit, const PullCloth& command);
+    // Takes the cloth off and stops it. False: there was no cloth, and there is
+    // no undo step.
+    bool run(const ResetCloth& command);
     void commit(Edit edit);
     // The document and the drape are as before the edit. Says whether there was
     // anything to take back.
@@ -165,8 +168,6 @@ public:
     // cloth waits, and what was asked is kept: it runs once the body is ready.
     void simulate(bool on) { simulating_ = on; }
     bool simulating() const { return simulating_; }
-    // Back to the arrangement; the cloth is gone until it is simulated again.
-    void resetCloth();
     // Whether there is cloth to show: started and not reset.
     bool clothShown() const { return simulation_->exists() && cloth_.mesh != nullptr; }
     const Simulation::News& cloth() const { return cloth_; }
@@ -213,6 +214,7 @@ private:
     sim::Body bodyInSimulation() const { return bodyPresent_ ? body_ : sim::Body{}; }
     void followAvatar();
     void keepDrape();
+    void dropCloth();  // stops the cloth and forgets it: no undo step
     void hang(const SavedDrape& drape);
     bool clothAsSaved() const;
     bool remesh(bool now);
@@ -240,7 +242,6 @@ private:
     Threading threading_;
 
     std::shared_ptr<const Avatar> bodyOf_;  // the avatar the body is of
-    bool bodyReplaced_ = false;             // another body came since the state of the history last looked at
     sim::Body body_;
     std::shared_ptr<const sim::Surface> bodySurface_ = std::make_shared<const sim::Surface>();
     std::shared_ptr<const sim::Surface> preview_;  // shown instead of it
@@ -275,8 +276,9 @@ private:
     void release();             // lets go of the held particle
     void letGoAfterThePull();   // the same, once that edit is over
 
-    // The drape as it was when each state of the history was left, so that
-    // undo and redo bring it back (keyed by Editor::step).
+    // The cloth as it was when each state of the history was left, so that undo
+    // and redo bring it back (keyed by Editor::step). Empty: a Reset left that
+    // state with no cloth.
     struct Drape {
         std::shared_ptr<const sim::ClothMesh> mesh;
         sim::Placement positions;
@@ -284,7 +286,7 @@ private:
         bool sewing = false;
         std::vector<PanelId> inactive;  // the panels that took no part in it
     };
-    std::map<std::uint64_t, Drape> drapes_;
+    std::map<std::uint64_t, std::optional<Drape>> drapes_;
     std::uint64_t shownStep_ = 0;
 
     std::uint64_t sceneVersion_ = 1;

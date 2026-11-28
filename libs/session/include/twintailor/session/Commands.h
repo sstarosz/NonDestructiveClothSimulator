@@ -666,4 +666,13 @@ struct PullCloth {
     sim::Vec3 to;
 };
 
+// The cloth taken off: the panels are back where they are arranged, and nothing
+// runs until the cloth is simulated again. Only a Session runs it. It changes no
+// document and is one undo step: undo brings the drape back as it hung, and redo
+// takes it off again.
+//
+//   session.run(ResetCloth{});
+//   session.undo();  // the drape is back at the next update()
+struct ResetCloth {};
+
 } // namespace twintailor::session

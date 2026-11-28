@@ -106,7 +106,8 @@ only ones other code may include), `src/` (sources and private headers) and
 - **An action is a command** (`session/Commands.h`,
   [decision 0027](decisions/0027-every-change-is-a-command.md)): a struct that
   holds all it needs. Every change of the pattern, a panel's place and the
-  avatar is one, and so is pulling the cloth. New actions are commands.
+  avatar is one, and so are pulling the cloth and Reset. New actions are
+  commands.
 - **`run` is one undo step; several changes are one in an edit.** `begin`
   opens it, `run` adds to it, `preview` takes the place of the preview before
   (what follows the mouse), `commit` keeps it and `cancel` takes all of it
@@ -148,8 +149,10 @@ only ones other code may include), `src/` (sources and private headers) and
 - **Nothing starts a panel's cloth again but Reset**, and another avatar. A
   panel moved in space takes its drape along (`sim::Motion`); undo and redo
   bring the drape back (`Session` keeps it per `Editor::step`), an avatar's
-  drape too; an opened file hangs its saved drape; pulling the cloth changes
-  no document, and each pull is an undo step of its own (`Editor::addStep`).
+  drape too; an opened file hangs its saved drape. Pulling the cloth and
+  Reset change no document, and each is an undo step of its own
+  (`Editor::addStep`): a state that Reset left with no cloth comes back with
+  none.
 
 ### Performance
 

@@ -208,7 +208,7 @@ TEST_CASE("simulating moves the cloth, and an edit keeps it draped")
     EXPECT(session.cloth().time >= time, "an edit does not start the cloth again");
     EXPECT(session.shownMesh().panels.front().points.size() == session.shownPositions().front().size(), "what is shown fits together");
 
-    session.resetCloth();
+    session.run(ResetCloth{});
     session.update();
     EXPECT((!session.clothShown() && !session.simulating()), "reset, the panels are back where they are arranged");
 }
@@ -411,13 +411,11 @@ TEST_CASE("another body ends the cloth; undo and redo bring back the drape that 
     session.update();
     EXPECT((asOnFirst()), "undone while the cloth was not looked at, it is back when it is");
 
-    // Reset is not undone: with no cloth there is nothing to bring back.
-    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(45)); }));
-    session.update();
-    session.resetCloth();
+    // The same after a Reset on the first body.
+    REQUIRE(session.run(ResetCloth{}));
     REQUIRE(session.undo());
     session.update();
-    EXPECT((!session.clothShown()), "after Reset, undo brings no cloth back");
+    EXPECT((asOnFirst()), "a Reset on a body is undone like any other");
 }
 
 namespace {
@@ -468,13 +466,13 @@ TEST_CASE("a seam that cannot close is in the cloth's news, until it closes or t
     frames(session, 240);
     EXPECT(session.cloth().open.empty(), "let go, it closes and is not reported");
 
-    session.resetCloth();
+    session.run(ResetCloth{});
     session.simulate(true);
     frames(session, 1);
     session.preview(session.begin(), PullCloth{session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}});
     frames(session, 600);
     REQUIRE(!session.cloth().open.empty());
-    session.resetCloth();
+    session.run(ResetCloth{});
     EXPECT(session.cloth().open.empty(), "no cloth, no open seam");
 }
 
@@ -565,7 +563,7 @@ TEST_CASE("unsaved is the document, what is hidden and frozen, the body's looks 
     session.simulate(true);
     frames(session, 2);
     EXPECT(session.unsaved(), "the cloth moved on");
-    session.resetCloth();
+    session.run(ResetCloth{});
     EXPECT(session.unsaved(), "gone, where the file has one");
     session.markSaved();
     session.markUnsaved();
@@ -748,6 +746,128 @@ TEST_CASE("a held particle is let go once something else is done, however it is 
     EXPECT((session.undo() && session.redo() && !session.pulling()), "and so does redo");
 }
 
+namespace {
+
+// A skirt that has hung for a while and been paused.
+struct Hung {
+    Skirt start;
+    Session session{start.doc, Threading::OneStepPerAdvance};
+    sim::Placement drape;
+    double time = 0.0;
+    Hung() {
+        session.simulate(true);
+        frames(session, 40);
+        session.simulate(false);
+        session.update();
+        drape = session.cloth().positions;
+        time = session.cloth().time;
+    }
+    bool asHung() const { return session.clothShown() && session.cloth().time == time && apart(session.cloth().positions, drape) == 0.0; }
+};
+
+} // namespace
+
+TEST_CASE("Reset is one undo step: undo brings the drape back as it hung, and redo takes it off again")
+{
+    Hung hung;
+    Session& session = hung.session;
+    session.markSaved();
+    REQUIRE(session.run(ResetCloth{}));
+    session.update();
+    EXPECT((!session.clothShown() && session.editor().canUndo() && !session.editor().unsaved()), "the cloth is off, and the pattern is as it was");
+    EXPECT(session.unsaved(), "the saved cloth is gone");
+    REQUIRE(session.undo());
+    session.update();
+    EXPECT((hung.asHung() && !session.simulating() && !session.editor().canUndo()), "back, every particle where it was, standing still");
+    EXPECT((!session.unsaved()), "as saved");
+    REQUIRE(session.redo());
+    session.update();
+    EXPECT((!session.clothShown() && !session.simulating()), "redone, it is off again");
+    REQUIRE(session.undo());
+    session.update();
+    EXPECT((hung.asHung()), "and back again");
+
+    REQUIRE((session.redo() && session.undo()));
+    EXPECT((session.run(ResetCloth{}) && !session.run(ResetCloth{})), "also before a frame has shown it; with no cloth there is nothing to reset");
+    EXPECT((session.undo() && !session.editor().canUndo()), "and no undo step for it");
+}
+
+TEST_CASE("a Reset while the cloth runs stops it, and a redone one stops it again")
+{
+    Hung hung;
+    Session& session = hung.session;
+    session.simulate(true);
+    frames(session, 5);
+    const sim::Placement running = session.cloth().positions;
+    REQUIRE(session.run(ResetCloth{}));
+    EXPECT((!session.simulating() && !session.clothShown()), "stopped at once");
+    REQUIRE(session.undo());
+    frames(session, 3);
+    EXPECT((apart(session.cloth().positions, running) == 0.0), "the drape as it was when it was taken off, standing still");
+
+    session.simulate(true);
+    frames(session, 5);
+    const sim::Placement further = session.cloth().positions;
+    REQUIRE(session.redo());
+    frames(session, 3);
+    EXPECT((!session.simulating() && !session.clothShown()), "redo takes it off and stops it");
+    REQUIRE(session.undo());
+    session.update();
+    EXPECT((apart(session.cloth().positions, further) == 0.0), "with nothing of the drape lost");
+}
+
+TEST_CASE("after a Reset and a new drape, undo goes back to the old drape and redo to the new one")
+{
+    Hung hung;
+    Session& session = hung.session;
+    REQUIRE(session.run(ResetCloth{}));
+    session.simulate(true);
+    frames(session, 10);
+    session.simulate(false);
+    session.update();
+    const sim::Placement second = session.cloth().positions;
+    REQUIRE(session.undo());
+    session.update();
+    EXPECT((hung.asHung()), "the drape from before the Reset");
+    REQUIRE(session.redo());
+    session.update();
+    EXPECT((session.clothShown() && apart(session.cloth().positions, second) == 0.0), "and the one made after it");
+}
+
+TEST_CASE("a state that a Reset left with no cloth comes back with none")
+{
+    Hung hung;
+    Session& session = hung.session;
+    REQUIRE(session.run(ResetCloth{}));
+    REQUIRE(session.run(SetField{hung.start.length, 55_cm}));
+    session.simulate(true);
+    frames(session, 10);
+    session.simulate(false);
+    session.update();
+    const sim::Placement longer = session.cloth().positions;
+    REQUIRE(session.undo());
+    session.update();
+    EXPECT((!session.clothShown()), "before the change there was no cloth");
+    REQUIRE(session.redo());
+    session.update();
+    EXPECT((apart(session.cloth().positions, longer) == 0.0), "redone, the cloth that was made after it");
+    REQUIRE((session.undo() && session.undo()));
+    session.update();
+    EXPECT((hung.asHung()), "and one more undo takes the Reset back");
+}
+
+TEST_CASE("a Reset follows a change not looked at yet first, and undo brings back the cloth on it")
+{
+    Hung hung;
+    Session& session = hung.session;
+    REQUIRE(session.run(SetField{hung.start.length, 55_cm}));
+    session.update(false);  // the 3D view is hidden
+    REQUIRE(session.run(ResetCloth{}));
+    REQUIRE(session.undo());
+    session.update();
+    EXPECT((session.clothShown() && session.cloth().mesh == session.mesh()), "the drape is back, on the longer skirt");
+}
+
 TEST_CASE("undo and redo bring the drape back")
 {
     Skirt start;
@@ -852,7 +972,7 @@ TEST_CASE("a panel is hidden without leaving the cloth; deactivated, it stands s
     frames(session, 5);
     EXPECT(heightOf(start.panel) == afterEdit, "an edit of the pattern leaves it standing");
 
-    session.resetCloth();
+    session.run(ResetCloth{});
     EXPECT((!session.panelActive(start.panel) && !session.panelShown(start.panel)), "Reset keeps both as they are");
     session.update();
     const double standsAt = heightOf(start.panel);  // with no cloth: where it is arranged
