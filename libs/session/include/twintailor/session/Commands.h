@@ -29,6 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -430,6 +431,127 @@ struct BakePanel {
     std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
 };
 
+// ---- Seams -----------------------------------------------------------------------
+
+// Two edges sewn together. Refused if they are sewn together already, either
+// way round.
+struct AddSeam {
+    Seam seam;
+
+    struct Done {
+        SeamId seam;
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Whether a seam sews start to start (Seam::reversed), which twists the two
+// pieces against each other.
+struct SetSeamReversed {
+    SeamId seam;
+    bool reversed;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+struct RemoveSeam {
+    SeamId seam;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Instances sewn as the panels they follow are sewn, for seams made on a source
+// after its instance (Document::sewAsSource). Panels that follow none are left.
+// Refused, saying why, if there is nothing to add.
+struct SewInstances {
+    std::vector<PanelId> instances;
+
+    struct Done {
+        std::size_t seams = 0;  // how many were added
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// ---- Panel settings, parameters and the avatar -----------------------------------
+
+// A name of spaces only is refused.
+struct RenamePanel {
+    PanelId panel;
+    std::string name;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Whether a panel is only a base for instances, not a piece cut from cloth.
+struct SetConstruction {
+    PanelId panel;
+    bool construction;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// How fine a panel's cloth is meshed: a plain number from finestParticleDistance
+// to coarsestParticleDistance, in cm.
+struct SetParticleDistance {
+    PanelId panel;
+    Expr distance;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A new parameter. With no name it gets the first free of "p1", "p2" ...; a
+// name must be one that formulas can use and that no other parameter has.
+struct AddParameter {
+    std::string name{};
+    Expr value = 10_cm;
+    Unit unit = Unit::Length;
+
+    struct Done {
+        Param parameter;
+    };
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A parameter renamed, by the rules of AddParameter; formulas follow it.
+struct RenameParameter {
+    Param parameter;
+    std::string name;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A parameter removed. What used it shows a problem.
+struct RemoveParameter {
+    Param parameter;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// The body the pattern is for (Document::setAvatar); none takes it off.
+struct SetAvatar {
+    std::shared_ptr<const Avatar> avatar;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
 // ---- Placing panels --------------------------------------------------------------
 
 // The middle of the box that holds these panels where the table has them: what a
@@ -521,7 +643,9 @@ struct PlaceFromTable {
 using DocumentCommand = std::variant<SetField, MoveCorners, DuplicatePanels, DeletePanels, DeleteCorners, GiveEdgeLength, RemoveEdgeLength, SetKeeping,
                                      MovePanels, TurnPanels, ScalePanels, MovePanelInSpace, TurnPanelInSpace, PlaceFromTable, AddPanel, CurveEdge,
                                      MoveCurveHandle, AddCorner, AddLine, CutPanel, SplitPanel, AddMirror, AddLayer, RemoveLayer, SwitchLayer,
-                                     MoveLayer, SetReference, SetCutSide, SetMirrorLast, SetInstanceMirrored, BakePanel>;
+                                     MoveLayer, SetReference, SetCutSide, SetMirrorLast, SetInstanceMirrored, BakePanel, AddSeam, SetSeamReversed,
+                                     RemoveSeam, SewInstances, RenamePanel, SetConstruction, SetParticleDistance, AddParameter, RenameParameter,
+                                     RemoveParameter, SetAvatar>;
 
 template <class C>
 concept DocumentChange = isAlternative<C, DocumentCommand>;

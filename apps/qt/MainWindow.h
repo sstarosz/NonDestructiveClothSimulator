@@ -182,8 +182,6 @@ private:
     ChoosingAvatar holdTheRest();
     void endChoosing();     // the preview goes, and the rest is as it was
     void stopChoosing();    // as Cancel, if an avatar is being chosen
-    // Makes a change as one undo step; on refusal says why, in `field` too if given.
-    bool change(const std::function<void(Document&)>& verb, session::ChangeRules rules = {}, ValueField* field = nullptr);
     // Shows what came of a command or a change: the new state, or why not, in the
     // help line and on `field`. With `since`, how long it took, for Frame times.
     bool answer(const std::expected<void, std::string>& done, ValueField* field = nullptr, const QElapsedTimer* since = nullptr);
@@ -191,10 +189,16 @@ private:
     bool answer(const std::expected<Done, std::string>& done, ValueField* field = nullptr, const QElapsedTimer* since = nullptr) {
         return answer(done ? std::expected<void, std::string>{} : std::unexpected(done.error()), field, since);
     }
-    // A number being dragged in a field: one edit (Commands.h), so one undo step.
-    void dragField(session::DragPhase phase, const session::SetField& command);
-    // The same for what has no command yet.
-    void changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb);
+    // A command run as a number is dragged in a field: one edit (Commands.h), so one undo step.
+    template <session::DocumentChange C>
+    void dragField(session::DragPhase phase, const C& command) {
+        if (phase == session::DragPhase::Begin) numberDragged_ = session_.begin();
+        if (!numberDragged_ || !session_.editing(*numberDragged_)) return;  // something else was done: the drag is over
+        QElapsedTimer took;
+        took.start();
+        answer(session_.preview(*numberDragged_, command), nullptr, &took);
+        if (phase == session::DragPhase::End) session_.commit(*numberDragged_);
+    }
     // What was typed into a field that measures `unit`; empty, with the field marked, if it does not read.
     std::optional<Expr> read(const QString& text, Unit unit, ValueField* field);
     void refresh();

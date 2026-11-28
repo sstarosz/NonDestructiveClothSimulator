@@ -1,7 +1,8 @@
 # 0027. Every change is a command; undo is a copy
 
-**Date:** 27 November 2026 (on 28 November: five trial commands and edits built,
-and only the Session to run commands; the rest to come)
+**Date:** 27 November 2026 (built on 28 November: edits, and a command for every
+change. To come: only the Session running them, the drape in the history and the
+stored commands)
 **Issues/PRs:** none
 
 ## Context

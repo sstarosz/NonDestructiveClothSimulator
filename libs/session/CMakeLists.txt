@@ -16,7 +16,9 @@ twintailor_library(session
         src/Offers.cpp
         src/PanelCommands.cpp
         src/Samples.cpp
+        src/SeamCommands.cpp
         src/Session.cpp
+        src/SettingCommands.cpp
         src/Simulation.cpp
         src/TableGizmo.cpp
     DEPENDS twintailor::core twintailor::sim Threads::Threads

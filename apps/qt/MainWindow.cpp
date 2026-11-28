@@ -274,58 +274,47 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         if (const std::optional<Expr> value = read(text, session_.document().get(parameter).unit, field))
             answer(session_.run(session::SetField{parameter, *value}), field);
     });
-    connect(parameters_, &ParametersPanel::addRequested, this, [this] {
-        int n = 1;
-        const auto taken = [&](const std::string& name) {
-            for (Param p : session_.document().parameters())
-                if (session_.document().get(p).name == name) return true;
-            return false;
-        };
-        while (taken("p" + std::to_string(n))) ++n;
-        change([&](Document& doc) { doc.add(Parameter{.name = "p" + std::to_string(n), .value = 10_cm}); });
-    });
+    connect(parameters_, &ParametersPanel::addRequested, this, [this] { answer(session_.run(session::AddParameter{})); });
 
     // Dragging a number: the same changes as typing it, one undo step per drag.
     connect(parameters_, &ParametersPanel::valueDragged, this, [this](Param parameter, double value, session::DragPhase phase) {
-        if (session_.document().contains(parameter)) dragField(phase, {parameter, Expr(value)});
+        if (session_.document().contains(parameter)) dragField(phase, session::SetField{parameter, Expr(value)});
     });
     connect(attributes_, &AttributeEditor::fieldDragged, this, [this](OpId layer, FieldId id, double value, session::DragPhase phase) {
-        if (session_.document().contains(layer)) dragField(phase, {session::OperationField{layer, id}, Expr(value)});
+        if (session_.document().contains(layer)) dragField(phase, session::SetField{session::OperationField{layer, id}, Expr(value)});
     });
     connect(attributes_, &AttributeEditor::spaceDragged, this, [this](PanelId panel, session::SpaceField field, double value, session::DragPhase phase) {
-        if (session_.document().contains(panel)) dragField(phase, {session::PanelField{panel, field}, Expr(value)});
+        if (session_.document().contains(panel)) dragField(phase, session::SetField{session::PanelField{panel, field}, Expr(value)});
     });
     connect(attributes_, &AttributeEditor::tableDragged, this, [this](PanelId panel, session::TableField field, double value, session::DragPhase phase) {
-        if (session_.document().contains(panel)) dragField(phase, {session::PanelField{panel, field}, Expr(value)});
+        if (session_.document().contains(panel)) dragField(phase, session::SetField{session::PanelField{panel, field}, Expr(value)});
     });
     connect(parameters_, &ParametersPanel::renamed, this, [this](Param parameter, QString name) {
         const std::string wanted = name.toStdString();
-        const Document& doc = session_.document();
-        if (!doc.contains(parameter) || wanted == doc.get(parameter).name) return;
+        if (!session_.document().contains(parameter) || wanted == session_.document().get(parameter).name) return;
         QLineEdit* field = parameters_->nameField(parameter);
-        const auto refuse = [&](const QString& why) {
-            say(why, true);
-            if (field) field->setText(QString::fromStdString(doc.get(parameter).name));
-        };
-        if (!canBeTypedInFormulas(wanted))
-            return refuse("'" + name + "' can't be a parameter name. Use letters, digits and underscores, starting with a letter; "
-                                       "not pi, min, max, abs, clamp, cm, mm or deg.");
-        for (Param other : doc.parameters())
-            if (!(other == parameter) && doc.get(other).name == wanted) return refuse("There is already a parameter named '" + name + "'. Choose another name.");
-        change([&](Document& d) { d.rename(parameter, wanted); });
+        const auto renamed = session_.run(session::RenameParameter{parameter, wanted});
+        if (renamed) {
+            answer(renamed);
+            return;
+        }
+        say(QString::fromStdString(renamed.error()), true);
+        if (field) field->setText(QString::fromStdString(session_.document().get(parameter).name));
     });
     connect(parameters_, &ParametersPanel::removeRequested, this, [this](Param parameter) {
-        if (session_.document().contains(parameter)) change([&](Document& doc) { doc.remove(parameter); }, {.ifItBreaks = session::IfItBreaks::Allow});
+        if (session_.document().contains(parameter)) answer(session_.run(session::RemoveParameter{parameter}));
     });
     connect(outliner_, &Outliner::renamed, this, [this](PanelId panel, QString name) {
         if (!session_.document().contains(panel)) return;
         const std::string wanted = name.trimmed().toStdString();
-        if (wanted.empty()) {
-            say("A panel needs a name. Type one, or press Escape to keep the old one.", true);
-            refresh();  // shows the old name again
-        } else if (wanted != session_.document().get(panel).name) {
-            change([&](Document& doc) { doc.rename(panel, wanted); });
+        if (wanted == session_.document().get(panel).name) return;
+        const auto renamed = session_.run(session::RenamePanel{panel, wanted});
+        if (renamed) {
+            answer(renamed);
+            return;
         }
+        say(QString::fromStdString(renamed.error()), true);
+        refresh();  // shows the old name again
     });
     connect(attributes_, &AttributeEditor::layerSwitched, this, [this](OpId layer, bool on) { answer(session_.run(session::SwitchLayer{layer, on})); });
     connect(attributes_, &AttributeEditor::layerOpened, this, [this] { refresh(); });
@@ -334,13 +323,10 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     showAllSteps_->setEnabled(false);
     connect(showAllSteps_, &QShortcut::activated, attributes_, &AttributeEditor::showAllSteps);
     connect(attributes_, &AttributeEditor::seamReversed, this, [this](SeamId seam, bool reversed) {
-        if (!session_.document().contains(seam)) return;
-        Seam changed = session_.document().get(seam);
-        changed.reversed = reversed;
-        change([&](Document& doc) { doc.set(seam, changed); });
+        if (session_.document().contains(seam)) answer(session_.run(session::SetSeamReversed{seam, reversed}));
     });
     connect(outliner_, &Outliner::seamDeleteRequested, this, [this](SeamId seam) {
-        if (session_.document().contains(seam)) change([&](Document& doc) { doc.remove(seam); }, {.ifItBreaks = session::IfItBreaks::Allow});
+        if (session_.document().contains(seam)) answer(session_.run(session::RemoveSeam{seam}));
     });
     connect(attributes_, &AttributeEditor::panelReferenceChosen, this, [this](OpId layer, ReferenceId reference, PanelId panel) {
         answer(session_.run(session::SetReference{layer, reference, Reference(panel)}));
@@ -421,7 +407,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         if (const std::optional<PanelId> selected = drafting_.selection.panel) answer(session_.run(session::PlaceFromTable{*selected}));
     });
     connect(outliner_, &Outliner::baseOnlyChanged, this, [this](PanelId panel, bool baseOnly) {
-        if (session_.document().contains(panel)) change([&](Document& doc) { doc.setConstruction(panel, baseOnly); });
+        if (session_.document().contains(panel)) answer(session_.run(session::SetConstruction{panel, baseOnly}));
     });
     connect(outliner_, &Outliner::deleteRequested, this, [this](PanelId panel) {
         on(session::DeletePanel{panel});
@@ -429,18 +415,13 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
 
     connect(attributes_, &AttributeEditor::particleDistanceTyped, this, [this](PanelId panel, QString text) {
         if (!session_.document().contains(panel)) return;
-        const std::optional<Expr> value = read(text, Unit::Length, attributes_->particleDistance());
-        const std::optional<double> number = value ? asNumber(*value) : std::nullopt;
-        if (number && *number >= finestParticleDistance && *number <= coarsestParticleDistance)
-            change([&](Document& doc) { doc.setParticleDistance(panel, *number); }, {}, attributes_->particleDistance());
-        else if (value)
-            attributes_->particleDistance()->refuse("Between " + QString::fromStdString(formatValue(finestParticleDistance, Unit::Length)) + " and " +
-                                                    QString::fromStdString(formatValue(coarsestParticleDistance, Unit::Length)) + ".");
+        ValueField* field = attributes_->particleDistance();
+        if (const std::optional<Expr> value = read(text, Unit::Length, field)) answer(session_.run(session::SetParticleDistance{panel, *value}), field);
     });
     connect(attributes_, &AttributeEditor::particleDistanceDragged, this, [this](PanelId panel, double value, session::DragPhase phase) {
         if (!session_.document().contains(panel)) return;
-        const double distance = std::clamp(value, finestParticleDistance, coarsestParticleDistance);
-        changeByDrag(phase, [&](Document& doc) { doc.setParticleDistance(panel, distance); });
+        // A number pulled past a limit stays at it.
+        dragField(phase, session::SetParticleDistance{panel, Expr(std::clamp(value, finestParticleDistance, coarsestParticleDistance))});
     });
     connect(outliner_, &Outliner::bodyShownChanged, this, &MainWindow::showBody);
     connect(outliner_, &Outliner::bodySeeThroughChanged, this, &MainWindow::showBodySeeThrough);
@@ -955,7 +936,7 @@ bool MainWindow::wear(std::shared_ptr<const Avatar> avatar) {
     const std::shared_ptr<const Avatar>& worn = session_.document().avatar();
     if (worn && *worn == *avatar) return true;  // the one that is on: nothing to change
     shelf_->simulate()->setChecked(false);      // the cloth starts again on another body
-    return change([&](Document& doc) { doc.setAvatar(avatar); }, {.touches = session::Touches::PlacementOnly});
+    return answer(session_.run(session::SetAvatar{avatar}));
 }
 
 void MainWindow::openSample(std::size_t index) {
@@ -1117,36 +1098,13 @@ void MainWindow::showMeshCounts() {
     attributes_->showMesh(counts);
 }
 
-void MainWindow::changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb) {
-    if (phase == session::DragPhase::Begin) numberDragged_ = session_.begin();
-    if (!numberDragged_ || !session_.editing(*numberDragged_)) return;  // something else was done: the drag is over
-    QElapsedTimer took;
-    took.start();
-    answer(session_.editor().change(*numberDragged_, verb), nullptr, &took);
-    if (phase == session::DragPhase::End) session_.commit(*numberDragged_);
-}
-
-void MainWindow::dragField(session::DragPhase phase, const session::SetField& command) {
-    if (phase == session::DragPhase::Begin) numberDragged_ = session_.begin();
-    if (!numberDragged_ || !session_.editing(*numberDragged_)) return;  // something else was done: the drag is over
-    QElapsedTimer took;
-    took.start();
-    answer(session_.preview(*numberDragged_, command), nullptr, &took);
-    if (phase == session::DragPhase::End) session_.commit(*numberDragged_);
-}
-
-bool MainWindow::change(const std::function<void(Document&)>& verb, session::ChangeRules rules, ValueField* field) {
-    QElapsedTimer took;
-    took.start();
-    return answer(session_.editor().change(verb, rules), field, &took);
-}
-
 bool MainWindow::answer(const std::expected<void, std::string>& done, ValueField* field, const QElapsedTimer* since) {
     if (!done) {
         const QString why = QString::fromStdString(done.error());
         say("Not changed: " + why, true);
-        if (field) field->refuse(why);
-        refresh();
+        const QPointer<ValueField> marked = field;
+        refresh();  // first: showing a field takes its mark off
+        if (marked) marked->refuse(why);
         return false;
     }
     say({});
