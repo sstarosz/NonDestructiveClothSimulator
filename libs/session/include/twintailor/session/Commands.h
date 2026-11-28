@@ -37,6 +37,7 @@
 #include "twintailor/core/Document.h"
 #include "twintailor/core/Evaluate.h"
 #include "twintailor/core/Fields.h"
+#include "twintailor/session/Offers.h"
 #include "twintailor/sim/Vec3.h"
 
 namespace twintailor::session {
@@ -332,6 +333,103 @@ struct AddMirror {
     std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
 };
 
+// ---- Layers ----------------------------------------------------------------------
+
+// A layer added at the end of a panel's, as the list offers it (Offers.h): it
+// hands back the layer, and what it still needs to have chosen (SetReference).
+// Until then it shows a problem.
+struct AddLayer {
+    PanelId panel;
+    Offer offer;
+
+    using Done = Added;
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A layer removed. What used something it made shows a problem.
+struct RemoveLayer {
+    OpId layer;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A layer switched on or off: one that is off stays, and is skipped.
+struct SwitchLayer {
+    OpId layer;
+    bool on;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A layer moved to place `to` among its panel's layers, the oldest being 0. The
+// starting shape stays first.
+struct MoveLayer {
+    OpId layer;
+    std::size_t to;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// What a layer uses (an edge, a corner, a line, a panel) set to another.
+struct SetReference {
+    OpId layer;
+    ReferenceId reference;  // from references(doc.get(layer))
+    Reference value;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Which side of its line a cut keeps.
+struct SetCutSide {
+    OpRef<Cut> layer;
+    Cut::Side keep;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Whether a mirror is applied after every other layer of its panel.
+struct SetMirrorLast {
+    OpRef<Mirror> layer;
+    bool last;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Whether an instance is the mirror image of its source.
+struct SetInstanceMirrored {
+    OpRef<Instance> layer;
+    bool mirrored;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Every formula of a panel's layers replaced by the number it comes to. Refused,
+// saying so, when there is none.
+struct BakePanel {
+    PanelId panel;
+
+    struct Done {
+        std::size_t replaced = 0;
+    };
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
 // ---- Placing panels --------------------------------------------------------------
 
 // The middle of the box that holds these panels where the table has them: what a
@@ -422,7 +520,8 @@ struct PlaceFromTable {
 // Every command that changes the document.
 using DocumentCommand = std::variant<SetField, MoveCorners, DuplicatePanels, DeletePanels, DeleteCorners, GiveEdgeLength, RemoveEdgeLength, SetKeeping,
                                      MovePanels, TurnPanels, ScalePanels, MovePanelInSpace, TurnPanelInSpace, PlaceFromTable, AddPanel, CurveEdge,
-                                     MoveCurveHandle, AddCorner, AddLine, CutPanel, SplitPanel, AddMirror>;
+                                     MoveCurveHandle, AddCorner, AddLine, CutPanel, SplitPanel, AddMirror, AddLayer, RemoveLayer, SwitchLayer,
+                                     MoveLayer, SetReference, SetCutSide, SetMirrorLast, SetInstanceMirrored, BakePanel>;
 
 template <class C>
 concept DocumentChange = isAlternative<C, DocumentCommand>;

@@ -5,6 +5,7 @@ twintailor_unit_tests(session SOURCES
     DrawingCommandsTests.cpp
     EditorTests.cpp
     FrameTimesTests.cpp
+    LayerCommandsTests.cpp
     LengthsTests.cpp
     LocksTests.cpp
     OffersTests.cpp
