@@ -12,16 +12,11 @@
 #include <variant>
 #include <vector>
 
+#include "twintailor/core/Ids.h"
 #include "twintailor/core/Operations.h"
 #include "twintailor/core/Units.h"
 
 namespace twintailor {
-
-// Which formula field of an operation: its position in fields().
-struct FieldId {
-    std::size_t index = 0;
-    friend bool operator==(FieldId, FieldId) = default;
-};
 
 // The values a formula field accepts. This is the contract for the field:
 // evaluate() refuses an operation whose field breaks it, and a view can show
@@ -58,14 +53,6 @@ std::vector<Field> fields(const OpData& operation);
 //   for (const ReferenceField& slot : references(doc.get(op)))
 //       show(slot.label, nameOf(slot.value, doc));
 //   doc.set(op, slot.id, pickedEdge);
-
-using Reference = std::variant<EdgeRef, CornerRef, LineRef, PanelId>;
-
-// Which reference of an operation: its position in references().
-struct ReferenceId {
-    std::size_t index = 0;
-    friend bool operator==(ReferenceId, ReferenceId) = default;
-};
 
 struct ReferenceField {
     ReferenceId id;

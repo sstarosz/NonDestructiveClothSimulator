@@ -17,7 +17,7 @@
 #include <string_view>
 #include <vector>
 
-#include "twintailor/core/Document.h"
+#include "twintailor/core/Avatar.h"
 #include "twintailor/core/Math.h"
 #include "twintailor/core/Units.h"
 

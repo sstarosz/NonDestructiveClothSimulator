@@ -14,7 +14,7 @@
 
 #include <QDialog>
 
-#include "twintailor/core/Document.h"
+#include "twintailor/core/Avatar.h"
 #include "twintailor/core/Math.h"
 
 class QComboBox;

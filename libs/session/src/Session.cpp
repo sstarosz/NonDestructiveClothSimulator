@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "twintailor/core/Drawing.h"
+#include "twintailor/core/File.h"
 
 namespace twintailor::session {
 

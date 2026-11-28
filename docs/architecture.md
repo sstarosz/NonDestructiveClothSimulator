@@ -72,7 +72,7 @@ only ones other code may include), `src/` (sources and private headers) and
   document (`Document::setAvatar`), and putting on another is an undo step.
 - **How the scene is left is saved, but is not the document.** Hidden and
   deactivated panels, hidden seams, the body hidden or see-through and the
-  drape are `SceneState` (`core/File.h`): saved in the file beside the
+  drape are `SceneState` (`core/SceneState.h`): saved in the file beside the
   pattern, never an undo step, and a change of it counts as unsaved (the
   title's "*"), as a change of the document does.
 - **Unsaved work follows into a recovery copy** after every finished change

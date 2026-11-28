@@ -16,7 +16,7 @@
 #include <array>
 #include <string_view>
 
-#include "twintailor/core/Document.h"
+#include "twintailor/core/Avatar.h"
 #include "twintailor/core/Math.h"
 #include "twintailor/sim/Body.h"
 
