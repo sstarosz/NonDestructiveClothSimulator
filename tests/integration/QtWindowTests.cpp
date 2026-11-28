@@ -243,6 +243,32 @@ TEST_CASE("Space starts and stops the simulation, from the 3D view as well; it k
     EXPECT((w.window.session().cloth().time > time), "and starts again where it was");
 }
 
+TEST_CASE("Reset is undone from the window, and a redone one stops the cloth", "[qt]")
+{
+    Window w;
+    const session::Session& session = w.window.session();
+    QAction* simulate = w.window.shelf()->simulate();
+    simulate->setChecked(true);
+    for (int i = 0; i < 20; ++i) w.window.tick();
+    simulate->setChecked(false);
+    w.window.tick();
+    const double time = session.cloth().time;
+    w.window.shelf()->reset()->trigger();
+    w.window.tick();
+    EXPECT((!session.clothShown() && w.window.helpLine().contains("Ctrl+Z")), "Reset takes the cloth off, and says how to get it back");
+    EXPECT(w.window.shelf()->undo()->isEnabled(), "there is something to undo");
+    w.window.shelf()->undo()->trigger();
+    w.window.tick();
+    EXPECT((session.clothShown() && session.cloth().time == time && !simulate->isChecked()), "undo brings the drape back, standing still");
+
+    simulate->setChecked(true);
+    w.window.tick();
+    w.window.shelf()->redo()->trigger();
+    w.window.tick();
+    EXPECT((!session.clothShown() && !session.simulating() && !simulate->isChecked() && simulate->text() == "Simulate"),
+           "redone, the cloth is off and the button offers to play");
+}
+
 TEST_CASE("a chosen panel's operations show as layers, newest on top", "[qt]")
 {
     Window w;

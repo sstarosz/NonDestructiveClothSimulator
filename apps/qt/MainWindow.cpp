@@ -196,7 +196,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         else if (helpLine() == playingHint || helpLine() == waitingHint) say({});  // reset, or another garment: no cloth to drag
     });
     connect(shelf_->reset(), &QAction::triggered, this, [this] {
-        session_.resetCloth();
+        if (session_.run(session::ResetCloth{})) say("The cloth is reset. Undo (Ctrl+Z) brings it back as it hung.");
         shelf_->simulate()->setChecked(false);
     });
     connect(shelf_, &Shelf::layoutChosen, this, &MainWindow::setViewLayout);
@@ -1029,10 +1029,9 @@ void MainWindow::tick() {
     QElapsedTimer took;
     took.start();
     const bool meshShown = shelf_->mesh()->isChecked();
-    if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) {
-        say(QString::fromStdString(*problem), true);
-        if (!session_.simulating()) shelf_->simulate()->setChecked(false);  // a cloth that went wrong has stopped: Play shows it
-    }
+    if (const std::optional<std::string> problem = session_.update(space_->isVisible() || meshShown)) say(QString::fromStdString(*problem), true);
+    // A cloth that went wrong, or a Reset that was redone, has stopped it: Play shows that.
+    if (!session_.simulating()) shelf_->simulate()->setChecked(false);
     table_->setMesh(meshShown ? session_.mesh() : nullptr);
     if (session_.bodyReady() && helpLine() == waitingHint) say(shelf_->simulate()->isChecked() ? playingHint : "");
     if (session_.editor().version() != shownVersion_) refresh();

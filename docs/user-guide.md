@@ -106,6 +106,10 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   seams drawing closed, cloth against body, floor and cloth. Another avatar
   starts the cloth again; undo and redo go back to the avatar before, with the
   cloth that hung on it.
+- **Reset** drops the cloth: the panels are back where they are arranged. It
+  is an undo step: Ctrl+Z brings the drape back as it hung, and redo takes it
+  off again. Undo and redo show the cloth as it was at that point of the
+  history, so going back to a change made right after a Reset shows no cloth.
 - **Live link**: edit the pattern while the cloth is draped and it stays
   draped.
 - **Dragging cloth in 3D**: while the cloth plays, a drag pulls it by the

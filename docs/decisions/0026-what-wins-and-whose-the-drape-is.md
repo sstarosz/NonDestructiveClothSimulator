@@ -32,5 +32,4 @@ the flat panels: it is arranged, simulated and corrected in stages.
 
 "The cloth always follows from the document alone" (see
 [0013](0013-the-drape-is-carried.md)). Keeping drapes for undo costs memory.
-Pulls and Reset cannot be undone yet, and there is no freeze
-([known limits](../known-limits.md)).
+There is no freeze yet ([known limits](../known-limits.md)).

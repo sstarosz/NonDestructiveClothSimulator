@@ -33,7 +33,7 @@ Session::Session(Document document, Threading threading)
 }
 
 void Session::open(Document document, SceneState state) {
-    resetCloth();
+    dropCloth();
     if (meshing_.mesh.valid()) meshing_.mesh.wait();  // of the old document; dropped
     meshing_ = {};
     drapes_.clear();
@@ -51,7 +51,6 @@ void Session::open(Document document, SceneState state) {
     simulation_->leaveOut(inactive_);
     followAvatar();
     shownStep_ = editor_.step();
-    bodyReplaced_ = false;
     if (state.drape) hang(*state.drape);
     markSaved();
     ++sceneVersion_;
@@ -245,8 +244,7 @@ void Session::followAvatar() {
     bodyProblem_.reset();
     // The cloth starts again on another body; the drape on the one before is kept for undo.
     keepDrape();
-    resetCloth();
-    bodyReplaced_ = true;
+    dropCloth();
     body_ = sim::Body{};
     bodySurface_ = std::make_shared<const sim::Surface>(wanted ? sim::surfaceOf(*wanted) : sim::Surface{});
     // A body still being worked out is given up first: replacing its future waits for the work to end.
@@ -261,7 +259,26 @@ void Session::followAvatar() {
 
 // ---- The cloth ---------------------------------------------------------------------
 
-void Session::resetCloth() {
+bool Session::run(const ResetCloth&) {
+    // The cloth kept is that of the state being left: what has not been followed or heard of yet comes first.
+    followBody();
+    if (editor_.step() != shownStep_) followShapes(false);
+    simulation_->waitForChanges();
+    if (std::optional<std::string> problem = takeNews()) toTell_ = std::move(problem);
+    const bool there = clothShown();
+    if (there) {
+        keepDrape();
+        const Edit reset = begin();
+        editor_.addStep(reset);
+        commit(reset);
+        shownStep_ = editor_.step();
+        drapes_[shownStep_] = std::nullopt;
+    }
+    dropCloth();
+    return there;
+}
+
+void Session::dropCloth() {
     held_.reset();
     pull_.reset();
     simulation_->stop();
@@ -338,7 +355,7 @@ bool Session::redo() {
 }
 
 void Session::setThreading(Threading threading) {
-    resetCloth();
+    dropCloth();
     threading_ = threading;
     simulation_ = std::make_unique<Simulation>(threading);
     simulation_->leaveOut(inactive_);
@@ -456,15 +473,17 @@ void Session::followBody() {
 
 void Session::followShapes(bool now) {
     // Undo and redo bring the drape back: the cloth is kept for each state of
-    // the history as it was left, and put back when that state comes back.
+    // the history as it was left, and put back when that state comes back. A
+    // state a Reset left with no cloth comes back with none; one that nothing is
+    // kept for keeps the cloth there is.
     std::optional<Drape> drapeBack;
     if (editor_.step() != shownStep_) {
         keepDrape();
-        // With no cloth, as after Reset, there is nothing to bring back; but a cloth that another body ended comes
-        // back with its body.
-        if (const auto kept = drapes_.find(editor_.step()); kept != drapes_.end() && (simulation_->exists() || bodyReplaced_)) drapeBack = kept->second;
+        if (const auto kept = drapes_.find(editor_.step()); kept != drapes_.end()) {
+            if (kept->second) drapeBack = kept->second;
+            else dropCloth();
+        }
         shownStep_ = editor_.step();
-        bodyReplaced_ = false;
     }
     // A drape brought back is put on a mesh of the same outlines: made now, not in the background.
     const bool remeshed = remesh(now || drapeBack.has_value());
@@ -482,7 +501,7 @@ void Session::followShapes(bool now) {
         const bool others = !std::is_permutation(inactive_.begin(), inactive_.end(), drapeBack->inactive.begin(), drapeBack->inactive.end());
         if (simulation_->exists()) {
             simulation_->restore(drapeBack->mesh, std::move(drapeBack->positions), drapeBack->time, drapeBack->sewing || others);
-        } else {  // another body ended the cloth
+        } else {  // a Reset or another body ended the cloth
             simulation_->resume(drapeBack->mesh, std::move(drapeBack->positions), drapeBack->time, drapeBack->sewing || others, bodyInSimulation());
             bodyInUse_ = {bodyPresent_, body_.scanned.get(), body_.parts.size()};
         }
@@ -523,7 +542,7 @@ std::optional<std::string> Session::takeNews() {
     clothMoved_ = saved_.cloth && !clothAsSaved();
     if (!cloth_.failed) return std::nullopt;
     const std::string error = cloth_.problem;
-    resetCloth();  // should never happen; if it does, stop instead of drawing nonsense
+    dropCloth();  // should never happen; if it does, stop instead of drawing nonsense
     if (error.empty()) return "The simulation went wrong and was reset.";
     return "The simulation stopped (" + error + ") and was reset. Save your work before you play it again.";
 }

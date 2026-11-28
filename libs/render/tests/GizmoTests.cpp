@@ -322,7 +322,7 @@ TEST_CASE("the gizmo of cloth that has fallen stands on the cloth, at the spot t
     EXPECT(near(shown->centre, session.shownPositions().front()[nearest], 1e-9), "and the gizmo with it");
     EXPECT(near(shown->ownX, {0.0, 0.0, -1.0}, 1e-9), "turned as the panel is arranged");
 
-    session.resetCloth();
+    session.run(session::ResetCloth{});
     session.update();
     EXPECT(near(gizmoOf(session, sheet, GizmoMode::Move, 1.0)->centre, {5.0, 150.0, 25.0}, 1e-9), "after Reset it is back at the arrangement");
 }
