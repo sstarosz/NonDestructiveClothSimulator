@@ -7,6 +7,7 @@ twintailor_library(session
         src/Autosave.cpp
         src/Commands.cpp
         src/Drafting.cpp
+        src/DrawingCommands.cpp
         src/Editor.cpp
         src/FrameTimes.cpp
         src/Lengths.cpp

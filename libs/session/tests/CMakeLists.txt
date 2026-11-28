@@ -2,6 +2,7 @@
 twintailor_unit_tests(session SOURCES
     CommandsTests.cpp
     DraftingTests.cpp
+    DrawingCommandsTests.cpp
     EditorTests.cpp
     FrameTimesTests.cpp
     LengthsTests.cpp

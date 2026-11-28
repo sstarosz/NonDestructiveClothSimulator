@@ -280,9 +280,6 @@ public:
     // document) has none.
     const std::vector<PanelId>& copied() const { return copied_; }
 
-    // "panel1", "panel2" ...: the first panel name that is free.
-    static std::string freeName(const Document& doc, const std::string& base);
-
 private:
     Outcome on(Editor&, const SelectPanel&);
     Outcome on(Editor&, const SelectPanels&);
@@ -323,14 +320,10 @@ private:
 
     // The new panels become the selection; the help line says how they were sewn.
     std::vector<PanelId> add(Editor&, const DuplicatePanels&, Outcome&);
-    // The operation a drag writes to, and its values when the drag began.
-    struct Dragging {
-        OpId operation;
-        bool endHandle;
-        double baseX, baseY;
-    };
-    std::optional<Dragging> dragging_;
+    // The new panel becomes the selection.
+    void draw(Editor&, const AddPanel&, Outcome&);
     bool draggingCorners_ = false;  // a drag of corners that began with one that can move
+    bool draggingHandle_ = false;   // the same for a curve's handle
     // A drag of panels, on the table or in space: those it takes along, and where
     // the one taken hold of was on the table as it began.
     struct Carried {

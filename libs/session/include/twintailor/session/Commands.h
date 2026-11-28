@@ -219,6 +219,119 @@ struct SetKeeping {
     std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
 };
 
+// ---- Drawing and cutting ---------------------------------------------------------
+//
+// Each adds layers, so a problem it leaves behind is shown there, not refused.
+// A point or an edge shown on the mirrored side of a symmetric panel stands for
+// the drawn side's.
+
+// A new panel with its starting shape: a rectangle has its bottom left corner at
+// `at` on the table, a circle or a ring its centre. With no name it gets the
+// first free one of its kind: "panel1", "circle1", "skirt1".
+struct AddPanel {
+    std::variant<Rect, Circle, RingSector> shape;
+    Vec2 at;
+    std::string name{};
+
+    struct Done {
+        PanelId panel;
+        OpId shape;  // the starting layer: OpRef<Rect>(shape) names its edges
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// An edge made a free curve (a Bezier layer) that starts as the edge is: a
+// straight one stays straight until a handle moves, an arc is followed. Refused
+// for an edge that is a free curve already, and for a whole circle.
+struct CurveEdge {
+    PanelId panel;
+    EdgeRef edge;
+
+    struct Done {
+        OpRef<Bezier> curve;
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A handle of a free curve moved by as much, on the table. A handle that a
+// formula sets is refused, with why (handleLock).
+struct MoveCurveHandle {
+    PanelId panel;
+    EdgeRef edge;
+    bool endHandle;  // the handle at the edge's end, not its start
+    Vec2 by;         // on the table, in cm
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.grows = Grows::WhereDragged}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A corner added on an edge (an AddPoint layer), splitting it in two.
+struct AddCorner {
+    PanelId panel;
+    EdgePoint at;
+
+    struct Done {
+        CornerRef corner;
+        bool splitsSeam = false;  // the edge was sewn: its seam now sews only the part before the corner
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// An internal line between two points of the outline (a LineBetween layer).
+// Refused across the mirror of a symmetric panel.
+struct AddLine {
+    PanelId panel;
+    EdgePoint from, to;
+
+    struct Done {
+        OpRef<LineBetween> line;
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A panel cut along a line, keeping one side.
+struct CutPanel {
+    PanelId panel;
+    LineRef line;
+    Cut::Side keep = Cut::Side::Left;
+
+    struct Done {
+        OpRef<Cut> cut;
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A panel cut along a line into two: it keeps what is left of the line, and a new
+// panel, "<name> part1", is what the cut takes off it.
+struct SplitPanel {
+    PanelId panel;
+    LineRef line;
+
+    struct Done {
+        PanelId part;
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A half panel completed by its mirror image across one of its edges.
+struct AddMirror {
+    PanelId panel;
+    EdgeRef across;
+
+    struct Done {
+        OpRef<Mirror> mirror;
+    };
+    ChangeRules rules() const { return {.ifItBreaks = IfItBreaks::Allow}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
 // ---- Placing panels --------------------------------------------------------------
 
 // The middle of the box that holds these panels where the table has them: what a
@@ -308,7 +421,8 @@ struct PlaceFromTable {
 
 // Every command that changes the document.
 using DocumentCommand = std::variant<SetField, MoveCorners, DuplicatePanels, DeletePanels, DeleteCorners, GiveEdgeLength, RemoveEdgeLength, SetKeeping,
-                                     MovePanels, TurnPanels, ScalePanels, MovePanelInSpace, TurnPanelInSpace, PlaceFromTable>;
+                                     MovePanels, TurnPanels, ScalePanels, MovePanelInSpace, TurnPanelInSpace, PlaceFromTable, AddPanel, CurveEdge,
+                                     MoveCurveHandle, AddCorner, AddLine, CutPanel, SplitPanel, AddMirror>;
 
 template <class C>
 concept DocumentChange = isAlternative<C, DocumentCommand>;
