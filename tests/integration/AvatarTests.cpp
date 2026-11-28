@@ -16,6 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Avatar.h"
+#include "Change.h"
 #include "Expect.h"
 #include "Helpers.h"
 #include "twintailor/core/Document.h"
@@ -42,8 +43,8 @@ void frames(session::Session& session, int count) {
 void onTheAvatar(session::Session& session) {
     LoadedSurface loaded = loadObj(project::avatarPath());
     REQUIRE(loaded.problem.empty());
-    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(avatarOf(loaded.surface, "avatarV1.obj"))); },
-                                    {.touches = session::Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(avatarOf(loaded.surface, "avatarV1.obj"))); },
+                                   {.touches = session::Touches::PlacementOnly}));
     for (int i = 0; i < 1000 && !session.bodyReady(); ++i) {
         session.update();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -293,16 +294,16 @@ TEST_CASE("trousers with only the right leg arranged, the left made as mirrored 
     right.remove(legs[3]);
     REQUIRE((right.panels().size() == 2 && right.seams().size() == 3));
 
-    session::Editor editor(right);
+    session::Session table(right, session::Threading::OneStepPerAdvance);
     session::Drafting drafting;
-    drafting.handle(editor, session::SelectPanels{{front, back}, session::Pick::Replace});
-    drafting.handle(editor, session::DuplicateSelection{session::Follow::MirroredInstance});
+    drafting.handle(table, session::SelectPanels{{front, back}, session::Pick::Replace});
+    drafting.handle(table, session::DuplicateSelection{session::Follow::MirroredInstance});
     const std::vector<PanelId> made = drafting.selection.panels();
     REQUIRE(made.size() == 2);
-    drafting.handle(editor, session::SewEdges{{front, frontRise}, {made[0], frontRise}});
-    drafting.handle(editor, session::SewEdges{{back, backRise}, {made[1], backRise}});
-    REQUIRE(editor.document().seams().size() == 8);
-    expectTrousersToHang(editor.document());
+    drafting.handle(table, session::SewEdges{{front, frontRise}, {made[0], frontRise}});
+    drafting.handle(table, session::SewEdges{{back, backRise}, {made[1], backRise}});
+    REQUIRE(table.document().seams().size() == 8);
+    expectTrousersToHang(table.document());
 }
 
 TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")
@@ -336,7 +337,7 @@ TEST_CASE("a draped skirt made longer keeps its waist and grows at the hem")
         return std::pair{waist, hem};
     };
     const auto [waist, hem] = waistAndHem();
-    REQUIRE(session.editor().change([&](Document& d) { d.set(length, Expr(60)); }));
+    REQUIRE(tests::change(session, [&](Document& d) { d.set(length, Expr(60)); }));
     session.update();
     const auto [waistNow, hemNow] = waistAndHem();
     std::printf("      waist %.1f -> %.1f, hem %.1f -> %.1f\n", waist, waistNow, hem, hemNow);

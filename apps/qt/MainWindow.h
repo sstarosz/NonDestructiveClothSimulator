@@ -7,7 +7,7 @@
 // and a help line at the bottom.
 //
 // It owns the session. The docks and views only report what the user did;
-// what that changes in the document is decided here, through the editor,
+// what that changes in the document is decided here, through the session,
 // so that every change can be undone and one that would break the pattern
 // is refused, with why in the help line.
 //

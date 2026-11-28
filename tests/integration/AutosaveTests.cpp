@@ -9,6 +9,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "Change.h"
 #include "Expect.h"
 #include "twintailor/session/Autosave.h"
 
@@ -49,7 +50,7 @@ TEST_CASE("a copy is written when unsaved work is due one, with whose it is, and
         const std::optional<std::string> problem = autosave.update(session, now, "band", "C:/patterns/band.twintail");
         EXPECT((!problem && !autosave.wait()), "no problem");
     };
-    const auto set = [&](int waist) { REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.waist, Expr(waist)); })); };
+    const auto set = [&](int waist) { REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.waist, Expr(waist)); })); };
 
     update(0.0);
     update(100.0);
@@ -93,7 +94,7 @@ TEST_CASE("a copy stays when the program stops, goes when forgotten, and one tha
     const std::string folder = emptyFolder("stays");
     Band start;
     Session session(start.doc, Threading::OneStepPerAdvance);
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.waist, Expr(90)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.waist, Expr(90)); }));
     {
         Autosave autosave(folder, 0.0);
         REQUIRE(!autosave.update(session, 0.0, "band", ""));

@@ -76,7 +76,7 @@ In pull requests, in this order:
 - Done: Save no longer fails now and then because the file is held for a
   moment. Replacing it is tried again for about half a second, in Save, the
   recovery copy and Export OBJ (#166).
-- Done: every change is a command. Left: only the Session runs them, undo
+- Done: every change is a command, and only the Session runs them. Left: undo
   keeps the drape through Reset too, and stored commands bring work back after
   a crash ([decision 0027](docs/decisions/0027-every-change-is-a-command.md)).
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
