@@ -12,6 +12,7 @@ twintailor_library(session
         src/Lengths.cpp
         src/Locks.cpp
         src/Offers.cpp
+        src/PanelCommands.cpp
         src/Samples.cpp
         src/Session.cpp
         src/Simulation.cpp

@@ -171,9 +171,8 @@ first and may push steps out.
 
 ### Cleanups, done with the step that touches the same code
 
-- With step 14 (new fields): typed names for the fields (#19), plain
-  numbers in `ValueField` (#21), the limits of a panel's numbers in one
-  place (#22).
+- With step 14 (new fields): plain numbers in `ValueField` (#21), the limits
+  of a panel's numbers in one place (#22).
 - With step 19: the views stop including `Shelf.h` (#38).
 - With 0.1's PR 2 or step 13: `setThreading` goes (#29).
 - With any window step: the Attribute Editor tested with every section open

@@ -68,8 +68,8 @@ public:
     std::vector<SeamId> seamsShown() const { return seams_; }
     void reverseSeam(SeamId seam, bool reversed);  // as a click on its twist button
     ValueField* field(OpId layer, FieldId field) const;  // of an open layer
-    ValueField* spaceField(int which) const;
-    ValueField* tableField(int which) const;
+    ValueField* spaceField(session::SpaceField field) const;
+    ValueField* tableField(session::TableField field) const;
     ValueField* particleDistance() const { return distance_; }
     QString meshShown() const;  // the words under the distance, empty if none
 
@@ -81,13 +81,13 @@ signals:
     // Show the panel as of a step; empty: as it is now, with every step.
     void stepViewed(std::optional<twintailor::OpId> layer);
     void fieldTyped(twintailor::OpId layer, twintailor::FieldId field, QString text);
-    // In space: 0 x, 1 y, 2 z, 3 turn, 4 tilt, 5 roll, 6 wrap. On the table: 0 x, 1 y, 2 angle.
-    void spaceTyped(twintailor::PanelId panel, int which, QString text);
-    void tableTyped(twintailor::PanelId panel, int which, QString text);
+    // A number of the panel's place in space, or on the table.
+    void spaceTyped(twintailor::PanelId panel, twintailor::session::SpaceField field, QString text);
+    void tableTyped(twintailor::PanelId panel, twintailor::session::TableField field, QString text);
     // The same fields dragged: the number, in the field's unit, and where in one drag it is.
     void fieldDragged(twintailor::OpId layer, twintailor::FieldId field, double value, twintailor::session::DragPhase phase);
-    void spaceDragged(twintailor::PanelId panel, int which, double value, twintailor::session::DragPhase phase);
-    void tableDragged(twintailor::PanelId panel, int which, double value, twintailor::session::DragPhase phase);
+    void spaceDragged(twintailor::PanelId panel, twintailor::session::SpaceField field, double value, twintailor::session::DragPhase phase);
+    void tableDragged(twintailor::PanelId panel, twintailor::session::TableField field, double value, twintailor::session::DragPhase phase);
     // The panel's particle distance, typed or dragged.
     void particleDistanceTyped(twintailor::PanelId panel, QString text);
     void particleDistanceDragged(twintailor::PanelId panel, double value, twintailor::session::DragPhase phase);
@@ -153,8 +153,8 @@ private:
         QLabel* label;
     };
     std::vector<LayerSummary> summaries_;
-    std::vector<ValueField*> space_;  // x y z turn tilt roll wrap
-    std::vector<ValueField*> table_;  // x y angle
+    std::vector<ValueField*> space_;  // in the order of session::SpaceField
+    std::vector<ValueField*> table_;  // in the order of session::TableField
     struct OpenField {
         OpId layer;
         FieldId id;

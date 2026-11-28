@@ -131,7 +131,6 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     // As in Maya: one row per attribute, its name on the left and its numbers
     // side by side, without saying which axis each is (the tooltip does).
     const char* spaceRows[] = {"Position", "Rotation", "Wrap"};
-    const char* spaceTips[] = {"x", "y", "z", "Turn (about y)", "Tilt", "Roll", "Wrap"};
     for (int row = 0; row < 3; ++row) {
         auto* label = new QLabel(spaceRows[row], spaceSection_->content());
         label->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
@@ -140,19 +139,30 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     space->setColumnStretch(1, 1);
     space->setColumnStretch(2, 1);
     space->setColumnStretch(3, 1);
-    for (int i = 0; i < 7; ++i) {
-        auto* field = new ValueField(i < 3 ? Unit::Length : Unit::Angle, spaceSection_->content());
-        field->setToolTip(spaceTips[i]);
-        // Position x y z, rotation turn tilt roll, wrap alone.
-        const int row = i < 3 ? 0 : i < 6 ? 1 : 2, place = i < 3 ? i : i < 6 ? i - 3 : 0;
-        space->addWidget(field, row, 1 + place);
+    // Position x y z, rotation turn tilt roll, wrap alone; a pull sideways changes half a
+    // centimetre or a degree a pixel.
+    struct InSpace {
+        session::SpaceField field;
+        const char* tip;
+        Unit unit;
+        double dragStep;
+        int row, place;
+    };
+    using session::SpaceField;
+    for (const InSpace& in : {InSpace{SpaceField::X, "x", Unit::Length, 0.5, 0, 0}, InSpace{SpaceField::Y, "y", Unit::Length, 0.5, 0, 1},
+                              InSpace{SpaceField::Z, "z", Unit::Length, 0.5, 0, 2}, InSpace{SpaceField::Turn, "Turn (about y)", Unit::Angle, 1.0, 1, 0},
+                              InSpace{SpaceField::Tilt, "Tilt", Unit::Angle, 1.0, 1, 1}, InSpace{SpaceField::Roll, "Roll", Unit::Angle, 1.0, 1, 2},
+                              InSpace{SpaceField::Wrap, "Wrap", Unit::Angle, 1.0, 2, 0}}) {
+        auto* field = new ValueField(in.unit, spaceSection_->content());
+        field->setToolTip(in.tip);
+        space->addWidget(field, in.row, 1 + in.place);
         space_.push_back(field);
-        field->setDragStep(i < 3 ? 0.5 : 1.0);  // half a centimetre or a degree a pixel
-        connect(field, &ValueField::typed, this, [this, i](QString text) {
-            if (panel_) emit spaceTyped(*panel_, i, text);
+        field->setDragStep(in.dragStep);
+        connect(field, &ValueField::typed, this, [this, which = in.field](QString text) {
+            if (panel_) emit spaceTyped(*panel_, which, text);
         });
-        connect(field, &ValueField::dragged, this, [this, i](double value, session::DragPhase phase) {
-            if (panel_) emit spaceDragged(*panel_, i, value, phase);
+        connect(field, &ValueField::dragged, this, [this, which = in.field](double value, session::DragPhase phase) {
+            if (panel_) emit spaceDragged(*panel_, which, value, phase);
         });
     }
     spaceSection_->setOpen(false);
@@ -162,7 +172,6 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     auto* table = new QGridLayout(tableSection_->content());
     table->setContentsMargins(8, 6, 8, 6);
     table->setSpacing(4);
-    const char* tableTips[] = {"x", "y", "Angle"};
     for (int row = 0; row < 2; ++row) {
         auto* label = new QLabel(row == 0 ? "Position" : "Rotation", tableSection_->content());
         label->setStyleSheet(QString("color: %1").arg(theme::quiet.name()));
@@ -171,17 +180,26 @@ AttributeEditor::AttributeEditor(QWidget* parent) : QScrollArea(parent) {
     table->setColumnStretch(1, 1);
     table->setColumnStretch(2, 1);
     table->setColumnStretch(3, 1);
-    for (int i = 0; i < 3; ++i) {
-        auto* field = new ValueField(i < 2 ? Unit::Length : Unit::Angle, tableSection_->content());
-        field->setToolTip(tableTips[i]);
-        table->addWidget(field, i < 2 ? 0 : 1, i < 2 ? 1 + i : 1);
+    struct OnTable {
+        session::TableField field;
+        const char* tip;
+        Unit unit;
+        double dragStep;
+        int row, place;
+    };
+    using session::TableField;
+    for (const OnTable& on : {OnTable{TableField::X, "x", Unit::Length, 0.5, 0, 0}, OnTable{TableField::Y, "y", Unit::Length, 0.5, 0, 1},
+                              OnTable{TableField::Angle, "Angle", Unit::Angle, 1.0, 1, 0}}) {
+        auto* field = new ValueField(on.unit, tableSection_->content());
+        field->setToolTip(on.tip);
+        table->addWidget(field, on.row, 1 + on.place);
         table_.push_back(field);
-        field->setDragStep(i < 2 ? 0.5 : 1.0);
-        connect(field, &ValueField::typed, this, [this, i](QString text) {
-            if (panel_) emit tableTyped(*panel_, i, text);
+        field->setDragStep(on.dragStep);
+        connect(field, &ValueField::typed, this, [this, which = on.field](QString text) {
+            if (panel_) emit tableTyped(*panel_, which, text);
         });
-        connect(field, &ValueField::dragged, this, [this, i](double value, session::DragPhase phase) {
-            if (panel_) emit tableDragged(*panel_, i, value, phase);
+        connect(field, &ValueField::dragged, this, [this, which = on.field](double value, session::DragPhase phase) {
+            if (panel_) emit tableDragged(*panel_, which, value, phase);
         });
     }
     tableSection_->setOpen(false);
@@ -879,12 +897,8 @@ ValueField* AttributeEditor::field(OpId layer, FieldId id) const {
     return nullptr;
 }
 
-ValueField* AttributeEditor::spaceField(int which) const {
-    return which >= 0 && which < static_cast<int>(space_.size()) ? space_[static_cast<std::size_t>(which)] : nullptr;
-}
+ValueField* AttributeEditor::spaceField(session::SpaceField field) const { return space_[static_cast<std::size_t>(field)]; }
 
-ValueField* AttributeEditor::tableField(int which) const {
-    return which >= 0 && which < static_cast<int>(table_.size()) ? table_[static_cast<std::size_t>(which)] : nullptr;
-}
+ValueField* AttributeEditor::tableField(session::TableField field) const { return table_[static_cast<std::size_t>(field)]; }
 
 } // namespace twintailor::ui

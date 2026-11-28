@@ -191,7 +191,7 @@ private:
     // A number being dragged in a field: one edit (Commands.h), so one undo step.
     void dragField(session::DragPhase phase, const session::SetField& command);
     // The same for what has no command yet.
-    void changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb, session::ChangeRules rules = {});
+    void changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb);
     // What was typed into a field that measures `unit`; empty, with the field marked, if it does not read.
     std::optional<Expr> read(const QString& text, Unit unit, ValueField* field);
     void refresh();
@@ -206,6 +206,8 @@ private:
     QString lengthText_;                           // the text that is applied now
     // What was typed for a field of a layer, in the Attribute Editor (`field` shows a refusal) or on the table.
     void typed(OpId layer, FieldId id, const QString& text, ValueField* field);
+    // What was typed for a number of a panel's place.
+    void typed(const session::PanelField& place, const QString& text, ValueField* field);
     void say(const QString& words, bool problem = false);
     void setViewLayout(ViewLayout layout);
     void buildMenus();
