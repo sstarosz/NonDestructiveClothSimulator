@@ -97,6 +97,52 @@ TEST_CASE("a formula comes to the same in evaluation and when worked out from it
     EXPECT((saidOf(orphan) == "refers to a parameter that no longer exists"), "for each of them");
 }
 
+TEST_CASE("an operation that cannot be done says why, once, and leaves the outline as it was")
+{
+    Document doc;
+    const PanelId other = doc.add(Panel{.name = "other"});
+    const OpRef<Rect> elsewhere = doc.add(other, Rect{.width = 1_cm, .height = 1_cm});
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    doc.add(panel, Curve{.edge = rect.top(), .bulge = 2_cm});
+    const PanelId round = doc.add(Panel{.name = "round"});
+    const OpRef<Circle> circle = doc.add(round, Circle{.radius = 10_cm});
+
+    // Adds the operation to a panel, checks what is said about it, and takes it off again.
+    const auto refused = [&](PanelId on, auto operation, const std::string& why) {
+        const Pattern before = evaluate(doc)[on];
+        const OpId added = doc.add(on, std::move(operation));
+        const Result result = evaluate(doc);
+        std::vector<std::string> said;
+        for (const Error& error : result.errors)
+            if (const OpId* where = std::get_if<OpId>(&error.where); where && *where == added) said.push_back(error.message);
+        INFO(why);
+        CHECK(said == std::vector<std::string>{why});
+        CHECK(result[on] == before);
+        doc.remove(added);
+    };
+    const std::string gone = " does not exist; an earlier operation may have removed it";
+
+    refused(panel, Curve{.edge = elsewhere.top(), .bulge = 1_cm}, "the edge to curve" + gone);
+    refused(panel, Bezier{.edge = elsewhere.top()}, "the edge to curve" + gone);
+    refused(panel, Line{.from = elsewhere.topLeft(), .angle = 45_deg}, "the corner the line starts from" + gone);
+    refused(panel, LineBetween{.from = {elsewhere.left(), 0.5}, .to = {elsewhere.right(), 0.5}}, "an edge the line is attached to" + gone);
+    refused(panel, LineBetween{.from = {rect.left(), 0.5}, .to = {elsewhere.right(), 0.5}}, "an edge the line is attached to" + gone);
+    refused(panel, AdjustPoint{.corner = elsewhere.topLeft()}, "the corner to adjust" + gone);
+    refused(panel, SetLength{.edge = elsewhere.top(), .length = 5_cm}, "the edge to give a length" + gone);
+    refused(panel, AddPoint{.at = {elsewhere.top(), 0.5}}, "the edge to add a point to" + gone);
+    refused(panel, Cut{.along = LineRef{}}, "the line to cut along does not exist in this panel");
+    refused(panel, Mirror{.across = rect.top()}, "the edge to mirror across must be straight");
+    refused(round, AdjustPoint{.corner = circle.start(), .dx = 1_cm},
+            "the corner belongs to a whole turn of a circle, which has no ends to move; change its radius instead");
+    refused(round, Scale{.x = 2.0},
+            "a whole circle can only be scaled evenly: give x and y the same scale, or change its radius instead");
+
+    const PanelId follower = doc.add(Panel{.name = "follower"});
+    refused(follower, Instance{.source = follower}, "the panel is an instance of itself, directly or through other panels");
+    refused(follower, Instance{.source = PanelId{9999}}, "the source panel no longer exists");
+}
+
 TEST_CASE("rectangle has named edges and corners")
 {
     Document doc;
