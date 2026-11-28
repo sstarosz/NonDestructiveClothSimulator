@@ -9,7 +9,6 @@ twintailor_library(core SOURCES
     src/File.cpp
     src/Outline.cpp
     src/Pattern.cpp
-    src/References.cpp
     src/Text.cpp
 )
 if(TWINTAILOR_BUILD_TESTS)

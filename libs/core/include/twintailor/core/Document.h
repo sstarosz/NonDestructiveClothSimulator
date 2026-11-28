@@ -16,7 +16,6 @@
 // Verbs throw std::out_of_range when given a handle the document doesn't
 // hold. They never compute geometry.
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -26,11 +25,11 @@
 #include <utility>
 #include <vector>
 
+#include "twintailor/core/Avatar.h"
 #include "twintailor/core/Expr.h"
-#include "twintailor/core/Fields.h"
 #include "twintailor/core/Ids.h"
+#include "twintailor/core/Math.h"
 #include "twintailor/core/Operations.h"
-#include "twintailor/core/Pattern.h"
 #include "twintailor/core/Units.h"
 
 namespace twintailor {
@@ -61,48 +60,6 @@ struct Arrangement {
     // edges, so that a panel grows away from its seams (a skirt at the hem).
     std::optional<Vec2> anchor{};
     friend bool operator==(const Arrangement&, const Arrangement&) = default;
-};
-
-// A point in space, in cm: y points up and the floor is y = 0.
-struct Point3 {
-    double x = 0.0, y = 0.0, z = 0.0;
-    friend bool operator==(const Point3&, const Point3&) = default;
-};
-
-// A direction along one of the axes of a file.
-enum class Axis { X, Y, Z, MinusX, MinusY, MinusZ };
-
-// Whether two directions lie along the same axis, one way or the other.
-constexpr bool alongOneLine(Axis a, Axis b) { return static_cast<int>(a) % 3 == static_cast<int>(b) % 3; }
-
-// How an avatar's file was read: its points were turned so that `up` became y
-// and `facing` became +z (the two are never along one line), taken to be in
-// `unit`, made `rescale` times as large as that, and then shifted by `moved`.
-// What it is by default: the file was in cm already, y up, facing +z, where it
-// should stand. Kept so that what is written for other programs can be given
-// back as the file had it.
-struct AvatarImport {
-    double unit = 1.0;     // cm in one unit of the file; more than 0
-    double rescale = 1.0;  // how many times as large as the file has it the body was made; more than 0
-    Axis up = Axis::Y;
-    Axis facing = Axis::Z;
-    Point3 moved{};  // in cm
-    // What one unit of the file came to be, in cm.
-    double cmPerUnit() const { return unit * rescale; }
-    friend bool operator==(const AvatarImport&, const AvatarImport&) = default;
-};
-
-// The body the garment is made on: its surface as triangles, standing on the
-// floor and facing +z, counter-clockwise seen from outside. It is part of the
-// document and saved in its file, so that one file holds the whole scene.
-//
-//   doc.setAvatar(std::make_shared<const Avatar>(Avatar{.name = "me.obj", .points = points, .triangles = triangles}));
-struct Avatar {
-    std::string name;  // display label: the file it was read from
-    std::vector<Point3> points;  // in cm, y up, whatever the file had
-    std::vector<std::array<std::uint32_t, 3>> triangles;  // each names three of the points
-    AvatarImport readAs{};
-    friend bool operator==(const Avatar&, const Avatar&) = default;
 };
 
 // A pattern piece. Its operations are added with Document::add(panel, op).
@@ -201,7 +158,7 @@ public:
     // Changes one field: doc.set(rect, &Rect::height, 60_cm);
     template <OperationType T, class Field>
     void set(OpRef<T> operation, Field T::* field, std::type_identity_t<Field> value) {
-        std::get<T>(data(operation)).*field = std::move(value);
+        std::get<T>(entry(operation).data).*field = std::move(value);
     }
     // The same without knowing the operation's type, for the window:
     // `field` comes from fields(doc.get(operation)).
@@ -287,11 +244,11 @@ private:
         Seam seam;
     };
 
+    // These throw std::out_of_range for a handle the document doesn't hold.
     OpId append(PanelId panel, OpData data);
-    OpData& data(OpId operation);
     ParameterEntry& entry(Param parameter);
     PanelEntry& entry(PanelId panel);
-    const PanelEntry* owner(OpId operation) const;
+    OperationEntry& entry(OpId operation);
 
     std::vector<ParameterEntry> parameters_;
     std::vector<PanelEntry> panels_;

@@ -27,7 +27,7 @@ std::shared_ptr<const sim::ClothMesh> aSheet(Document& doc, double width = 30) {
 double lowest(const sim::Placement& positions) {
     double low = 1e9;
     for (const auto& panel : positions)
-        for (const sim::Vec3& p : panel) low = std::min(low, p.y);
+        for (const Vec3& p : panel) low = std::min(low, p.y);
     return low;
 }
 
@@ -126,11 +126,11 @@ TEST_CASE("pulled by a hand that moves every 2 ms, the cloth keeps the clock's p
     until(5.0, [&] { return news.time >= 0.1; });
     REQUIRE(news.time >= 0.1);
 
-    const sim::Vec3 corner = news.positions.front()[0];
+    const Vec3 corner = news.positions.front()[0];
     const double startTime = news.time;
     const auto began = clock();
     for (int i = 0; i < 250; ++i) {  // half a second of a hand moving every 2 ms
-        simulation.hold(0, 0, corner + sim::Vec3{0.0, 0.0, 0.04 * i});
+        simulation.hold(0, 0, corner + Vec3{0.0, 0.0, 0.04 * i});
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
     simulation.fetch(news);
@@ -165,7 +165,7 @@ TEST_CASE("a held cloth runs though it was not told to, and stops again when let
     simulation.fetch(news);
     EXPECT((news.time == 0.0), "not told to run, it stands still");
 
-    simulation.hold(0, 0, news.positions.front()[0] + sim::Vec3{0.0, 0.0, 5.0});
+    simulation.hold(0, 0, news.positions.front()[0] + Vec3{0.0, 0.0, 5.0});
     const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (std::chrono::steady_clock::now() < limit && news.time < 0.05) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -188,7 +188,7 @@ TEST_CASE("a held cloth runs though it was not told to, and stops again when let
     Simulation::News steppedNews;
     stepped.fetch(steppedNews);
     EXPECT((steppedNews.time == 0.0), "stepped on request but not running, it does not move");
-    stepped.hold(0, 0, steppedNews.positions.front()[0] + sim::Vec3{0.0, 0.0, 5.0});
+    stepped.hold(0, 0, steppedNews.positions.front()[0] + Vec3{0.0, 0.0, 5.0});
     stepped.advance();
     stepped.fetch(steppedNews);
     EXPECT((steppedNews.time > 0.0), "held, each request is a step");

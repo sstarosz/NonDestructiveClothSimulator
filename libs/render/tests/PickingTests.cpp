@@ -104,7 +104,7 @@ TEST_CASE("the cloth under the mouse gives the spot and the nearest particle")
     REQUIRE(hit.has_value());
     EXPECT((hit->panel == PanelId{3}), "it is the panel");
     EXPECT((hit->point == 2u), "the particle nearest the spot is the top right corner");
-    EXPECT((sim::length(hit->at - sim::Vec3{15.0, 112.0, 0.0}) < 1e-6), "the spot is where the ray meets the cloth");
+    EXPECT((length(hit->at - Vec3{15.0, 112.0, 0.0}) < 1e-6), "the spot is where the ray meets the cloth");
 }
 
 TEST_CASE("a hand moved across the view keeps the spot it holds under the mouse")
@@ -112,12 +112,12 @@ TEST_CASE("a hand moved across the view keeps the spot it holds under the mouse"
     OrbitCamera camera = level();
     camera.yaw = 40.0;
     camera.pitch = 25.0;
-    const sim::Vec3 held{10.0, 90.0, 5.0};
+    const Vec3 held{10.0, 90.0, 5.0};
     const PicturePoint pressed = *pictureOf(camera, size, held);
     const PicturePoint now{pressed.x + 80.0, pressed.y - 30.0};
-    const std::optional<sim::Vec3> by = acrossTheView(camera, size, held, pressed, now);
+    const std::optional<Vec3> by = acrossTheView(camera, size, held, pressed, now);
     REQUIRE(by.has_value());
     const PicturePoint after = *pictureOf(camera, size, held + *by);
     EXPECT((std::abs(after.x - now.x) < 1e-6 && std::abs(after.y - now.y) < 1e-6), "the moved spot is drawn under the mouse");
-    EXPECT((std::abs(sim::dot(*by, camera.toEye())) < 1e-9), "it moves in the plane facing the camera");
+    EXPECT((std::abs(dot(*by, camera.toEye())) < 1e-9), "it moves in the plane facing the camera");
 }

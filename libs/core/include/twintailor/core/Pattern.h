@@ -6,14 +6,9 @@
 #include <vector>
 
 #include "twintailor/core/Ids.h"
+#include "twintailor/core/Math.h"
 
 namespace twintailor {
-
-struct Vec2 {
-    double x = 0.0;
-    double y = 0.0;
-    friend bool operator==(const Vec2&, const Vec2&) = default;
-};
 
 struct Vertex {
     CornerRef name;

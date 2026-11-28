@@ -31,7 +31,7 @@
 #include <utility>
 #include <vector>
 
-#include "twintailor/core/File.h"
+#include "twintailor/core/SceneState.h"
 #include "twintailor/session/CrashReport.h"
 #include "twintailor/session/Editor.h"
 #include "twintailor/session/Simulation.h"

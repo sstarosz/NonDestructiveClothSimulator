@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <limits>
 
-#include "twintailor/core/Units.h"
+#include "twintailor/core/Math.h"
 
 namespace twintailor::outline {
 
@@ -14,14 +14,6 @@ namespace {
 constexpr double tolerance = 1e-7;  // centimetres
 constexpr int cubicPieces = 64;     // how finely a free curve is searched
 
-Vec2 operator+(Vec2 a, Vec2 b) { return {a.x + b.x, a.y + b.y}; }
-Vec2 operator-(Vec2 a, Vec2 b) { return {a.x - b.x, a.y - b.y}; }
-Vec2 operator*(Vec2 a, double s) { return {a.x * s, a.y * s}; }
-double dot(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
-double cross(Vec2 a, Vec2 b) { return a.x * b.y - a.y * b.x; }
-double norm(Vec2 a) { return std::hypot(a.x, a.y); }
-double radians(double degrees) { return degrees * (pi / 180.0); }
-double degrees(double radians) { return radians * (180.0 / pi); }
 Vec2 between(Vec2 a, Vec2 b, double t) { return a + (b - a) * t; }
 
 Vec2 startOf(const Pattern& p, const Edge& e) { return p.vertices[e.start].position; }
@@ -105,7 +97,7 @@ std::vector<double> rayHits(const Pattern& p, const Edge& e, Vec2 origin, Vec2 d
     if (std::abs(denominator) < 1e-12) return hits;  // parallel
     const double s = cross(a - origin, along) / denominator;
     const double t = cross(a - origin, direction) / denominator;
-    const double slack = tolerance / std::max(norm(along), tolerance);
+    const double slack = tolerance / std::max(length(along), tolerance);
     if (t >= -slack && t <= 1.0 + slack) hits.push_back(s);
     return hits;
 }
@@ -120,7 +112,7 @@ double nearestParameter(const Pattern& p, const Edge& e, Vec2 point) {
     const Vec2 a = startOf(p, e);
     if (e.cubic) {
         const Cubic curve = cubicOf(p, e);
-        const auto distance = [&](double t) { return norm(point - curve.at(t)); };
+        const auto distance = [&](double t) { return length(point - curve.at(t)); };
         int best = 0;
         for (int i = 1; i <= cubicPieces; ++i)
             if (distance(static_cast<double>(i) / cubicPieces) < distance(static_cast<double>(best) / cubicPieces)) best = i;
@@ -137,7 +129,7 @@ double nearestParameter(const Pattern& p, const Edge& e, Vec2 point) {
     if (e.arc) {
         const double angle = std::atan2(point.y - e.arc->center.y, point.x - e.arc->center.x);
         const double t = arcParameter(*e.arc, a, angle);
-        return t <= 1.0 ? t : norm(point - a) < norm(point - endOf(p, e)) ? 0.0 : 1.0;
+        return t <= 1.0 ? t : length(point - a) < length(point - endOf(p, e)) ? 0.0 : 1.0;
     }
     const Vec2 along = endOf(p, e) - a;
     const double lengthSquared = dot(along, along);
@@ -150,7 +142,7 @@ std::optional<Location> locate(const Pattern& p, Vec2 point) {
     double bestDistance = 1e-5;
     for (std::size_t i = 0; i < p.edges.size(); ++i) {
         const double t = nearestParameter(p, p.edges[i], point);
-        const double distance = norm(point - pointAt(p, p.edges[i], t));
+        const double distance = length(point - pointAt(p, p.edges[i], t));
         if (distance < bestDistance) {
             bestDistance = distance;
             best = Location{i, t};
@@ -164,8 +156,8 @@ std::optional<Location> locate(const Pattern& p, Vec2 point) {
 uint32_t splitAt(Pattern& p, Location where, const CornerRef& name) {
     const Edge whole = p.edges[where.edge];
     const Vec2 point = pointAt(p, whole, where.t);
-    if (norm(point - startOf(p, whole)) < tolerance) return whole.start;
-    if (norm(point - endOf(p, whole)) < tolerance) return whole.end;
+    if (length(point - startOf(p, whole)) < tolerance) return whole.start;
+    if (length(point - endOf(p, whole)) < tolerance) return whole.end;
 
     Edge first = whole, second = whole;
     if (whole.arc) {
@@ -243,7 +235,7 @@ std::optional<Nearest> nearest(const Pattern& p, Vec2 point) {
     double bestDistance = 0.0;
     for (std::size_t i = 0; i < p.edges.size(); ++i) {
         const double t = nearestParameter(p, p.edges[i], point);
-        const double distance = norm(point - pointAt(p, p.edges[i], t));
+        const double distance = length(point - pointAt(p, p.edges[i], t));
         if (!best || distance < bestDistance) {
             bestDistance = distance;
             best = Nearest{i, t};
@@ -257,17 +249,17 @@ double lengthOf(const Pattern& p, const Edge& e) {
         // Simpson's rule on the curve's speed.
         const Cubic curve = cubicOf(p, e);
         const int pieces = 2 * cubicPieces;
-        double sum = norm(curve.speed(0.0)) + norm(curve.speed(1.0));
-        for (int i = 1; i < pieces; ++i) sum += norm(curve.speed(static_cast<double>(i) / pieces)) * (i % 2 == 1 ? 4.0 : 2.0);
+        double sum = length(curve.speed(0.0)) + length(curve.speed(1.0));
+        for (int i = 1; i < pieces; ++i) sum += length(curve.speed(static_cast<double>(i) / pieces)) * (i % 2 == 1 ? 4.0 : 2.0);
         return sum / (3.0 * pieces);
     }
     if (e.arc) return std::abs(radians(e.arc->sweep)) * e.arc->radius;
-    return norm(endOf(p, e) - startOf(p, e));
+    return length(endOf(p, e) - startOf(p, e));
 }
 
 std::optional<Arc> arcFromBulge(Vec2 a, Vec2 b, double bulge) {
     const Vec2 along = b - a;
-    const double chord = norm(along);
+    const double chord = length(along);
     if (std::abs(bulge) < 1e-12 || chord < tolerance) return std::nullopt;
 
     // Signed radius: negative when the arc bulges to the left.
@@ -277,19 +269,17 @@ std::optional<Arc> arcFromBulge(Vec2 a, Vec2 b, double bulge) {
     return Arc{middle + left * (radius - bulge), std::abs(radius), degrees(4.0 * std::atan(2.0 * bulge / chord))};
 }
 
+bool wholeTurn(double sweep) { return std::abs(sweep) > 360.0 - 1e-6; }
+
+bool wholeTurn(const Edge& e) { return e.arc && (e.start == e.end || wholeTurn(e.arc->sweep)); }
+
 std::optional<Arc> arcFromSweep(Vec2 a, Vec2 b, double sweep) {
-    if (std::abs(sweep) < 1e-9 || std::abs(sweep) > 360.0 - 1e-6) return std::nullopt;
-    const double chord = norm(b - a);
+    if (std::abs(sweep) < 1e-9 || wholeTurn(sweep)) return std::nullopt;
+    const double chord = length(b - a);
     if (chord < tolerance) return std::nullopt;
     // Counter-clockwise arcs bulge to the right of a -> b, so the bulge has the sweep's sign.
     return arcFromBulge(a, b, chord / 2.0 * std::tan(radians(sweep) / 4.0));
 }
-
-namespace {
-
-bool wholeTurn(const Edge& e) { return e.arc && (e.start == e.end || std::abs(e.arc->sweep) > 360.0 - 1e-6); }
-
-} // namespace
 
 Problem moveCorners(Pattern& pattern, const std::vector<CornerMove>& moves) {
     const auto moved = [&](uint32_t vertex) {
@@ -392,8 +382,8 @@ Problem mirror(Pattern& pattern, const EdgeRef& axis, OpId mirrorOp) {
     if (axisEdge.arc || axisEdge.cubic) return "the edge to mirror across must be straight";
     const Vec2 a = startOf(pattern, axisEdge);
     const Vec2 along = endOf(pattern, axisEdge) - a;
-    if (norm(along) < tolerance) return "the edge to mirror across has no length";
-    const Vec2 unitAlong = along * (1.0 / norm(along));
+    if (length(along) < tolerance) return "the edge to mirror across has no length";
+    const Vec2 unitAlong = along * (1.0 / length(along));
 
     // Everything except the axis edge, walked from the axis' end to its start.
     std::vector<Edge> half;
@@ -435,24 +425,12 @@ Problem mirror(Pattern& pattern, const EdgeRef& axis, OpId mirrorOp) {
 }
 
 void flip(Pattern& pattern) {
-    for (Vertex& v : pattern.vertices) v.position.x = -v.position.x;
-    for (InternalLine& l : pattern.lines) {
-        l.start.x = -l.start.x;
-        l.end.x = -l.end.x;
-    }
-    for (SymmetryAxis& axis : pattern.axes) {
-        axis.start.x = -axis.start.x;
-        axis.end.x = -axis.end.x;
-    }
+    forEachPoint(pattern, [](Vec2& p) { p.x = -p.x; });
+    // The outline stays counter-clockwise: it is walked the other way round.
     std::reverse(pattern.edges.begin(), pattern.edges.end());
     for (Edge& e : pattern.edges) {
         std::swap(e.start, e.end);
-        if (e.arc) e.arc->center.x = -e.arc->center.x;
-        if (e.cubic) {
-            std::swap(e.cubic->control1, e.cubic->control2);
-            e.cubic->control1.x = -e.cubic->control1.x;
-            e.cubic->control2.x = -e.cubic->control2.x;
-        }
+        if (e.cubic) std::swap(e.cubic->control1, e.cubic->control2);
     }
     pattern.flipped = !pattern.flipped;
 }

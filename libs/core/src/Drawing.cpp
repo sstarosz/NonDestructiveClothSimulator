@@ -15,7 +15,7 @@ int piecesFor(const Edge& e, double tolerance) {
     if (e.arc && e.arc->radius > tolerance) {
         // The angle a straight piece may span before it strays `tolerance` from the arc.
         const double step = 2.0 * std::acos(1.0 - tolerance / e.arc->radius);
-        const double sweep = std::abs(e.arc->sweep) * (pi / 180.0);
+        const double sweep = radians(std::abs(e.arc->sweep));
         // Held to the limit as a number: for an enormous radius the step comes out as nothing, which no int divides by.
         return static_cast<int>(std::clamp(std::ceil(sweep / step), 1.0, 512.0));
     }
@@ -66,12 +66,12 @@ double fractionAlong(const Pattern& pattern, const Edge& edge, Vec2 point) {
     const std::vector<Vec2> points = edgePoints(pattern, edge);
     double whole = 0.0, before = 0.0, nearest = -1.0;
     for (std::size_t i = 1; i < points.size(); ++i) {
-        const Vec2 a = points[i - 1], b = points[i];
-        const double dx = b.x - a.x, dy = b.y - a.y, length = std::hypot(dx, dy);
-        const double t = length > 0.0 ? std::clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / (length * length), 0.0, 1.0) : 0.0;
-        const double off = std::hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
-        if (nearest < 0.0 || off < nearest) nearest = off, before = whole + length * t;
-        whole += length;
+        const Vec2 a = points[i - 1], along = points[i] - a;
+        const double piece = length(along);
+        const double t = piece > 0.0 ? std::clamp(dot(point - a, along) / (piece * piece), 0.0, 1.0) : 0.0;
+        const double off = length(point - (a + along * t));
+        if (nearest < 0.0 || off < nearest) nearest = off, before = whole + piece * t;
+        whole += piece;
     }
     return whole > 0.0 ? before / whole : 0.0;
 }
@@ -88,45 +88,23 @@ bool encloses(const Pattern& pattern, Vec2 point) {
 }
 
 std::optional<CubicCurve> cubicFromArc(const Pattern& pattern, const Edge& edge) {
-    if (!edge.arc || std::abs(edge.arc->sweep) > 360.0 - 1e-6 || edge.start == edge.end) return std::nullopt;
+    if (!edge.arc || outline::wholeTurn(edge)) return std::nullopt;
     const Arc& arc = *edge.arc;
     const Vec2 start = pattern.vertices[edge.start].position, end = pattern.vertices[edge.end].position;
-    const double turn = arc.sweep * (pi / 180.0);
+    const double turn = radians(arc.sweep);
     const double direction = turn >= 0.0 ? 1.0 : -1.0;
     const double reach = 4.0 / 3.0 * std::tan(std::abs(turn) / 4.0) * arc.radius;
     const double a0 = std::atan2(start.y - arc.center.y, start.x - arc.center.x);
     const double a1 = std::atan2(end.y - arc.center.y, end.x - arc.center.x);
     const Vec2 leaving{-std::sin(a0) * direction, std::cos(a0) * direction};
     const Vec2 arriving{-std::sin(a1) * direction, std::cos(a1) * direction};
-    return CubicCurve{{start.x + leaving.x * reach, start.y + leaving.y * reach},
-                      {end.x - arriving.x * reach, end.y - arriving.y * reach}};
-}
-
-Vec2 turned(Vec2 point, double degrees) {
-    const double a = degrees * (pi / 180.0);
-    const double c = std::cos(a), s = std::sin(a);
-    return {point.x * c - point.y * s, point.x * s + point.y * c};
+    return CubicCurve{start + leaving * reach, end - arriving * reach};
 }
 
 Pattern turned(const Pattern& pattern, double degrees) {
     if (degrees == 0.0) return pattern;
     Pattern result = pattern;
-    for (Vertex& v : result.vertices) v.position = turned(v.position, degrees);
-    for (Edge& e : result.edges) {
-        if (e.arc) e.arc->center = turned(e.arc->center, degrees);
-        if (e.cubic) {
-            e.cubic->control1 = turned(e.cubic->control1, degrees);
-            e.cubic->control2 = turned(e.cubic->control2, degrees);
-        }
-    }
-    for (InternalLine& l : result.lines) {
-        l.start = turned(l.start, degrees);
-        l.end = turned(l.end, degrees);
-    }
-    for (SymmetryAxis& a : result.axes) {
-        a.start = turned(a.start, degrees);
-        a.end = turned(a.end, degrees);
-    }
+    outline::forEachPoint(result, [&](Vec2& p) { p = turned(p, degrees); });
     return result;
 }
 

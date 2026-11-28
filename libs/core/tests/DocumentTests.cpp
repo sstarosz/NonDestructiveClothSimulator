@@ -41,6 +41,112 @@ TEST_CASE("copy keeps expressions and is otherwise independent")
     EXPECT_THROWS([&] { (void)skirt[skirtRect]; }, std::out_of_range, "only originals can be looked up in a copy");
 }
 
+TEST_CASE("copy points references at the copy")
+{
+    Document doc;
+    PanelId original = doc.add(Panel{.name = "original"});
+    OpRef<Rect> rect = doc.add(original, Rect{.width = 10_cm, .height = 20_cm});
+    OpRef<Curve> curve = doc.add(original, Curve{.edge = rect.top(), .bulge = 2_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    OpRef<Rect> copyRect = copy[rect];
+    OpRef<Curve> copyCurve = copy[curve];
+
+    EXPECT((doc.get(copyCurve).edge == copyRect.top()), "the copied curve bends the copied rectangle");
+    Result result = evaluate(doc);
+    EXPECT((result.ok()), "no errors");
+    EXPECT((result[copy].edge(copyRect.top()).arc.has_value()), "the copy is curved");
+}
+
+TEST_CASE("a copied scale scales the copy, and follows the same parameter")
+{
+    Document doc;
+    const Param wider = doc.add(Parameter{.name = "wider", .value = 1.25, .unit = Unit::Fraction});
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 20_cm, .height = 20_cm});
+    const OpRef<Scale> scale = doc.add(original, Scale{.x = wider, .y = 1.0});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[copy].length(copy[rect].bottom())), (25.0), "the copy is scaled as the original is");
+    doc.set(wider, Expr(1.5));
+    doc.set(copy[scale], &Scale::y, Expr(2.0));
+    result = evaluate(doc);
+    EXPECT_NEAR((result[copy].length(copy[rect].bottom())), (30.0), "both follow the parameter");
+    EXPECT_NEAR((result[original].length(rect.left())), (20.0), "and the copy's own scale is its own");
+}
+
+TEST_CASE("a copied point is on the copy's edge, and so is its after-part")
+{
+    Document doc;
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 10_cm, .height = 20_cm});
+    const OpRef<AddPoint> point = doc.add(original, AddPoint{.at = {rect.top(), 0.5}});
+    const OpRef<Curve> curve = doc.add(original, Curve{.edge = point.after(rect.top()), .bulge = 1_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> copyRect = copy[rect];
+    const OpRef<AddPoint> copyPoint = copy[point];
+    EXPECT((doc.get(copyPoint).at.edge == copyRect.top()), "the copied point splits the copy's top");
+    EXPECT((doc.get(copy[curve]).edge == copyPoint.after(copyRect.top())), "and what refers to its after-part follows it to the copy");
+    const Result result = evaluate(doc);
+    EXPECT((result.ok() && result[copy].edge(copyPoint.after(copyRect.top())).arc.has_value()), "the copy's after-part is curved, as the original's is");
+}
+
+TEST_CASE("a copied set length sets the length of the copy's edge")
+{
+    Document doc;
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> top = doc.add(original, SetLength{.edge = rect.top(), .length = 50_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> copyRect = copy[rect];
+    EXPECT((doc.get(copy[top]).edge == copyRect.top()), "the copied length is of the copy's top edge");
+    doc.set(top, &SetLength::length, Expr(40_cm));
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[original].length(rect.top())), (40.0), "the original follows its own length");
+    EXPECT_NEAR((result[copy].length(copyRect.top())), (50.0), "the copy follows its own");
+}
+
+TEST_CASE("every reference within a copied panel points into the copy, and one out of it stays")
+{
+    Document doc;
+    const PanelId other = doc.add(Panel{.name = "other"});
+    const OpRef<Rect> elsewhere = doc.add(other, Rect{.width = 1_cm, .height = 1_cm});
+
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 10_cm, .height = 20_cm});
+    const OpRef<Mirror> mirror = doc.add(original, Mirror{.across = rect.left()});
+    const OpRef<Bezier> bezier = doc.add(original, Bezier{.edge = rect.top()});
+    const OpRef<Line> line = doc.add(original, Line{.from = rect.bottomLeft(), .angle = 45_deg});
+    const OpRef<LineBetween> across = doc.add(original, LineBetween{.from = {rect.bottom(), 0.5}, .to = {mirror.image(rect.right()), 0.5}});
+    const OpRef<Cut> cut = doc.add(original, Cut{.along = line.line()});
+    const OpRef<AdjustPoint> adjust = doc.add(original, AdjustPoint{.corner = mirror.image(rect.topLeft())});
+    const OpRef<AddPoint> point = doc.add(original, AddPoint{.at = {cut.farPart(rect.top()), 0.5}});
+    const OpRef<SetLength> outside = doc.add(original, SetLength{.edge = elsewhere.top(), .length = 5_cm});
+    const OpRef<Instance> instance = doc.add(original, Instance{.source = other});
+    const OpRef<Offcut> offcut = doc.add(original, Offcut{.of = cut});
+
+    const PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> r = copy[rect];
+    const OpRef<Mirror> m = copy[mirror];
+
+    EXPECT((doc.get(m).across == r.left()), "a mirror's edge");
+    EXPECT((doc.get(copy[bezier]).edge == r.top()), "a free curve's edge");
+    EXPECT((doc.get(copy[line]).from == r.bottomLeft()), "a line's corner");
+    EXPECT((doc.get(copy[across]).from.edge == r.bottom()), "one end of a line between");
+    EXPECT((doc.get(copy[across]).to.edge == m.image(r.right())), "and the other, a mirror image");
+    EXPECT((doc.get(copy[cut]).along == copy[line].line()), "a cut's line");
+    EXPECT((doc.get(copy[adjust]).corner == m.image(r.topLeft())), "a mirrored corner");
+    EXPECT((doc.get(copy[point]).at.edge == copy[cut].farPart(r.top())), "the far part a cut left");
+    EXPECT((doc.get(copy[outside]).edge == elsewhere.top()), "an edge of another panel stays");
+    EXPECT((doc.get(copy[instance]).source == other), "as does the panel an instance follows");
+    EXPECT((OpId(doc.get(copy[offcut]).of) == OpId(copy[cut])), "an offcut of a cut in the panel follows it to the copy");
+}
+
 TEST_CASE("document copy is an independent snapshot")
 {
     Document doc;
@@ -93,10 +199,55 @@ TEST_CASE("unknown handles throw")
     doc.remove(panel);
 
     EXPECT_THROWS([&] { doc.set(foreign, 2); }, std::out_of_range, "set unknown parameter");
+    EXPECT_THROWS([&] { doc.rename(foreign, "y"); }, std::out_of_range, "rename unknown parameter");
+    EXPECT_THROWS([&] { doc.remove(foreign); }, std::out_of_range, "remove unknown parameter");
+    EXPECT_THROWS([&] { (void)doc.get(foreign); }, std::out_of_range, "get unknown parameter");
+    EXPECT((!doc.contains(foreign)), "an unknown parameter is not contained");
+
     EXPECT_THROWS([&] { (void)doc.get(panel); }, std::out_of_range, "get removed panel");
     EXPECT_THROWS([&] { doc.add(panel, Rect{}); }, std::out_of_range, "add to removed panel");
+    EXPECT_THROWS([&] { doc.rename(panel, "again"); }, std::out_of_range, "rename removed panel");
+    EXPECT_THROWS([&] { doc.place(panel, 1, 2); }, std::out_of_range, "place removed panel");
+    EXPECT_THROWS([&] { doc.remove(panel); }, std::out_of_range, "remove removed panel");
+    EXPECT_THROWS([&] { (void)doc.copy(panel, Panel{}); }, std::out_of_range, "copy removed panel");
+    EXPECT_THROWS([&] { (void)doc.operations(panel); }, std::out_of_range, "operations of removed panel");
+    EXPECT((!doc.contains(panel)), "a removed panel is not contained");
+
     EXPECT_THROWS([&] { doc.set(rect, &Rect::width, 2_cm); }, std::out_of_range, "set on removed operation");
+    EXPECT_THROWS([&] { doc.set(rect, FieldId{0}, 2_cm); }, std::out_of_range, "set a field of removed operation");
     EXPECT_THROWS([&] { doc.remove(OpId(rect)); }, std::out_of_range, "remove removed operation");
+    EXPECT_THROWS([&] { doc.setEnabled(rect, false); }, std::out_of_range, "switch off removed operation");
+    EXPECT_THROWS([&] { doc.move(rect, 0); }, std::out_of_range, "move removed operation");
+    EXPECT_THROWS([&] { (void)doc.enabled(rect); }, std::out_of_range, "whether removed operation is on");
+    EXPECT_THROWS([&] { (void)doc.get(OpId(rect)); }, std::out_of_range, "get removed operation");
+    EXPECT_THROWS([&] { (void)doc.panelOf(rect); }, std::out_of_range, "panel of removed operation");
+    EXPECT((!doc.contains(OpId(rect))), "a removed operation is not contained");
+
+    const PanelId kept = doc.add(Panel{.name = "kept"});
+    const SeamId seam = doc.add(Seam{.a = {kept, rect.top()}, .b = {kept, rect.bottom()}});
+    EXPECT_THROWS([&] { doc.set(seam, Seam{.a = {panel, rect.top()}, .b = {kept, rect.bottom()}}); }, std::out_of_range,
+                  "a seam cannot be set to a removed panel");
+    doc.remove(seam);
+    EXPECT_THROWS([&] { doc.remove(seam); }, std::out_of_range, "remove removed seam");
+    EXPECT_THROWS([&] { doc.set(seam, Seam{.a = {kept, rect.top()}, .b = {kept, rect.bottom()}}); }, std::out_of_range, "set removed seam");
+    EXPECT_THROWS([&] { (void)doc.get(seam); }, std::out_of_range, "get removed seam");
+    EXPECT((!doc.contains(seam)), "a removed seam is not contained");
+}
+
+TEST_CASE("a panel follows its first operation that is switched on, if that is an instance")
+{
+    Document doc;
+    const PanelId source = doc.add(Panel{.name = "source"});
+    doc.add(source, Rect{.width = 1_cm, .height = 1_cm});
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> before = doc.add(panel, Rect{.width = 1_cm, .height = 1_cm});
+    const OpRef<Instance> instance = doc.add(panel, Instance{.source = source});
+
+    EXPECT((!doc.instanceOf(panel)), "a shape of its own comes first");
+    doc.setEnabled(before, false);
+    EXPECT((doc.instanceOf(panel) && doc.instanceOf(panel)->source == source), "with it switched off, the instance comes first");
+    doc.setEnabled(instance, false);
+    EXPECT((!doc.instanceOf(panel)), "with both switched off, it follows nothing");
 }
 
 namespace {

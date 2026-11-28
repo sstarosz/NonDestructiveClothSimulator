@@ -229,7 +229,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(space_, &SpaceView::hinted, this, [this](const QString& next) {
         if (!choosing_) say(next);
     });
-    connect(space_, &SpaceView::clothPulled, this, [this](PanelId panel, std::uint32_t point, sim::Vec3 to, session::DragPhase phase) {
+    connect(space_, &SpaceView::clothPulled, this, [this](PanelId panel, std::uint32_t point, Vec3 to, session::DragPhase phase) {
         // Pulling the cloth by hand changes nothing in the document, only the drape: one undo step.
         if (choosing_ || !session_.document().contains(panel)) return;
         if (phase == session::DragPhase::Begin) pulled_ = session_.begin();

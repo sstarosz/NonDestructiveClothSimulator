@@ -1,10 +1,10 @@
 #include "twintailor/core/Document.h"
 
 #include <algorithm>
+#include <memory>
 #include <stdexcept>
 
 #include "internal/FieldAccess.h"
-#include "internal/References.h"
 
 namespace twintailor {
 
@@ -12,6 +12,44 @@ namespace {
 
 [[noreturn]] void unknown(const char* what) {
     throw std::out_of_range(std::string("twintailor::Document: unknown ") + what);
+}
+
+// The document keeps each kind of thing in a list of entries, each with its
+// `id`. The entry with this id, or nullptr.
+template <class Entries, class Id>
+auto* find(Entries& entries, Id id) {
+    const auto found = std::ranges::find(entries, id, [](const auto& e) { return e.id; });
+    return found == std::ranges::end(entries) ? nullptr : std::addressof(*found);
+}
+
+// An operation's entry, in whichever panel holds it; nullptr if none does.
+template <class Panels>
+auto* findOperation(Panels& panels, OpId operation) {
+    decltype(find(panels.front().operations, operation)) found = nullptr;
+    for (auto& p : panels)
+        if ((found = find(p.operations, operation))) break;
+    return found;
+}
+
+// What a find found; throws for a handle the document doesn't hold.
+template <class Entry>
+Entry& known(Entry* entry, const char* what) {
+    if (!entry) unknown(what);
+    return *entry;
+}
+
+// Removes the entry with this id; returns how many went, 0 or 1.
+template <class Entries, class Id>
+std::size_t drop(Entries& entries, Id id) {
+    return std::erase_if(entries, [&](const auto& e) { return e.id == id; });
+}
+
+template <class Entries>
+auto idsOf(const Entries& entries) {
+    std::vector<decltype(entries.front().id)> ids;
+    ids.reserve(entries.size());
+    for (const auto& e : entries) ids.push_back(e.id);
+    return ids;
 }
 
 } // namespace
@@ -29,31 +67,11 @@ OpId PanelCopy::operator[](OpId original) const {
 
 // ---- Private lookups --------------------------------------------------------
 
-Document::ParameterEntry& Document::entry(Param parameter) {
-    for (ParameterEntry& e : parameters_)
-        if (e.id == parameter) return e;
-    unknown("parameter");
-}
+Document::ParameterEntry& Document::entry(Param parameter) { return known(find(parameters_, parameter), "parameter"); }
 
-Document::PanelEntry& Document::entry(PanelId panel) {
-    for (PanelEntry& e : panels_)
-        if (e.id == panel) return e;
-    unknown("panel");
-}
+Document::PanelEntry& Document::entry(PanelId panel) { return known(find(panels_, panel), "panel"); }
 
-const Document::PanelEntry* Document::owner(OpId operation) const {
-    for (const PanelEntry& p : panels_)
-        for (const OperationEntry& o : p.operations)
-            if (o.id == operation) return &p;
-    return nullptr;
-}
-
-OpData& Document::data(OpId operation) {
-    for (PanelEntry& p : panels_)
-        for (OperationEntry& o : p.operations)
-            if (o.id == operation) return o.data;
-    unknown("operation");
-}
+Document::OperationEntry& Document::entry(OpId operation) { return known(findOperation(panels_, operation), "operation"); }
 
 OpId Document::append(PanelId panel, OpData data) {
     PanelEntry& p = entry(panel);
@@ -75,8 +93,7 @@ void Document::set(Param parameter, Expr value) { entry(parameter).parameter.val
 void Document::rename(Param parameter, std::string name) { entry(parameter).parameter.name = std::move(name); }
 
 void Document::remove(Param parameter) {
-    entry(parameter);  // throws if unknown
-    std::erase_if(parameters_, [&](const ParameterEntry& e) { return e.id == parameter; });
+    if (drop(parameters_, parameter) == 0) unknown("parameter");
 }
 
 // ---- Panels -----------------------------------------------------------------
@@ -123,8 +140,7 @@ void Document::setConstruction(PanelId panel, bool construction) { entry(panel).
 void Document::setParticleDistance(PanelId panel, std::optional<double> cm) { entry(panel).panel.particleDistance = cm; }
 
 void Document::remove(PanelId panel) {
-    entry(panel);  // throws if unknown
-    std::erase_if(panels_, [&](const PanelEntry& e) { return e.id == panel; });
+    if (drop(panels_, panel) == 0) unknown("panel");
     std::erase_if(seams_, [&](const SeamEntry& e) { return e.seam.a.panel == panel || e.seam.b.panel == panel; });
 }
 
@@ -139,18 +155,13 @@ SeamId Document::add(Seam seam) {
 }
 
 void Document::set(SeamId seam, Seam value) {
-    entry(value.a.panel);
+    entry(value.a.panel);  // throws if unknown
     entry(value.b.panel);
-    for (SeamEntry& e : seams_)
-        if (e.id == seam) {
-            e.seam = std::move(value);
-            return;
-        }
-    unknown("seam");
+    known(find(seams_, seam), "seam").seam = std::move(value);
 }
 
 void Document::remove(SeamId seam) {
-    if (std::erase_if(seams_, [&](const SeamEntry& e) { return e.id == seam; }) == 0) unknown("seam");
+    if (drop(seams_, seam) == 0) unknown("seam");
 }
 
 std::vector<SeamId> Document::sewAsSource(PanelId instance) {
@@ -202,32 +213,16 @@ std::vector<SeamId> Document::sewAsSource(PanelId instance) {
     return added;
 }
 
-std::vector<SeamId> Document::seams() const {
-    std::vector<SeamId> ids;
-    for (const SeamEntry& e : seams_) ids.push_back(e.id);
-    return ids;
-}
-
-bool Document::contains(SeamId seam) const {
-    return std::any_of(seams_.begin(), seams_.end(), [&](const SeamEntry& e) { return e.id == seam; });
-}
-
-const Seam& Document::get(SeamId seam) const {
-    for (const SeamEntry& e : seams_)
-        if (e.id == seam) return e.seam;
-    unknown("seam");
-}
-
 // ---- Operations -------------------------------------------------------------
 
 void Document::set(OpId operation, FieldId field, Expr value) {
-    Expr* target = fieldAt(data(operation), field.index);
+    Expr* target = fieldAt(entry(operation).data, field.index);
     if (!target) throw std::out_of_range("twintailor::Document: the operation has no such field");
     *target = std::move(value);
 }
 
 void Document::set(OpId operation, ReferenceId reference, Reference value) {
-    switch (setReferenceAt(data(operation), reference.index, value)) {
+    switch (setReferenceAt(entry(operation).data, reference.index, value)) {
     case ReferenceChange::Done: return;
     case ReferenceChange::NoSuchReference: throw std::out_of_range("twintailor::Document: the operation has no such reference");
     case ReferenceChange::WrongKind: throw std::invalid_argument("twintailor::Document: that kind of thing cannot be used for this reference");
@@ -235,42 +230,20 @@ void Document::set(OpId operation, ReferenceId reference, Reference value) {
 }
 
 void Document::remove(OpId operation) {
-    for (PanelEntry& p : panels_) {
-        const auto erased = std::erase_if(p.operations, [&](const OperationEntry& o) { return o.id == operation; });
-        if (erased > 0) return;
-    }
-    unknown("operation");
-}
-
-void Document::setEnabled(OpId operation, bool enabled) {
     for (PanelEntry& p : panels_)
-        for (OperationEntry& o : p.operations)
-            if (o.id == operation) {
-                o.enabled = enabled;
-                return;
-            }
+        if (drop(p.operations, operation) > 0) return;
     unknown("operation");
 }
 
-bool Document::enabled(OpId operation) const {
-    if (const PanelEntry* p = owner(operation))
-        for (const OperationEntry& o : p->operations)
-            if (o.id == operation) return o.enabled;
-    unknown("operation");
-}
+void Document::setEnabled(OpId operation, bool enabled) { entry(operation).enabled = enabled; }
 
 void Document::move(OpId operation, std::size_t index) {
-    for (PanelEntry& p : panels_) {
-        auto& ops = p.operations;
-        const auto it = std::find_if(ops.begin(), ops.end(), [&](const OperationEntry& o) { return o.id == operation; });
-        if (it == ops.end()) continue;
-        if (index >= ops.size()) throw std::out_of_range("twintailor::Document: move index is past the end of the panel");
-        const auto target = ops.begin() + static_cast<std::ptrdiff_t>(index);
-        if (it < target) std::rotate(it, it + 1, target + 1);
-        else std::rotate(target, it, it + 1);
-        return;
-    }
-    unknown("operation");
+    std::vector<OperationEntry>& ops = entry(panelOf(operation)).operations;
+    if (index >= ops.size()) throw std::out_of_range("twintailor::Document: move index is past the end of the panel");
+    const auto it = std::ranges::find(ops, operation, &OperationEntry::id);
+    const auto target = ops.begin() + static_cast<std::ptrdiff_t>(index);
+    if (it < target) std::rotate(it, it + 1, target + 1);
+    else std::rotate(target, it, it + 1);
 }
 
 // ---- The avatar -------------------------------------------------------------
@@ -279,76 +252,43 @@ void Document::setAvatar(std::shared_ptr<const Avatar> avatar) { avatar_ = std::
 
 // ---- Reading ----------------------------------------------------------------
 
-std::vector<Param> Document::parameters() const {
-    std::vector<Param> ids;
-    ids.reserve(parameters_.size());
-    for (const ParameterEntry& e : parameters_) ids.push_back(e.id);
-    return ids;
-}
+std::vector<Param> Document::parameters() const { return idsOf(parameters_); }
 
-std::vector<PanelId> Document::panels() const {
-    std::vector<PanelId> ids;
-    ids.reserve(panels_.size());
-    for (const PanelEntry& e : panels_) ids.push_back(e.id);
-    return ids;
-}
+std::vector<PanelId> Document::panels() const { return idsOf(panels_); }
 
-std::vector<OpId> Document::operations(PanelId panel) const {
-    for (const PanelEntry& p : panels_) {
-        if (!(p.id == panel)) continue;
-        std::vector<OpId> ids;
-        ids.reserve(p.operations.size());
-        for (const OperationEntry& o : p.operations) ids.push_back(o.id);
-        return ids;
-    }
-    unknown("panel");
-}
+std::vector<OpId> Document::operations(PanelId panel) const { return idsOf(known(find(panels_, panel), "panel").operations); }
+
+std::vector<SeamId> Document::seams() const { return idsOf(seams_); }
 
 PanelId Document::panelOf(OpId operation) const {
-    if (const PanelEntry* p = owner(operation)) return p->id;
+    for (const PanelEntry& p : panels_)
+        if (find(p.operations, operation)) return p.id;
     unknown("operation");
 }
+
+bool Document::enabled(OpId operation) const { return known(findOperation(panels_, operation), "operation").enabled; }
 
 std::optional<Instance> Document::instanceOf(PanelId panel) const {
-    for (const PanelEntry& p : panels_) {
-        if (!(p.id == panel)) continue;
-        for (const OperationEntry& o : p.operations) {
-            if (!o.enabled) continue;
-            if (const Instance* instance = std::get_if<Instance>(&o.data)) return *instance;
-            return std::nullopt;
-        }
-        return std::nullopt;
-    }
-    unknown("panel");
+    const std::vector<OperationEntry>& operations = known(find(panels_, panel), "panel").operations;
+    const auto first = std::ranges::find_if(operations, &OperationEntry::enabled);
+    if (first == operations.end() || !std::holds_alternative<Instance>(first->data)) return std::nullopt;
+    return std::get<Instance>(first->data);
 }
 
-bool Document::contains(Param parameter) const {
-    return std::any_of(parameters_.begin(), parameters_.end(), [&](const ParameterEntry& e) { return e.id == parameter; });
-}
+bool Document::contains(Param parameter) const { return find(parameters_, parameter) != nullptr; }
 
-bool Document::contains(PanelId panel) const {
-    return std::any_of(panels_.begin(), panels_.end(), [&](const PanelEntry& e) { return e.id == panel; });
-}
+bool Document::contains(PanelId panel) const { return find(panels_, panel) != nullptr; }
 
-bool Document::contains(OpId operation) const { return owner(operation) != nullptr; }
+bool Document::contains(OpId operation) const { return findOperation(panels_, operation) != nullptr; }
 
-const Parameter& Document::get(Param parameter) const {
-    for (const ParameterEntry& e : parameters_)
-        if (e.id == parameter) return e.parameter;
-    unknown("parameter");
-}
+bool Document::contains(SeamId seam) const { return find(seams_, seam) != nullptr; }
 
-const Panel& Document::get(PanelId panel) const {
-    for (const PanelEntry& e : panels_)
-        if (e.id == panel) return e.panel;
-    unknown("panel");
-}
+const Parameter& Document::get(Param parameter) const { return known(find(parameters_, parameter), "parameter").parameter; }
 
-const OpData& Document::get(OpId operation) const {
-    if (const PanelEntry* p = owner(operation))
-        for (const OperationEntry& o : p->operations)
-            if (o.id == operation) return o.data;
-    unknown("operation");
-}
+const Panel& Document::get(PanelId panel) const { return known(find(panels_, panel), "panel").panel; }
+
+const OpData& Document::get(OpId operation) const { return known(findOperation(panels_, operation), "operation").data; }
+
+const Seam& Document::get(SeamId seam) const { return known(find(seams_, seam), "seam").seam; }
 
 } // namespace twintailor

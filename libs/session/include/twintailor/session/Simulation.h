@@ -51,7 +51,7 @@ public:
     // Takes hold of a particle and leads it to `to` (see sim::Cloth::hold);
     // called again, leads it somewhere else. A new mesh ends the hold. While
     // it is held the cloth runs, though run(false) was said.
-    void hold(std::uint32_t panel, std::uint32_t point, sim::Vec3 to);
+    void hold(std::uint32_t panel, std::uint32_t point, Vec3 to);
     void letGo();
     // The cloth as it was before (undo and redo): `positions` on `mesh`,
     // at rest, `time` seconds on; `sewing` as it was then.
@@ -114,7 +114,7 @@ private:
     std::vector<PanelId> leftOut_;
     struct Held {
         std::uint32_t panel, point;
-        sim::Vec3 to;
+        Vec3 to;
     };
     std::optional<Held> held_;
     bool failed_ = false;

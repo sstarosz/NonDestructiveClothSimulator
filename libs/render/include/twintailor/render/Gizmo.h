@@ -52,9 +52,9 @@ enum class GizmoHandle {
 
 struct Gizmo {
     session::GizmoMode mode = session::GizmoMode::Move;
-    sim::Vec3 centre;
+    Vec3 centre;
     // The panel's own x and y in space: what the scale handles stretch along.
-    sim::Vec3 ownX{1.0, 0.0, 0.0}, ownY{0.0, 1.0, 0.0};
+    Vec3 ownX{1.0, 0.0, 0.0}, ownY{0.0, 1.0, 0.0};
     // Picture pixels per pixel of the screen's own scale, so that the gizmo
     // is as big, and as easy to take hold of, on a 4K display.
     double pixel = 1.0;
@@ -76,8 +76,8 @@ std::optional<GizmoHandle> handleAt(const Gizmo& gizmo, const OrbitCamera& camer
 // plane through the centre that faces the camera. Rounded to `step` cm.
 // Empty when it cannot be worked out (the axis points straight along the
 // mouse's ray) or for a handle of another mode.
-std::optional<sim::Vec3> moveBy(const Gizmo& gizmo, GizmoHandle handle, const OrbitCamera& camera, ViewSize size, PicturePoint pressed,
-                                PicturePoint now, double step);
+std::optional<Vec3> moveBy(const Gizmo& gizmo, GizmoHandle handle, const OrbitCamera& camera, ViewSize size, PicturePoint pressed,
+                           PicturePoint now, double step);
 
 // How far a Rotate ring turns the panel: about which axis in space, by how
 // many degrees (counter-clockwise looking down the axis at its tip), rounded
@@ -86,7 +86,7 @@ std::optional<sim::Vec3> moveBy(const Gizmo& gizmo, GizmoHandle handle, const Or
 // turns about the line in the screen square to the drag, by a radian for
 // every ring's radius dragged, so the front of the ball follows the mouse.
 struct Turn {
-    sim::Vec3 axis;
+    Vec3 axis;
     double degrees = 0.0;
 };
 std::optional<Turn> turnBy(const Gizmo& gizmo, GizmoHandle handle, const OrbitCamera& camera, ViewSize size, PicturePoint pressed,

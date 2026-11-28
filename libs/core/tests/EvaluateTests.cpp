@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -54,6 +56,91 @@ TEST_CASE("division by zero is an error")
     Result result = evaluate(doc);
     EXPECT((result.failed(bad)), "reported on the dividing parameter");
     EXPECT((!result.failed(zero)), "not on the divisor");
+}
+
+TEST_CASE("a formula comes to the same in evaluation and when worked out from its result")
+{
+    Document doc;
+    const Param six = doc.add(Parameter{.name = "six", .value = 6});
+    const Param two = doc.add(Parameter{.name = "two", .value = 2});
+    const auto formula = [&](const char* name, Expr value) { return doc.add(Parameter{.name = name, .value = std::move(value)}); };
+    const std::vector<std::pair<Param, double>> expected = {
+        {formula("sum", Expr(six) + two), 8.0},
+        {formula("difference", Expr(six) - two), 4.0},
+        {formula("product", Expr(six) * two), 12.0},
+        {formula("quotient", Expr(six) / two), 3.0},
+        {formula("negative", -Expr(six)), -6.0},
+        {formula("size", abs(Expr(two) - six)), 4.0},
+        {formula("least", min(Expr(six), two)), 2.0},
+        {formula("most", max(Expr(six), two)), 6.0},
+        {formula("held", clamp(Expr(six), 0, two)), 2.0},
+    };
+    const Param byZero = formula("byZero", Expr(six) / (Expr(two) - two));
+    const Param gone = doc.add(Parameter{.name = "gone", .value = 1});
+    const Param orphan = formula("orphan", Expr(six) + gone);
+    doc.remove(gone);
+
+    const Result result = evaluate(doc);
+    for (const auto& [parameter, value] : expected) {
+        EXPECT_NEAR((result[parameter]), (value), "evaluated");
+        EXPECT_NEAR((valueOf(doc.get(parameter).value, result).value()), (value), "worked out from the result");
+    }
+    EXPECT((!valueOf(doc.get(byZero).value, result)), "dividing by zero gives no value");
+    EXPECT((!valueOf(doc.get(orphan).value, result)), "nor does a removed parameter");
+
+    const auto saidOf = [&](Param parameter) {
+        for (const Error& error : result.errors)
+            if (const Param* where = std::get_if<Param>(&error.where); where && *where == parameter) return error.message;
+        return std::string();
+    };
+    EXPECT((saidOf(byZero) == "division by zero"), "and evaluation says why");
+    EXPECT((saidOf(orphan) == "refers to a parameter that no longer exists"), "for each of them");
+}
+
+TEST_CASE("an operation that cannot be done says why, once, and leaves the outline as it was")
+{
+    Document doc;
+    const PanelId other = doc.add(Panel{.name = "other"});
+    const OpRef<Rect> elsewhere = doc.add(other, Rect{.width = 1_cm, .height = 1_cm});
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    doc.add(panel, Curve{.edge = rect.top(), .bulge = 2_cm});
+    const PanelId round = doc.add(Panel{.name = "round"});
+    const OpRef<Circle> circle = doc.add(round, Circle{.radius = 10_cm});
+
+    // Adds the operation to a panel, checks what is said about it, and takes it off again.
+    const auto refused = [&](PanelId on, auto operation, const std::string& why) {
+        const Pattern before = evaluate(doc)[on];
+        const OpId added = doc.add(on, std::move(operation));
+        const Result result = evaluate(doc);
+        std::vector<std::string> said;
+        for (const Error& error : result.errors)
+            if (const OpId* where = std::get_if<OpId>(&error.where); where && *where == added) said.push_back(error.message);
+        INFO(why);
+        CHECK(said == std::vector<std::string>{why});
+        CHECK(result[on] == before);
+        doc.remove(added);
+    };
+    const std::string gone = " does not exist; an earlier operation may have removed it";
+
+    refused(panel, Curve{.edge = elsewhere.top(), .bulge = 1_cm}, "the edge to curve" + gone);
+    refused(panel, Bezier{.edge = elsewhere.top()}, "the edge to curve" + gone);
+    refused(panel, Line{.from = elsewhere.topLeft(), .angle = 45_deg}, "the corner the line starts from" + gone);
+    refused(panel, LineBetween{.from = {elsewhere.left(), 0.5}, .to = {elsewhere.right(), 0.5}}, "an edge the line is attached to" + gone);
+    refused(panel, LineBetween{.from = {rect.left(), 0.5}, .to = {elsewhere.right(), 0.5}}, "an edge the line is attached to" + gone);
+    refused(panel, AdjustPoint{.corner = elsewhere.topLeft()}, "the corner to adjust" + gone);
+    refused(panel, SetLength{.edge = elsewhere.top(), .length = 5_cm}, "the edge to give a length" + gone);
+    refused(panel, AddPoint{.at = {elsewhere.top(), 0.5}}, "the edge to add a point to" + gone);
+    refused(panel, Cut{.along = LineRef{}}, "the line to cut along does not exist in this panel");
+    refused(panel, Mirror{.across = rect.top()}, "the edge to mirror across must be straight");
+    refused(round, AdjustPoint{.corner = circle.start(), .dx = 1_cm},
+            "the corner belongs to a whole turn of a circle, which has no ends to move; change its radius instead");
+    refused(round, Scale{.x = 2.0},
+            "a whole circle can only be scaled evenly: give x and y the same scale, or change its radius instead");
+
+    const PanelId follower = doc.add(Panel{.name = "follower"});
+    refused(follower, Instance{.source = follower}, "the panel is an instance of itself, directly or through other panels");
+    refused(follower, Instance{.source = PanelId{9999}}, "the source panel no longer exists");
 }
 
 TEST_CASE("rectangle has named edges and corners")
@@ -762,6 +849,29 @@ TEST_CASE("outline before an operation is what it works on")
     EXPECT((outlineBefore(doc, OpId{9999}).edges.empty()), "an unknown operation gives nothing");
 }
 
+TEST_CASE("outline before an operation follows the panels it is made from, and skips what is off")
+{
+    Document doc;
+    const PanelId source = doc.add(Panel{.name = "source"});
+    const OpRef<Rect> half = doc.add(source, Rect{.width = 10_cm, .height = 20_cm});
+    const OpRef<Mirror> mirror = doc.add(source, Mirror{.across = half.left()});
+
+    const PanelId follower = doc.add(Panel{.name = "follower"});
+    doc.add(follower, Instance{.source = source});
+    const OpRef<Curve> off = doc.add(follower, Curve{.edge = half.top(), .bulge = 2_cm});
+    const OpRef<Curve> next = doc.add(follower, Curve{.edge = half.bottom(), .bulge = 1_cm});
+    doc.setEnabled(off, false);
+
+    const Pattern before = outlineBefore(doc, next);
+    EXPECT((before.contains(mirror.image(half.top()))), "the source is finished, its mirror included");
+    EXPECT((before.contains(half.top()) && !before.edge(half.top()).arc), "an operation that is off is skipped");
+
+    const PanelId looped = doc.add(Panel{.name = "looped"});
+    doc.add(looped, Instance{.source = looped});
+    const OpRef<Curve> after = doc.add(looped, Curve{.edge = half.top(), .bulge = 1_cm});
+    EXPECT((outlineBefore(doc, after).edges.empty()), "a panel that is an instance of itself has no outline");
+}
+
 TEST_CASE("a set length gives one edge its own length, and the edges beside it slant")
 {
     Document doc;
@@ -893,4 +1003,18 @@ TEST_CASE("a set length that cannot be done says why and changes nothing")
     const PanelId bare = empty.add(Panel{.name = "bare"});
     const OpRef<SetLength> first = empty.add(bare, SetLength{.edge = {}, .length = 30_cm});
     EXPECT((evaluate(empty).failed(first.id)), "a length needs an outline before it");
+}
+
+TEST_CASE("a sweep within a millionth of a degree of a full turn is a whole turn")
+{
+    Document doc;
+    const PanelId round = doc.add(Panel{.name = "round"});
+    const OpRef<Circle> circle = doc.add(round, Circle{.radius = 10_cm, .sweep = 360.0 - 1e-7});
+    const PanelId ring = doc.add(Panel{.name = "ring"});
+    const OpRef<RingSector> sector = doc.add(ring, RingSector{.innerLength = 40_cm, .sweep = 360.0 - 1e-7, .depth = 5_cm});
+
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT((result[round].vertices.size() == 1 && result[round].edge(circle.arc()).start == result[round].edge(circle.arc()).end), "a circle with no slice");
+    EXPECT((result[ring].edge(sector.startSide()).seam && result[ring].edge(sector.endSide()).seam), "and a ring closed on itself");
 }

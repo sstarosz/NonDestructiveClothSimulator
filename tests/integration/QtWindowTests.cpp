@@ -1347,7 +1347,7 @@ TEST_CASE("Alt with the mouse turns, pans and dollies the camera; F frames every
     space->release();
     EXPECT((std::abs(space->camera().yaw - (framed.yaw - 18.0)) < 1e-9), "the left button alone leaves the camera: it is for the cloth");
 
-    const sim::Vec3 target = space->camera().target;
+    const Vec3 target = space->camera().target;
     space->press({100, 100}, Qt::MiddleButton, Qt::AltModifier);
     space->moveTo({100, 140}, Qt::MiddleButton, Qt::AltModifier);
     space->release();
@@ -1394,7 +1394,7 @@ TEST_CASE("a click in the 3D view selects the panel under it; its gizmo carries 
     for (PanelId p : w.doc().panels())
         if (w.doc().get(p).arrangement.z > w.doc().get(front).arrangement.z) front = p;
     const Arrangement before = w.doc().get(front).arrangement;
-    const sim::Vec3 centre{before.x, before.y, before.z};
+    const Vec3 centre{before.x, before.y, before.z};
     const std::optional<render::PicturePoint> middle = render::pictureOf(space.camera(), space.pictureSize(), centre);
     REQUIRE(middle.has_value());
 
@@ -1407,7 +1407,7 @@ TEST_CASE("a click in the 3D view selects the panel under it; its gizmo carries 
     REQUIRE(gizmo.has_value());
 
     // Take the x arrow a little way out from the middle and pull it outwards.
-    const render::PicturePoint tip = *render::pictureOf(space.camera(), space.pictureSize(), centre + sim::Vec3{1.0, 0.0, 0.0});
+    const render::PicturePoint tip = *render::pictureOf(space.camera(), space.pictureSize(), centre + Vec3{1.0, 0.0, 0.0});
     const double dx = tip.x - middle->x, dy = tip.y - middle->y, length = std::hypot(dx, dy);
     REQUIRE(length > 0.0);
     const auto out = [&](double pixels) { return render::PicturePoint{middle->x + dx / length * pixels * gizmo->pixel, middle->y + dy / length * pixels * gizmo->pixel}; };
@@ -1488,9 +1488,9 @@ TEST_CASE("in 3D the rotate gizmo turns the selected panel in space; the scale g
     w.window.tick();
     const Arrangement after = w.doc().get(front).arrangement;
     // The line of sight through the panel's anchor, from it to the eye.
-    const sim::Vec3 sight = sim::normalized(space.camera().eye() - sim::Vec3{before.x, before.y, before.z});
-    const sim::Vec3 expected = sim::inSpace(sim::turnedAbout(before, sight, -90.0), {1.0, 0.0, 0.0});
-    EXPECT((sim::length(sim::inSpace(after, {1.0, 0.0, 0.0}) - expected) < 1e-6), "the panel turns a quarter about the line of sight");
+    const Vec3 sight = normalized(space.camera().eye() - Vec3{before.x, before.y, before.z});
+    const Vec3 expected = sim::inSpace(sim::turnedAbout(before, sight, -90.0), {1.0, 0.0, 0.0});
+    EXPECT((length(sim::inSpace(after, {1.0, 0.0, 0.0}) - expected) < 1e-6), "the panel turns a quarter about the line of sight");
     EXPECT((after.x == before.x && after.y == before.y && after.z == before.z), "about its anchor, which stays where it is");
     w.window.shelf()->undo()->trigger();
     w.window.tick();
@@ -1619,7 +1619,7 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
     const auto moved = [&](const sim::Placement& was) {
         double most = 0.0;
         for (std::size_t p = 0; p < was.size(); ++p)
-            for (std::size_t i = 0; i < was[p].size(); ++i) most = std::max(most, sim::length(session.cloth().positions[p][i] - was[p][i]));
+            for (std::size_t i = 0; i < was[p].size(); ++i) most = std::max(most, length(session.cloth().positions[p][i] - was[p][i]));
         return most;
     };
 
@@ -1721,45 +1721,45 @@ TEST_CASE("the 3D gizmo follows cloth that has fallen; moving and turning work a
     w.window.showBody(false);  // so that the cloth falls
     w.window.tick();
     REQUIRE(space.gizmo().has_value());
-    const sim::Vec3 first = space.gizmo()->centre;
+    const Vec3 first = space.gizmo()->centre;
 
     // How far the nearest particle of the panel is from a point.
-    const auto fromCloth = [&](sim::Vec3 at) {
+    const auto fromCloth = [&](Vec3 at) {
         double least = 1e9;
         for (std::size_t p = 0; p < session.shownMesh().panels.size(); ++p)
             if (session.shownMesh().panels[p].panel == front)
-                for (const sim::Vec3& particle : session.shownPositions()[p]) least = std::min(least, sim::length(particle - at));
+                for (const Vec3& particle : session.shownPositions()[p]) least = std::min(least, length(particle - at));
         return least;
     };
-    const auto onGizmo = [&](sim::Vec3 point) { return *render::pictureOf(space.camera(), space.pictureSize(), point); };
+    const auto onGizmo = [&](Vec3 point) { return *render::pictureOf(space.camera(), space.pictureSize(), point); };
 
     w.window.shelf()->simulate()->setChecked(true);
     for (int i = 0; i < 90; ++i) w.window.tick();  // past the seams being drawn shut, and falling
 
     // Playing: a handle that is held does not run away with the falling cloth.
-    const sim::Vec3 falling = space.gizmo()->centre;
+    const Vec3 falling = space.gizmo()->centre;
     EXPECT((falling.y < first.y - 5.0 && fromCloth(falling) < 1e-9), "while the cloth falls the gizmo falls with it");
     const QPointF middle = onView(space, onGizmo(falling));
     space.press(middle, Qt::LeftButton, {});
     for (int i = 0; i < 5; ++i) w.window.tick();
-    EXPECT((sim::length(space.gizmo()->centre - falling) < 1e-9), "held, it stays where it was taken hold of");
+    EXPECT((length(space.gizmo()->centre - falling) < 1e-9), "held, it stays where it was taken hold of");
     space.release();
     w.window.tick();
     w.window.shelf()->simulate()->setChecked(false);
     w.window.tick();
 
-    const sim::Vec3 fallen = space.gizmo()->centre;
+    const Vec3 fallen = space.gizmo()->centre;
     EXPECT((fromCloth(fallen) < 1e-9), "paused, the gizmo is on the panel's cloth");
     w.window.shelf()->action(Tool::Rotate)->trigger();
     w.window.tick();
-    EXPECT((sim::length(space.gizmo()->centre - fallen) < 1e-9), "and so after a change of tool");
+    EXPECT((length(space.gizmo()->centre - fallen) < 1e-9), "and so after a change of tool");
 
     // The x arrow carries panel, drape and gizmo.
     w.window.shelf()->action(Tool::Move)->trigger();
     w.window.tick();
-    const render::PicturePoint at = onGizmo(fallen), tip = onGizmo(fallen + sim::Vec3{1.0, 0.0, 0.0});
-    const double dx = tip.x - at.x, dy = tip.y - at.y, length = std::hypot(dx, dy), pixel = space.gizmo()->pixel;
-    const auto out = [&](double pixels) { return onView(space, {at.x + dx / length * pixels * pixel, at.y + dy / length * pixels * pixel}); };
+    const render::PicturePoint at = onGizmo(fallen), tip = onGizmo(fallen + Vec3{1.0, 0.0, 0.0});
+    const double dx = tip.x - at.x, dy = tip.y - at.y, apart = std::hypot(dx, dy), pixel = space.gizmo()->pixel;
+    const auto out = [&](double pixels) { return onView(space, {at.x + dx / apart * pixels * pixel, at.y + dy / apart * pixels * pixel}); };
     const Arrangement before = w.doc().get(front).arrangement;
     space.press(out(40.0), Qt::LeftButton, {});
     for (int step = 1; step <= 5; ++step) {
@@ -1767,11 +1767,11 @@ TEST_CASE("the 3D gizmo follows cloth that has fallen; moving and turning work a
         w.window.tick();
     }
     const double moved = w.doc().get(front).arrangement.x - before.x;
-    EXPECT((moved > 1.0 && sim::length(space.gizmo()->centre - (fallen + sim::Vec3{moved, 0.0, 0.0})) < 1e-6), "the gizmo goes with the hand");
+    EXPECT((moved > 1.0 && length(space.gizmo()->centre - (fallen + Vec3{moved, 0.0, 0.0})) < 1e-6), "the gizmo goes with the hand");
     space.release();
     w.window.tick();
-    const sim::Vec3 carried = space.gizmo()->centre;
-    EXPECT((sim::length(carried - (fallen + sim::Vec3{moved, 0.0, 0.0})) < 1e-6 && fromCloth(carried) < 1e-6), "and is still on the cloth when let go");
+    const Vec3 carried = space.gizmo()->centre;
+    EXPECT((length(carried - (fallen + Vec3{moved, 0.0, 0.0})) < 1e-6 && fromCloth(carried) < 1e-6), "and is still on the cloth when let go");
 
     // A turn is about the gizmo: the cloth under it stays where it is.
     w.window.shelf()->action(Tool::Rotate)->trigger();
@@ -1791,9 +1791,9 @@ TEST_CASE("the 3D gizmo follows cloth that has fallen; moving and turning work a
     w.window.tick();
     double turned = 0.0;
     for (std::size_t p = 0; p < drape.size(); ++p)
-        for (std::size_t i = 0; i < drape[p].size(); ++i) turned = std::max(turned, sim::length(session.cloth().positions[p][i] - drape[p][i]));
+        for (std::size_t i = 0; i < drape[p].size(); ++i) turned = std::max(turned, length(session.cloth().positions[p][i] - drape[p][i]));
     EXPECT((turned > 5.0), "the panel's drape turned");
-    EXPECT((fromCloth(carried) < 1e-6 && sim::length(space.gizmo()->centre - carried) < 1e-6), "about the gizmo, which stays on its spot of the cloth");
+    EXPECT((fromCloth(carried) < 1e-6 && length(space.gizmo()->centre - carried) < 1e-6), "about the gizmo, which stays on its spot of the cloth");
 }
 
 namespace {
@@ -3731,9 +3731,9 @@ TEST_CASE("choosing an avatar's file shows it in 3D beside a dialog with a guess
     EXPECT(!w.window.shelf()->simulate()->isChecked(), "on another body the cloth starts again");
     EXPECT_NEAR(reach(w.doc()).first, 0.0, "standing on the floor");
     EXPECT_NEAR(reach(w.doc()).second, 175.0, "175 cm tall");
-    EXPECT((w.doc().avatar()->readAs.unit == 100.0 && w.doc().avatar()->readAs.moved != Point3{}), "and how its file was read is kept");
+    EXPECT((w.doc().avatar()->readAs.unit == 100.0 && w.doc().avatar()->readAs.moved != Vec3{}), "and how its file was read is kept");
     double middle = 0.0;
-    for (const Point3& p : w.doc().avatar()->points) middle += p.x;
+    for (const Vec3& p : w.doc().avatar()->points) middle += p.x;
     EXPECT_NEAR(middle, 0.0, "in the middle");
 
     w.window.shelf()->undo()->trigger();
@@ -4063,7 +4063,7 @@ TEST_CASE("a file opens as it was left: the drape, what is frozen and hidden, an
         double off = 0.0;
         for (std::size_t p = 0; p < hung.size(); ++p) {
             REQUIRE(session.cloth().positions[p].size() == hung[p].size());
-            for (std::size_t i = 0; i < hung[p].size(); ++i) off = std::max(off, sim::length(session.cloth().positions[p][i] - hung[p][i]));
+            for (std::size_t i = 0; i < hung[p].size(); ++i) off = std::max(off, length(session.cloth().positions[p][i] - hung[p][i]));
         }
         EXPECT((off == 0.0 && session.cloth().time == time), "every particle where it was left");
         EXPECT((!session.panelActive(back) && !session.panelShown(front) && !session.seamShown(seam)), "frozen and hidden as left");
@@ -4081,7 +4081,7 @@ TEST_CASE("a file opens as it was left: the drape, what is frozen and hidden, an
     std::size_t frozen = 0;
     while (!(session.cloth().mesh->panels[frozen].panel == back)) ++frozen;
     double most = 0.0;
-    for (std::size_t i = 0; i < hung[frozen].size(); ++i) most = std::max(most, sim::length(session.cloth().positions[frozen][i] - hung[frozen][i]));
+    for (std::size_t i = 0; i < hung[frozen].size(); ++i) most = std::max(most, length(session.cloth().positions[frozen][i] - hung[frozen][i]));
     EXPECT((session.cloth().time > time && most == 0.0 && w.window.isWindowModified()), "it runs on from there, but for the frozen panel");
 }
 

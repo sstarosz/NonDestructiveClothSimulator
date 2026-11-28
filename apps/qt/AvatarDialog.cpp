@@ -29,7 +29,7 @@ void choose(QComboBox* box, Axis axis) { box->setCurrentIndex(box->findData(stat
 
 } // namespace
 
-AvatarDialog::AvatarDialog(sim::Vec3 fileSize, const AvatarImport& guess, QWidget* parent)
+AvatarDialog::AvatarDialog(Vec3 fileSize, const AvatarImport& guess, QWidget* parent)
     : QDialog(parent), fileSize_(fileSize), choice_(guess) {
     setWindowTitle("Avatar");
     auto* rows = new QFormLayout(this);

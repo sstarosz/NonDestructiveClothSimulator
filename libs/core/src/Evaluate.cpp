@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <expected>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -17,14 +18,35 @@ namespace twintailor {
 namespace {
 
 // A number, or the reason there isn't one.
-struct Value {
-    std::optional<double> number;
-    std::string problem;
+using Value = std::expected<double, std::string>;
 
-    static Value of(double v) { return {v, {}}; }
-    static Value fail(std::string why) { return {std::nullopt, std::move(why)}; }
-    explicit operator bool() const { return number.has_value(); }
-};
+Value fail(std::string why) { return std::unexpected(std::move(why)); }
+
+// What a formula comes to. `parameter` says what one of its parameters does;
+// the first thing without a value is what the whole formula reports.
+template <class Parameter>
+Value compute(const ExprNode& n, const Parameter& parameter) {
+    using Kind = ExprNode::Kind;
+    if (n.kind == Kind::Number) return n.number;
+    if (n.kind == Kind::Parameter) return parameter(n.parameter);
+
+    const Value a = compute(*n.a, parameter);
+    if (!a) return a;
+    if (n.kind == Kind::Negate) return -*a;
+    if (n.kind == Kind::Abs) return std::abs(*a);
+
+    const Value b = compute(*n.b, parameter);
+    if (!b) return b;
+    switch (n.kind) {
+    case Kind::Add: return *a + *b;
+    case Kind::Subtract: return *a - *b;
+    case Kind::Multiply: return *a * *b;
+    case Kind::Divide: return *b == 0.0 ? fail("division by zero") : Value(*a / *b);
+    case Kind::Min: return std::min(*a, *b);
+    case Kind::Max: return std::max(*a, *b);
+    default: return fail("unsupported expression");
+    }
+}
 
 class Evaluator {
 public:
@@ -33,11 +55,20 @@ public:
         for (PanelId p : doc.panels()) panels_.push_back({p, State::Pending, {}});
     }
 
+    // A panel's outline as `operation`, one of its own, gets to work on it.
+    Pattern before(OpId operation) {
+        const PanelId panel = doc_.panelOf(operation);
+        // Marked as being built, so that a panel that leads back to itself is found.
+        for (PanelState& s : panels_)
+            if (s.panel == panel) s.state = State::Running;
+        return build(panel, operation);
+    }
+
     Result run() {
-        for (Param p : doc_.parameters()) valueOf(p);
+        for (Param p : doc_.parameters()) (void)valueOf(p);  // each keeps its value, or reports why not
         for (const ParameterState& s : parameters_)
             if (s.state == State::Done) result_.values.push_back({s.parameter, s.value});
-        for (PanelId panel : doc_.panels()) patternOf(panel);
+        for (PanelId panel : doc_.panels()) (void)patternOf(panel);  // an instance may have built it already
         for (PanelState& s : panels_) result_.panels.push_back({s.panel, std::move(s.pattern)});
         for (SeamId id : doc_.seams()) {
             const Seam& seam = doc_.get(id);
@@ -91,52 +122,30 @@ private:
 
     Value valueOf(Param p) {
         ParameterState* s = find(p);
-        if (!s) return Value::fail("refers to a parameter that no longer exists");
+        if (!s) return fail("refers to a parameter that no longer exists");
         const std::string& name = doc_.get(p).name;
         switch (s->state) {
-        case State::Done: return Value::of(s->value);
-        case State::Failed: return Value::fail("depends on '" + name + "', which has an error");
-        case State::Running: return Value::fail("circular reference through '" + name + "'");
+        case State::Done: return s->value;
+        case State::Failed: return fail("depends on '" + name + "', which has an error");
+        case State::Running: return fail("circular reference through '" + name + "'");
         case State::Pending: break;
         }
         s->state = State::Running;
         const Value v = eval(doc_.get(p).value);
         if (v) {
             s->state = State::Done;
-            s->value = *v.number;
+            s->value = *v;
             return v;
         }
         s->state = State::Failed;
-        result_.errors.push_back({p, v.problem});
-        return Value::fail("depends on '" + name + "', which has an error");
+        result_.errors.push_back({p, v.error()});
+        return fail("depends on '" + name + "', which has an error");
     }
 
     // ---- Expressions ----
 
-    Value eval(const Expr& e) { return eval(ExprAccess::node(e)); }
-
-    Value eval(const ExprNode& n) {
-        using Kind = ExprNode::Kind;
-        if (n.kind == Kind::Number) return Value::of(n.number);
-        if (n.kind == Kind::Parameter) return valueOf(n.parameter);
-
-        const Value a = eval(*n.a);
-        if (!a) return a;
-        if (n.kind == Kind::Negate) return Value::of(-*a.number);
-        if (n.kind == Kind::Abs) return Value::of(std::abs(*a.number));
-
-        const Value b = eval(*n.b);
-        if (!b) return b;
-        const double x = *a.number, y = *b.number;
-        switch (n.kind) {
-        case Kind::Add: return Value::of(x + y);
-        case Kind::Subtract: return Value::of(x - y);
-        case Kind::Multiply: return Value::of(x * y);
-        case Kind::Divide: return y == 0.0 ? Value::fail("division by zero") : Value::of(x / y);
-        case Kind::Min: return Value::of(std::min(x, y));
-        case Kind::Max: return Value::of(std::max(x, y));
-        default: return Value::fail("unsupported expression");
-        }
+    Value eval(const Expr& e) {
+        return compute(ExprAccess::node(e), [&](Param p) { return valueOf(p); });
     }
 
     // The values of an operation's formula fields, in fields() order, checked
@@ -148,15 +157,15 @@ private:
         for (const Field& field : fields(data)) {
             const Value v = eval(field.value);
             if (!v) {
-                error(op, std::string(field.label) + " " + v.problem);
+                error(op, std::string(field.label) + " " + v.error());
                 usable = false;
-            } else if (!field.limits.allows(*v.number)) {
+            } else if (!field.limits.allows(*v)) {
                 char got[32];
-                std::snprintf(got, sizeof got, "%g", *v.number);
+                std::snprintf(got, sizeof got, "%g", *v);
                 error(op, std::string(field.label) + " " + field.limits.rule() + "; it is " + got);
                 usable = false;
             } else {
-                values.push_back(*v.number);
+                values.push_back(*v);
             }
         }
         if (!usable) return std::nullopt;
@@ -166,20 +175,14 @@ private:
     // ---- Panels ----
 
     // A panel's finished outline. Panels are built on demand so that an
-    // instance can ask for its source; nullptr (with a reason) when the
-    // panel is gone or the request loops back on itself.
-    const Pattern* patternOf(PanelId panel, std::string* problem = nullptr) {
+    // instance can ask for its source; the reason instead when the panel is
+    // gone or the request loops back on itself.
+    std::expected<const Pattern*, std::string> patternOf(PanelId panel) {
         PanelState* s = nullptr;
         for (PanelState& candidate : panels_)
             if (candidate.panel == panel) s = &candidate;
-        if (!s) {
-            if (problem) *problem = "the source panel no longer exists";
-            return nullptr;
-        }
-        if (s->state == State::Running) {
-            if (problem) *problem = "the panel is an instance of itself, directly or through other panels";
-            return nullptr;
-        }
+        if (!s) return std::unexpected("the source panel no longer exists");
+        if (s->state == State::Running) return std::unexpected("the panel is an instance of itself, directly or through other panels");
         if (s->state == State::Pending) {
             s->state = State::Running;
             const int quiet = std::exchange(quiet_, 0);  // this is the panel's own build: report its problems
@@ -234,6 +237,25 @@ private:
         return !first && !pattern.edges.empty();
     }
 
+    // The edge or corner called `name`, one of the outline's. When it has none
+    // of that name: nullptr, and `what` is reported as not there.
+    template <class Item, class Name>
+    Item* named(std::vector<Item>& items, const Name& name, OpId op, const char* what) {
+        for (Item& item : items)
+            if (item.name == name) return &item;
+        error(op, std::string(what) + " does not exist; an earlier operation may have removed it");
+        return nullptr;
+    }
+
+    // Makes `change` on a copy of the outline and keeps the copy only if all of
+    // it worked, so that a failed operation leaves nothing half done.
+    template <class Change>
+    void attempt(Pattern& pattern, OpId op, const Change& change) {
+        Pattern changed = pattern;
+        if (const outline::Problem problem = change(changed)) error(op, *problem);
+        else pattern = std::move(changed);
+    }
+
     // ---- Starting operations ----
 
     // Each apply() gets its operation's field values in fields() order,
@@ -241,15 +263,14 @@ private:
 
     void apply(const Rect&, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!starts(first, "a rectangle", op)) return;
-        const double* w = &value[0];
-        const double* h = &value[1];
+        const double width = value[0], height = value[1];
 
         const OpRef<Rect> names(op);
         pattern.vertices = {
             {names.bottomLeft(), {0.0, 0.0}},
-            {names.bottomRight(), {*w, 0.0}},
-            {names.topRight(), {*w, *h}},
-            {names.topLeft(), {0.0, *h}},
+            {names.bottomRight(), {width, 0.0}},
+            {names.topRight(), {width, height}},
+            {names.topLeft(), {0.0, height}},
         };
         pattern.edges = {
             {names.bottom(), 0, 1, std::nullopt},
@@ -264,15 +285,15 @@ private:
         const double radius = value[0], sweep = value[1];
         const OpRef<Circle> names(op);
         const Vec2 centre{0.0, 0.0};
-        if (sweep > 360.0 - 1e-9) {
+        if (outline::wholeTurn(sweep)) {
             // A whole circle: one edge that starts and ends at its lowest point.
             pattern.vertices = {{names.start(), {0.0, -radius}}};
             pattern.edges = {{names.arc(), 0, 0, Arc{centre, radius, 360.0}}};
             return;
         }
         // A slice, hanging downward: centred on the negative y axis.
-        const double radians = sweep * (pi / 180.0);
-        const double startAngle = -pi / 2.0 - radians / 2.0, endAngle = -pi / 2.0 + radians / 2.0;
+        const double half = radians(sweep) / 2.0;
+        const double startAngle = -pi / 2.0 - half, endAngle = -pi / 2.0 + half;
         pattern.vertices = {
             {names.start(), {radius * std::cos(startAngle), radius * std::sin(startAngle)}},
             {names.end(), {radius * std::cos(endAngle), radius * std::sin(endAngle)}},
@@ -287,17 +308,15 @@ private:
 
     void apply(const RingSector&, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!starts(first, "a ring sector", op)) return;
-        const double* innerLength = &value[0];
-        const double* sweep = &value[1];
-        const double* depth = &value[2];
+        const double innerLength = value[0], sweep = value[1], depth = value[2];
 
-        const double radians = *sweep * (pi / 180.0);
-        const double inner = *innerLength / radians;  // arc length = radius * angle
-        const double outer = inner + *depth;
+        const double angle = radians(sweep);
+        const double inner = innerLength / angle;  // arc length = radius * angle
+        const double outer = inner + depth;
 
         // Hangs downward: centred on the negative y axis.
-        const double startAngle = -pi / 2.0 - radians / 2.0;
-        const double endAngle = -pi / 2.0 + radians / 2.0;
+        const double startAngle = -pi / 2.0 - angle / 2.0;
+        const double endAngle = -pi / 2.0 + angle / 2.0;
         const auto at = [](double radius, double angle) {
             return Vec2{radius * std::cos(angle), radius * std::sin(angle)};
         };
@@ -311,24 +330,23 @@ private:
             {names.innerStart(), at(inner, startAngle)},
         };
         pattern.edges = {
-            {names.outer(), 0, 1, Arc{centre, outer, *sweep}},
+            {names.outer(), 0, 1, Arc{centre, outer, sweep}},
             {names.endSide(), 1, 2, std::nullopt},
-            {names.inner(), 2, 3, Arc{centre, inner, -*sweep}},
+            {names.inner(), 2, 3, Arc{centre, inner, -sweep}},
             {names.startSide(), 3, 0, std::nullopt},
         };
         // A whole turn closes on itself: the two sides are one seam, not edges.
-        if (*sweep > 360.0 - 1e-9) pattern.edges[1].seam = pattern.edges[3].seam = true;
+        if (outline::wholeTurn(sweep)) pattern.edges[1].seam = pattern.edges[3].seam = true;
     }
 
     void apply(const Instance& instance, const std::vector<double>&, OpId op, bool first, Pattern& pattern) {
         if (!starts(first, "an instance", op)) return;
-        std::string problem;
-        const Pattern* source = patternOf(instance.source, &problem);
+        const std::expected<const Pattern*, std::string> source = patternOf(instance.source);
         if (!source) {
-            error(op, problem);
+            error(op, source.error());
             return;
         }
-        pattern = *source;
+        pattern = **source;
         if (instance.mirrored) outline::flip(pattern);
     }
 
@@ -365,45 +383,28 @@ private:
 
     void apply(const Curve& curve, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a curve", op, pattern)) return;
-        const auto edge = std::find_if(pattern.edges.begin(), pattern.edges.end(),
-                                       [&](const Edge& e) { return e.name == curve.edge; });
-        if (edge == pattern.edges.end()) {
-            error(op, "the edge to curve does not exist; an earlier operation may have removed it");
-            return;
-        }
-        const double* bulge = &value[0];
+        Edge* edge = named(pattern.edges, curve.edge, op, "the edge to curve");
+        if (!edge) return;
         edge->cubic.reset();
-        edge->arc = outline::arcFromBulge(pattern.vertices[edge->start].position,
-                                          pattern.vertices[edge->end].position, *bulge);
+        edge->arc = outline::arcFromBulge(pattern.vertices[edge->start].position, pattern.vertices[edge->end].position, value[0]);
     }
 
     void apply(const Bezier& bezier, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a free curve", op, pattern)) return;
-        const auto edge = std::find_if(pattern.edges.begin(), pattern.edges.end(),
-                                       [&](const Edge& e) { return e.name == bezier.edge; });
-        if (edge == pattern.edges.end()) {
-            error(op, "the edge to curve does not exist; an earlier operation may have removed it");
-            return;
-        }
-        const double* startX = &value[0];
-        const double* startY = &value[1];
-        const double* endX = &value[2];
-        const double* endY = &value[3];
+        Edge* edge = named(pattern.edges, bezier.edge, op, "the edge to curve");
+        if (!edge) return;
         const Vec2 start = pattern.vertices[edge->start].position;
         const Vec2 end = pattern.vertices[edge->end].position;
         edge->arc.reset();
-        edge->cubic = CubicCurve{{start.x + *startX, start.y + *startY}, {end.x + *endX, end.y + *endY}};
+        edge->cubic = CubicCurve{start + Vec2{value[0], value[1]}, end + Vec2{value[2], value[3]}};
     }
 
     void apply(const Line& line, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a line", op, pattern)) return;
-        if (!pattern.contains(line.from)) {
-            error(op, "the corner the line starts from does not exist; an earlier operation may have removed it");
-            return;
-        }
-        const double* angle = &value[0];
-        const Vec2 start = pattern.position(line.from);
-        const std::optional<Vec2> end = outline::firstHit(pattern, start, *angle);
+        const Vertex* from = named(pattern.vertices, line.from, op, "the corner the line starts from");
+        if (!from) return;
+        const Vec2 start = from->position;
+        const std::optional<Vec2> end = outline::firstHit(pattern, start, value[0]);
         if (!end) {
             error(op, "the line points away from the panel and never crosses it");
             return;
@@ -413,13 +414,14 @@ private:
 
     void apply(const LineBetween& line, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a line", op, pattern)) return;
-        if (!pattern.contains(line.from.edge) || !pattern.contains(line.to.edge)) {
-            error(op, "an edge the line is attached to does not exist; an earlier operation may have removed it");
-            return;
-        }
-        const Vec2 start = outline::pointAt(pattern, pattern.edge(line.from.edge), value[0]);
-        const Vec2 end = outline::pointAt(pattern, pattern.edge(line.to.edge), value[1]);
-        if (std::hypot(end.x - start.x, end.y - start.y) < 1e-6) {
+        const char* const attached = "an edge the line is attached to";
+        const Edge* from = named(pattern.edges, line.from.edge, op, attached);
+        if (!from) return;
+        const Edge* to = named(pattern.edges, line.to.edge, op, attached);
+        if (!to) return;
+        const Vec2 start = outline::pointAt(pattern, *from, value[0]);
+        const Vec2 end = outline::pointAt(pattern, *to, value[1]);
+        if (length(end - start) < 1e-6) {
             error(op, "the line starts and ends at the same point");
             return;
         }
@@ -434,45 +436,28 @@ private:
         }
         const InternalLine line = pattern.line(cut.along);
         const OpRef<Cut> names(op);
-        Pattern changed = pattern;
-        const outline::Problem problem = outline::cut(changed, line.start, line.end, cut.keep == Cut::Side::Left,
-                                                      names.edge(), names.start(), names.end());
-        if (problem) error(op, *problem);
-        else pattern = std::move(changed);
+        attempt(pattern, op, [&](Pattern& changed) {
+            return outline::cut(changed, line.start, line.end, cut.keep == Cut::Side::Left, names.edge(), names.start(), names.end());
+        });
     }
 
     void apply(const Mirror& mirror, const std::vector<double>&, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a mirror", op, pattern)) return;
-        Pattern changed = pattern;
-        const outline::Problem problem = outline::mirror(changed, mirror.across, op);
-        if (problem) error(op, *problem);
-        else pattern = std::move(changed);
+        attempt(pattern, op, [&](Pattern& changed) { return outline::mirror(changed, mirror.across, op); });
     }
 
     void apply(const AdjustPoint& adjust, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a point adjustment", op, pattern)) return;
-        const auto vertex = std::find_if(pattern.vertices.begin(), pattern.vertices.end(),
-                                         [&](const Vertex& v) { return v.name == adjust.corner; });
-        if (vertex == pattern.vertices.end()) {
-            error(op, "the corner to adjust does not exist; an earlier operation may have removed it");
-            return;
-        }
-        const double* dx = &value[0];
-        const double* dy = &value[1];
-        Pattern changed = pattern;
-        const outline::Problem problem = outline::moveCorners(changed, std::vector<outline::CornerMove>{{static_cast<std::size_t>(vertex - pattern.vertices.begin()), {*dx, *dy}}});
-        if (problem) error(op, *problem);
-        else pattern = std::move(changed);
+        const Vertex* corner = named(pattern.vertices, adjust.corner, op, "the corner to adjust");
+        if (!corner) return;
+        const std::size_t vertex = static_cast<std::size_t>(corner - pattern.vertices.data());
+        attempt(pattern, op, [&](Pattern& changed) { return outline::moveCorners(changed, {{vertex, {value[0], value[1]}}}); });
     }
 
     void apply(const SetLength& set, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a length", op, pattern)) return;
-        const auto found = std::find_if(pattern.edges.begin(), pattern.edges.end(),
-                                        [&](const Edge& e) { return e.name == set.edge; });
-        if (found == pattern.edges.end()) {
-            error(op, "the edge to give a length does not exist; an earlier operation may have removed it");
-            return;
-        }
+        const Edge* found = named(pattern.edges, set.edge, op, "the edge to give a length");
+        if (!found) return;
         const Edge& edge = *found;
         if (edge.seam) {
             error(op, "this edge is the closing slit of a whole ring, which is not an edge of the cloth and has no length");
@@ -488,32 +473,30 @@ private:
             return;
         }
         const Vec2 start = pattern.vertices[edge.start].position, end = pattern.vertices[edge.end].position;
-        const double now = std::hypot(end.x - start.x, end.y - start.y);
+        const double now = length(end - start);
         if (now < 1e-7) {
             error(op, "the edge has no length to stretch: its two corners are in the same place");
             return;
         }
         // The corners slide along the line between them. Start and end follow the outline.
-        const Vec2 along{(end.x - start.x) / now, (end.y - start.y) / now};
+        const Vec2 along = (end - start) * (1.0 / now);
         const double growth = *chord - now;
         const double startShare = set.keeping == SetLength::Keeping::Start ? 0.0 : set.keeping == SetLength::Keeping::End ? 1.0 : 0.5;
         const double endShare = 1.0 - startShare;
-        Pattern changed = pattern;
-        const outline::Problem problem = outline::moveCorners(changed, std::vector<outline::CornerMove>{
-            {edge.start, {-along.x * growth * startShare, -along.y * growth * startShare}},
-            {edge.end, {along.x * growth * endShare, along.y * growth * endShare}},
+        attempt(pattern, op, [&](Pattern& changed) {
+            return outline::moveCorners(changed, {
+                {edge.start, along * (-growth * startShare)},
+                {edge.end, along * (growth * endShare)},
+            });
         });
-        if (problem) error(op, *problem);
-        else pattern = std::move(changed);
     }
 
     void apply(const AddPoint& point, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
         if (!modifies(first, "a point", op, pattern)) return;
         const OpRef<AddPoint> names(op);
-        Pattern changed = pattern;
-        const outline::Problem problem = outline::addPoint(changed, point.at.edge, value[0], names.corner(), names.after(point.at.edge));
-        if (problem) error(op, *problem);
-        else pattern = std::move(changed);
+        attempt(pattern, op, [&](Pattern& changed) {
+            return outline::addPoint(changed, point.at.edge, value[0], names.corner(), names.after(point.at.edge));
+        });
     }
 
     void apply(const Scale&, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
@@ -522,36 +505,30 @@ private:
         const bool evenly = std::abs(x - y) < 1e-12;
         if (!evenly)
             for (const Edge& e : pattern.edges)
-                if (e.arc && (e.start == e.end || std::abs(e.arc->sweep) > 360.0 - 1e-6)) {
+                if (outline::wholeTurn(e)) {
                     error(op, "a whole circle can only be scaled evenly: give x and y the same scale, or change its radius instead");
                     return;
                 }
         const std::optional<Bounds> box = bounds(pattern);
         if (!box) return;
-        const Vec2 middle{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0};
+        const Vec2 middle = (box->min + box->max) * 0.5;
         const auto scaled = [&](Vec2 p) { return Vec2{middle.x + (p.x - middle.x) * x, middle.y + (p.y - middle.y) * y}; };
-        Pattern changed = pattern;
-        for (Vertex& v : changed.vertices) v.position = scaled(v.position);
-        for (Edge& e : changed.edges) {
-            if (e.cubic) e.cubic = CubicCurve{scaled(e.cubic->control1), scaled(e.cubic->control2)};
-            if (!e.arc) continue;
-            if (evenly) {
-                e.arc->center = scaled(e.arc->center);
-                e.arc->radius *= x;
-                continue;
+        attempt(pattern, op, [&](Pattern& changed) -> outline::Problem {
+            outline::forEachPoint(changed, [&](Vec2& p) { p = scaled(p); });
+            for (Edge& e : changed.edges) {
+                if (!e.arc) continue;
+                if (evenly) {
+                    e.arc->radius *= x;
+                    continue;
+                }
+                // Stretched one way more than the other, an arc stays a circular
+                // arc through the same angle, between its moved ends.
+                const std::optional<Arc> arc = outline::arcFromSweep(changed.vertices[e.start].position, changed.vertices[e.end].position, e.arc->sweep);
+                if (!arc) return "a curved edge would have no length at this scale";
+                e.arc = arc;
             }
-            // Stretched one way more than the other, an arc stays a circular
-            // arc through the same angle, between its moved ends.
-            const std::optional<Arc> arc = outline::arcFromSweep(changed.vertices[e.start].position, changed.vertices[e.end].position, e.arc->sweep);
-            if (!arc) {
-                error(op, "a curved edge would have no length at this scale");
-                return;
-            }
-            e.arc = arc;
-        }
-        for (InternalLine& line : changed.lines) line.start = scaled(line.start), line.end = scaled(line.end);
-        for (SymmetryAxis& axis : changed.axes) axis.start = scaled(axis.start), axis.end = scaled(axis.end);
-        pattern = std::move(changed);
+            return std::nullopt;
+        });
     }
 
     const Document& doc_;
@@ -596,39 +573,13 @@ const Pattern& Result::operator[](PanelId panel) const {
     throw std::out_of_range("twintailor::Result: unknown panel");
 }
 
-namespace {
-
-// The same arithmetic as Evaluator::eval, reading parameters from a finished
-// Result. Keep the two in step when adding a kind of expression.
-std::optional<double> compute(const ExprNode& n, const Result& result) {
-    using Kind = ExprNode::Kind;
-    if (n.kind == Kind::Number) return n.number;
-    if (n.kind == Kind::Parameter) {
-        for (const ParameterValue& v : result.values)
-            if (v.parameter == n.parameter) return v.value;
-        return std::nullopt;
-    }
-    const std::optional<double> a = compute(*n.a, result);
-    if (!a) return std::nullopt;
-    if (n.kind == Kind::Negate) return -*a;
-    if (n.kind == Kind::Abs) return std::abs(*a);
-    const std::optional<double> b = compute(*n.b, result);
-    if (!b) return std::nullopt;
-    switch (n.kind) {
-    case Kind::Add: return *a + *b;
-    case Kind::Subtract: return *a - *b;
-    case Kind::Multiply: return *a * *b;
-    case Kind::Divide: return *b == 0.0 ? std::nullopt : std::optional<double>(*a / *b);
-    case Kind::Min: return std::min(*a, *b);
-    case Kind::Max: return std::max(*a, *b);
-    default: return std::nullopt;
-    }
-}
-
-} // namespace
-
 std::optional<double> valueOf(const Expr& expr, const Result& result) {
-    return compute(ExprAccess::node(expr), result);
+    const Value value = compute(ExprAccess::node(expr), [&](Param parameter) -> Value {
+        for (const ParameterValue& v : result.values)
+            if (v.parameter == parameter) return v.value;
+        return fail("refers to a parameter that has no value");
+    });
+    return value ? std::optional<double>(*value) : std::nullopt;
 }
 
 std::size_t bake(Document& doc, PanelId panel) {
@@ -647,17 +598,7 @@ std::size_t bake(Document& doc, PanelId panel) {
 
 Pattern outlineBefore(const Document& doc, OpId operation) {
     if (!doc.contains(operation)) return {};
-    // Evaluate a copy that stops short of the operation. A mirror that is
-    // applied last has not happened yet from the operation's point of view.
-    Document shortened = doc;
-    const PanelId panel = doc.panelOf(operation);
-    bool reached = false;
-    for (OpId op : doc.operations(panel)) {
-        reached = reached || op == operation;
-        const Mirror* mirror = std::get_if<Mirror>(&doc.get(op));
-        if (reached || (mirror && mirror->appliedLast)) shortened.remove(op);
-    }
-    return evaluate(shortened)[panel];
+    return Evaluator(doc).before(operation);
 }
 
 Result evaluateUpTo(const Document& doc, OpId last) {

@@ -80,6 +80,7 @@ template <class Visit> std::string_view describe(SetLength& op, Visit visit) {
 
 // One overload per operation type again: each reference it holds, in the
 // order the window shows them. `visit(label, reference)` is called per slot.
+// A copy of a panel follows this list too (remapReferences).
 template <class Visit> void describeReferences(Rect&, Visit) {}
 template <class Visit> void describeReferences(Circle&, Visit) {}
 template <class Visit> void describeReferences(RingSector&, Visit) {}
@@ -207,6 +208,26 @@ ReferenceChange setReferenceAt(OpData& operation, std::size_t index, const Refer
         });
     }, operation);
     return outcome;
+}
+
+void remapReferences(OpData& operation, const std::vector<std::pair<OpId, OpId>>& mapping) {
+    const auto remap = [&](OpId& id) {
+        for (const auto& [from, to] : mapping)
+            if (from == id) {
+                id = to;
+                return;
+            }
+    };
+    std::visit([&](auto& op) {
+        describeReferences(op, [&](std::string_view, auto& slot) {
+            // A panel is named by no operation; an edge, corner or line is.
+            if constexpr (requires { slot.op; }) remap(slot.op);
+            if constexpr (requires { slot.via; })
+                for (OpId& id : slot.via) remap(id);
+        });
+    }, operation);
+    // The cut of an offcut is no reference the window can change, so it is not in that list.
+    if (Offcut* offcut = std::get_if<Offcut>(&operation)) remap(offcut->of.id);
 }
 
 std::string edgeName(const EdgeRef& edge, const Document& doc) {

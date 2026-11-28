@@ -4,15 +4,11 @@
 #include <optional>
 #include <vector>
 
+#include "twintailor/core/Math.h"
 #include "twintailor/core/Pattern.h"
 #include "twintailor/core/Units.h"
 
 namespace twintailor {
-
-struct Bounds {
-    Vec2 min;
-    Vec2 max;
-};
 
 // The outline as a closed polygon, in order, with arcs broken into straight
 // pieces no further than `tolerance` from the true curve. The first point is
@@ -42,9 +38,6 @@ std::optional<OutlinePoint> nearestOnOutline(const Pattern& pattern, Vec2 point)
 // at its start, 1 at its end. A view uses it to tell which end of an edge was
 // clicked.
 double fractionAlong(const Pattern& pattern, const Edge& edge, Vec2 point);
-
-// A point turned `degrees` counter-clockwise about the origin.
-Vec2 turned(Vec2 point, double degrees);
 
 // The pattern turned `degrees` counter-clockwise about its origin: every
 // position moves, names and lengths stay. For placing a panel on the table.

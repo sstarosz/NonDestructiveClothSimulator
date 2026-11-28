@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "twintailor/core/Drawing.h"
+#include "twintailor/core/File.h"
 
 namespace twintailor::session {
 
@@ -96,12 +97,9 @@ SceneState Session::state() const {
     const std::vector<sim::PanelMesh>& panels = cloth_.mesh->panels;
     for (std::size_t p = 0; p < panels.size() && p < cloth_.positions.size(); ++p) {
         const sim::PanelMesh& panel = panels[p];
-        const std::vector<sim::Vec3>& at = cloth_.positions[p];
+        const std::vector<Vec3>& at = cloth_.positions[p];
         if (panel.triangles.empty() || at.size() != panel.points.size() || gone(panel.panel)) continue;
-        DrapedPanel draped{.panel = panel.panel, .anchor = panel.anchor, .flat = panel.points, .at = {}, .triangles = panel.triangles};
-        draped.at.reserve(at.size());
-        for (const sim::Vec3& v : at) draped.at.push_back({v.x, v.y, v.z});
-        drape.panels.push_back(std::move(draped));
+        drape.panels.push_back({.panel = panel.panel, .anchor = panel.anchor, .flat = panel.points, .at = at, .triangles = panel.triangles});
     }
     if (!drape.panels.empty()) state.drape = std::move(drape);
     return state;
@@ -128,9 +126,7 @@ void Session::hang(const SavedDrape& drape) {
         panel.triangles = draped.triangles;
         panel.anchor = draped.anchor;
         then.panels.push_back(std::move(panel));
-        std::vector<sim::Vec3>& at = thenAt.emplace_back();
-        at.reserve(draped.at.size());
-        for (const Point3& v : draped.at) at.push_back({v.x, v.y, v.z});
+        thenAt.push_back(draped.at);
     }
     if (then.panels.empty()) return;
 
@@ -174,7 +170,7 @@ bool Session::clothAsSaved() const {
         if (cloth_.positions[p].size() != saved_.positions[p].size()) return false;
         for (std::size_t i = 0; i < saved_.positions[p].size(); ++i) {
             // Far below what can be seen: a drape carried over to the same mesh comes out this near.
-            const sim::Vec3 off = cloth_.positions[p][i] - saved_.positions[p][i];
+            const Vec3 off = cloth_.positions[p][i] - saved_.positions[p][i];
             if (std::abs(off.x) > 1e-6 || std::abs(off.y) > 1e-6 || std::abs(off.z) > 1e-6) return false;
         }
     }

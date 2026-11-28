@@ -3,7 +3,9 @@
 // a parameter is expected. The document hands them out; ids are unique in a
 // document and never reused.
 
+#include <cstddef>
 #include <cstdint>
+#include <variant>
 #include <vector>
 
 namespace twintailor {
@@ -62,6 +64,23 @@ struct OpRef : T::Names {
     OpRef() = default;
     explicit OpRef(OpId i) { this->id = i; }
     operator OpId() const { return this->id; }
+};
+
+// ---- The slots of an operation (Fields.h lists them) ----
+
+// Which formula field of an operation: its position in fields().
+struct FieldId {
+    std::size_t index = 0;
+    friend bool operator==(FieldId, FieldId) = default;
+};
+
+// What an operation works on.
+using Reference = std::variant<EdgeRef, CornerRef, LineRef, PanelId>;
+
+// Which reference of an operation: its position in references().
+struct ReferenceId {
+    std::size_t index = 0;
+    friend bool operator==(ReferenceId, ReferenceId) = default;
 };
 
 } // namespace twintailor

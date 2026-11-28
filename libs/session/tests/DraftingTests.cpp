@@ -393,22 +393,22 @@ TEST_CASE("a rectangle of plain numbers is scaled about the middle of its box in
             const sim::Placement placed = sim::arranged(session.document(), mesh);
             for (std::size_t p = 0; p < mesh.panels.size(); ++p) {
                 if (!(mesh.panels[p].panel == panel)) continue;
-                sim::Vec3 low{1e9, 1e9, 1e9}, high{-1e9, -1e9, -1e9};
-                for (const sim::Vec3& at : placed[p]) {
+                Vec3 low{1e9, 1e9, 1e9}, high{-1e9, -1e9, -1e9};
+                for (const Vec3& at : placed[p]) {
                     low = {std::min(low.x, at.x), std::min(low.y, at.y), std::min(low.z, at.z)};
                     high = {std::max(high.x, at.x), std::max(high.y, at.y), std::max(high.z, at.z)};
                 }
                 return (low + high) * 0.5;
             }
-            return sim::Vec3{1e9, 0, 0};
+            return Vec3{1e9, 0, 0};
         };
         for (PanelId panel : {plain, driven}) {
-            const sim::Vec3 before = middleInSpace(panel);
+            const Vec3 before = middleInSpace(panel);
             const Arrangement was = session.document().get(panel).arrangement;
             drafting.handle(session, ScalePanel{panel, 1.0, 1.0, DragPhase::Begin});
             drafting.handle(session, ScalePanel{panel, 1.5, 1.2, DragPhase::Continue});
             drafting.handle(session, ScalePanel{panel, 2.0, 2.0, DragPhase::End});
-            EXPECT((sim::length(middleInSpace(panel) - before) < 1e-6), "the middle of the panel stays at the same point in space");
+            EXPECT((length(middleInSpace(panel) - before) < 1e-6), "the middle of the panel stays at the same point in space");
             const Arrangement now = session.document().get(panel).arrangement;
             EXPECT((now.x == was.x && now.y == was.y && now.z == was.z && now.turn == was.turn), "its place in space is not what moved");
             EXPECT((session.undo() && session.document().get(panel).arrangement == was), "one undo gives the anchor back with the shape");
@@ -523,7 +523,7 @@ TEST_CASE("a turn in space about a point, as a gizmo on fallen cloth asks for, c
     doc.arrange(box, Arrangement{.placed = true, .x = 10, .y = 100, .z = 20});
     Session session(doc, Threading::OneStepPerAdvance);
     Drafting drafting;
-    const sim::Vec3 about{10, 60, 20};  // 40 cm below the anchor
+    const Vec3 about{10, 60, 20};  // 40 cm below the anchor
     drafting.handle(session, TurnInSpace{box, {0, 0, 1}, 30.0, DragPhase::Begin, about});
     drafting.handle(session, TurnInSpace{box, {0, 0, 1}, 90.0, DragPhase::End, about});
     const Arrangement now = session.document().get(box).arrangement;
@@ -1044,11 +1044,11 @@ TEST_CASE("a mirrored instance of a panel at one side stands in space as its mir
         for (std::size_t i = 0; i < points.size(); ++i)
             if (std::hypot(points[i].x - own.x, points[i].y - own.y) < 1e-6) return placed[panel][i];
         FAIL("no particle at that corner");
-        return sim::Vec3{};
+        return Vec3{};
     };
     for (const Vec2 corner : {Vec2{0, 0}, Vec2{30, 0}, Vec2{30, 50}, Vec2{0, 50}}) {
-        const sim::Vec3 source = at(0, corner), image = at(1, {-corner.x, corner.y});
-        EXPECT((sim::length(image - sim::Vec3{-source.x, source.y, source.z}) < 1e-9), "its mirror image in space");
+        const Vec3 source = at(0, corner), image = at(1, {-corner.x, corner.y});
+        EXPECT((length(image - Vec3{-source.x, source.y, source.z}) < 1e-9), "its mirror image in space");
     }
 
     REQUIRE(tests::change(session, [&](Document& d) { d.arrange(leg, Arrangement{.placed = true, .x = 30, .y = 80, .z = 5}); }));
