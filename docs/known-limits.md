@@ -171,12 +171,15 @@ See `ROADMAP.md` for what comes next.
   change of the pattern, and may move a little.
 - Because the cloth is part of the file, a running simulation always shows
   "*", also when it has come to rest.
-- A recovery copy can be up to half a minute old. It is offered when the
-  program starts, one at a time. A power cut at the very moment of a save may
-  still lose that file: the program does not wait for the disk to have it.
+- A crash can still lose the change that is being made or copied, and the
+  motion of cloth that was playing or being pulled. With a very detailed avatar
+  the first copy after it is put on, and after each save, takes a second or two.
+- A recovery copy is offered when the program starts, one at a time. A power
+  cut at the very moment of a save or a copy may still lose that file: the
+  program does not wait for the disk to have it.
 - A crash that is not an error the program raises (memory used wrongly, a
-  fault in a driver, a power cut) still ends it without a word: only the last
-  recovery copy is there then.
+  fault in a driver, a power cut) still ends it without a word and with no
+  record of why: the recovery copy of the last change is there then.
 - A file cut short between two lines (a copy or a download that broke off)
   opens with what is left in it, without a word, unless the cut is inside the
   avatar or the draped cloth.

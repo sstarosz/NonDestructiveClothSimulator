@@ -693,7 +693,7 @@ bool MainWindow::takeWhatIsTyped() {
 
 // Each run keeps its copy in a folder of its own, and holds a lock there while
 // it runs: a folder whose lock can be taken is of a run that has stopped.
-void MainWindow::keepRecoveryIn(const QString& folder, double everySeconds) {
+void MainWindow::keepRecoveryIn(const QString& folder, double waitSeconds) {
     const QString own = QDir(folder).absoluteFilePath(QUuid::createUuid().toString(QUuid::WithoutBraces));
     auto lock = std::make_unique<QLockFile>(own + "/running");
     lock->setStaleLockTime(0);  // only a program that has stopped gives its lock up, however old it is
@@ -703,7 +703,7 @@ void MainWindow::keepRecoveryIn(const QString& folder, double everySeconds) {
     }
     recoveryFolder_ = own;
     recoveryLock_ = std::move(lock);
-    autosave_ = std::make_unique<session::Autosave>(own.toStdString(), everySeconds);
+    autosave_ = std::make_unique<session::Autosave>(own.toStdString(), waitSeconds);
     offerRecovery(folder);
 }
 

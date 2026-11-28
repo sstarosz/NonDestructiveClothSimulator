@@ -4175,7 +4175,7 @@ TEST_CASE("unsaved work is copied, and what a run that stopped left is offered a
     const auto runs = [&] { return QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(); };
     const auto copies = [&] {
         int found = 0;
-        for (const QString& run : QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) found += QFile::exists(recovery + "/" + run + "/pattern.twintail");
+        for (const QString& run : QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot)) found += session::hasRecovery((recovery + "/" + run).toStdString());
         return found;
     };
     // A run that changes the saved pattern and stops without being closed.
@@ -4260,7 +4260,7 @@ TEST_CASE("unsaved work is copied, and what a run that stopped left is offered a
         setChest(w, "100 cm");
         w.window.tick();
         w.window.finishRecoveryCopy();
-        EXPECT((copies() == 0), "no copy before one is due");
+        EXPECT((copies() == 1), "a change is copied at once, however long a failed copy would wait");
     }
 }
 
@@ -4300,7 +4300,7 @@ TEST_CASE("an error in a change nothing handles copies the unsaved work at once,
     QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-broken-XXXXXX");
     REQUIRE(folder.isValid());
     const QString recovery = folder.filePath("recovery");
-    w.window.keepRecoveryIn(recovery, 3600.0);  // no copy is due for an hour
+    w.window.keepRecoveryIn(recovery, 3600.0);  // no frame passes here, so only the error makes a copy
     int ended = 0;
     QObject::connect(&w.window, &MainWindow::mustEnd, [&] { ++ended; });
     const Handling handling(w.window);
@@ -4331,7 +4331,7 @@ TEST_CASE("an error in a change nothing handles copies the unsaved work at once,
     EXPECT((!w.window.close() && ended == 0), "the window does not close as if all were well");
     boxes.front()->button(QMessageBox::Close)->click();
     EXPECT((ended == 1), "closing the message ends the program");
-    EXPECT((QFile::exists(recovery + "/" + runs.front() + "/pattern.twintail")), "and the copy stays for the next start");
+    EXPECT((session::hasRecovery((recovery + "/" + runs.front()).toStdString())), "and the copy stays for the next start");
 }
 
 TEST_CASE("an error with nothing unsaved, or with no copy to be had, says which", "[qt]")
@@ -4364,7 +4364,7 @@ TEST_CASE("an error with nothing unsaved, or with no copy to be had, says which"
         setChest(w, "100 cm");
         const QStringList runs = QDir(recovery).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
         REQUIRE(runs.size() == 1);
-        REQUIRE(QDir(recovery + "/" + runs.front()).mkdir("pattern.twintail.saving"));  // in the way of the copy
+        REQUIRE(QDir(recovery + "/" + runs.front()).mkdir("pattern-1.twintail.saving"));  // in the way of the copy
         w.window.cannotGoOn("something broke");
         EXPECT((said(w).contains("could not be copied") && said(w).contains("earlier copy")), "the copy failed, and why");
     }

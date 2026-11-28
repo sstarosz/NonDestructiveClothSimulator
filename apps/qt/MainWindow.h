@@ -76,11 +76,11 @@ public:
     // 3D view's camera take the hand. OK puts the avatar on, standing on the
     // floor; Cancel changes nothing.
     void chooseAvatar(const QString& path);
-    // From now on unsaved work is copied now and then into a folder of its own
+    // From now on unsaved work is copied after every change into a folder of its own
     // under `folder`, and a copy that a run which stopped left there is
     // offered at once. Closing the window takes the copy away; the program
     // stopping otherwise leaves it for the next start.
-    void keepRecoveryIn(const QString& folder, double everySeconds = 30.0);
+    void keepRecoveryIn(const QString& folder, double waitSeconds = 30.0);  // (session::Autosave)
     // What the program remembers between runs (the folders of the last pattern,
     // avatar and export, where the next file dialog of each starts, and View >
     // Instances in violet) is read from this file now and written to it from now

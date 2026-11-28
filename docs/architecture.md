@@ -75,6 +75,11 @@ only ones other code may include), `src/` (sources and private headers) and
   drape are `SceneState` (`core/File.h`): saved in the file beside the
   pattern, never an undo step, and a change of it counts as unsaved (the
   title's "*"), as a change of the document does.
+- **Unsaved work follows into a recovery copy** after every finished change
+  (`session::Autosave`,
+  [decision 0028](decisions/0028-recovery-copy-after-every-change.md)); an
+  unfinished edit and cloth in motion wait. In that copy, and nowhere else, the
+  avatar is in a file of its own.
 - **Files that were saved keep opening.** Never change the texts kept in
   `core/tests/FileTests.cpp`; a change of the format must pass them, and a new
   kind of line gets a new case with a text of its own. Files of the earlier

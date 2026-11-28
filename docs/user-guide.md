@@ -224,12 +224,19 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   beside the old one before it takes its place. If another program holds the
   old file, Save and Export OBJ try again for about half a second; then they say
   that the file could not be written, and the old one is as it was.
-- **After a crash**: while there are unsaved changes a recovery copy is
-  written about every 30 seconds (on Windows in
+- **After a crash**: while there are unsaved changes, a recovery copy is
+  written after every change (on Windows in
   `%LOCALAPPDATA%\Twintailor\recovery`); your file changes only when you save.
-  If the program stopped before the work was saved, the next start offers the
-  copy: Open (Save then writes it to the pattern's own file), Delete, or Not
-  Now, which asks again at the next start.
+  A change here is a finished drag or typed value, undo and redo, hiding or
+  deactivating, and the cloth as it comes to rest: Pause, the end of a pull,
+  Reset. While the cloth plays or is pulled, only a change of the pattern is
+  copied, with the cloth as it hangs then, so after a crash the cloth is as it
+  was before Play, or as at that change; the rest is copied when it stops. A
+  drag or a typing that goes on for half a minute is copied too. If the program
+  stopped before
+  the work was saved, the next start offers the copy: Open (Save then writes it
+  to the pattern's own file), Delete, or Not Now, which asks again at the next
+  start. The undo history does not come back.
 - **After an error**: if the program meets an error it cannot go on from (out
   of memory in the middle of a change), it writes the recovery copy at once,
   says what happened and where the work is, and closes. If what fails is

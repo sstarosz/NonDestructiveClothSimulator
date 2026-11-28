@@ -77,8 +77,11 @@ In pull requests, in this order:
   moment. Replacing it is tried again for about half a second, in Save, the
   recovery copy and Export OBJ (#166).
 - Done: every change is a command, only the Session runs them, and Reset can
-  be undone. Left: stored commands bring work back after a crash
-  ([decision 0027](docs/decisions/0027-every-change-is-a-command.md)).
+  be undone ([decision 0027](docs/decisions/0027-every-change-is-a-command.md)).
+- Done: the recovery copy follows every change, so a crash loses little
+  ([decision 0028](docs/decisions/0028-recovery-copy-after-every-change.md)).
+  Left: a crash report on the user's computer, with the last actions, the error
+  and a crash dump.
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
   another PC (#82).
 - Last, the release's own pull request, when all of the above is done: the

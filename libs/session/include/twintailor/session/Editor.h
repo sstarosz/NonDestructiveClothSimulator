@@ -110,6 +110,9 @@ public:
     bool cancel(Edit edit);
     // Whether this edit is still open.
     bool editing(Edit edit) const { return open_ && open_->edit == edit; }
+    // Whether an edit is open that has changed something: a change that may
+    // still be taken back, as during a drag.
+    bool unfinished() const { return open_ && open_->stepTaken; }
 
     // ---- The history ----
     bool canUndo() const { return !undo_.empty(); }

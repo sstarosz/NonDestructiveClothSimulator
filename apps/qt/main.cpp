@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
             window.show();
             const QString own = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
             window.keepSettingsIn(own + "/settings.ini");
-            // Unsaved work is copied here now and then, and offered again if the program stopped before it was saved.
+            // Unsaved work is copied here after every change, and offered again if the program stopped before it was saved.
             window.keepRecoveryIn(own + "/recovery");
         } catch (const std::exception& problem) {
             window.show();
