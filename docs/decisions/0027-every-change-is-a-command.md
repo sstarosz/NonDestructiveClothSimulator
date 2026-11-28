@@ -1,8 +1,11 @@
 # 0027. Every change is a command; undo is a copy
 
+**Replaced in part by [0028](0028-recovery-copy-after-every-change.md):**
+commands are not stored for recovery.
+
 **Date:** 27 November 2026 (built on 28 November: edits, a command for every
 change, only the Session running them, and the drape in the history, Reset
-included. To come: the stored commands)
+included)
 **Issues/PRs:** none
 
 ## Context
