@@ -21,17 +21,12 @@ bool taken(const std::expected<Done, std::string>& done, Outcome& outcome) {
     return false;
 }
 
-// One change through the editor, by itself or in an edit.
+// A change that has no command yet.
 bool apply(Editor& editor, const std::function<void(Document&)>& verb, ChangeRules rules, Outcome& outcome) {
     return taken(editor.change(verb, rules), outcome);
 }
-bool apply(Editor& editor, Edit edit, const std::function<void(Document&)>& verb, ChangeRules rules, Outcome& outcome) {
-    return taken(editor.change(edit, verb, rules), outcome);
-}
 
-// A change made by dragging the outline.
-constexpr ChangeRules byHand{.grows = Grows::WhereDragged};
-// Adding and removing things may leave a problem behind: that is shown where it is, not refused.
+// Adding things may leave a problem behind: that is shown where it is, not refused.
 constexpr ChangeRules adding{.ifItBreaks = IfItBreaks::Allow};
 
 // "1 seam", "2 seams".
@@ -50,13 +45,6 @@ std::vector<PanelId> selectedInOrder(const Document& doc, const Drafting::Select
 Along axisOf(double dx, double dy) { return std::abs(dx) >= std::abs(dy) ? Along::X : Along::Y; }
 
 bool sewsReversed(double aAlong, double bAlong) { return (aAlong < 0.5) == (bAlong < 0.5); }
-
-std::string Drafting::freeName(const Document& doc, const std::string& base) {
-    for (int number = 1;; ++number) {
-        const std::string name = base + std::to_string(number);
-        if (!panelNamed(doc, name)) return name;
-    }
-}
 
 Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
     const Outcome outcome = std::visit(
@@ -135,8 +123,8 @@ void Drafting::drop(PanelId panel) {
 }
 
 void Drafting::forget(const Document& doc) {
-    dragging_.reset();
     draggingCorners_ = false;
+    draggingHandle_ = false;
     carried_.reset();
     selection.corners.clear();
     for (PanelId gone : selection.panels())
@@ -298,141 +286,68 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& g) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const MoveHandle& image) {
+Outcome Drafting::on(Editor& editor, const MoveHandle& g) {
     Outcome outcome;
     const Document& doc = editor.document();
-    if (!doc.contains(image.panel)) return outcome;
-    // On a symmetric panel, a handle on the mirrored side is the opposite
-    // handle of the original edge, moved the mirrored way.
-    const DrawnEdge drawn = drawnSide(doc, image.panel, image.edge);
-    const Vec2 own = turned(Vec2{image.dx, image.dy}, -doc.get(image.panel).angle);
-    const Movement moved = acrossTheMirror(doc, editor.shapes(), image.panel, {own.x, own.y}, drawn.wasImage, nullptr);
-    const bool endHandle = drawn.wasImage ? !image.endHandle : image.endHandle;
-
-    if (image.phase == DragPhase::Begin) {
-        dragging_.reset();
-        if (const std::string why = handleLock(doc, image.panel, drawn.edge, endHandle); !why.empty()) {
-            outcome.notice = why;
-            return outcome;
-        }
-        const OpRef<Bezier> curve = *curveOf(doc, image.panel, drawn.edge);
-        const Offset& handle = endHandle ? doc.get(curve).endHandle : doc.get(curve).startHandle;
-        dragging_ = Dragging{curve, endHandle, *asNumber(handle.x), *asNumber(handle.y)};
+    if (!doc.contains(g.panel)) return outcome;
+    if (g.phase == DragPhase::Begin) {
+        const std::string why = handleLock(doc, g.panel, g.edge, g.endHandle);
+        draggingHandle_ = why.empty();
+        outcome.notice = why;
     }
-    if (!dragging_ || !doc.contains(dragging_->operation)) return outcome;
-    const OpRef<Bezier> curve(dragging_->operation);
-    // A Scale after the curve stretches the handle's offset, so the offset moves by the pointer's drag divided by it.
-    double stretchX = 1.0, stretchY = 1.0;
-    bool later = false;
-    for (OpId op : doc.operations(image.panel)) {
-        if (later && doc.enabled(op))
-            if (const Scale* scale = std::get_if<Scale>(&doc.get(op)); scale && asNumber(scale->x) && asNumber(scale->y)) {
-                stretchX *= *asNumber(scale->x);
-                stretchY *= *asNumber(scale->y);
-            }
-        if (op == dragging_->operation) later = true;
-    }
-    if (stretchX < 1e-9) stretchX = 1.0;
-    if (stretchY < 1e-9) stretchY = 1.0;
-    const Offset handle{dragging_->baseX + moved.dx / stretchX, dragging_->baseY + moved.dy / stretchY};
-    const bool whichEnd = dragging_->endHandle;
-    apply(editor, dragIn(editor), [&](Document& d) { d.set(curve, whichEnd ? &Bezier::endHandle : &Bezier::startHandle, handle); }, byHand, outcome);
-    if (image.phase == DragPhase::End) dragging_.reset();
+    if (!draggingHandle_) return outcome;
+    taken(editor.preview(dragIn(editor), MoveCurveHandle{g.panel, g.edge, g.endHandle, {g.dx, g.dy}}), outcome);
+    if (g.phase == DragPhase::End) draggingHandle_ = false;
     return outcome;
+}
+
+void Drafting::draw(Editor& editor, const AddPanel& command, Outcome& outcome) {
+    const auto made = editor.run(command);
+    if (taken(made, outcome)) selection = {made->panel, {}, {}};
 }
 
 Outcome Drafting::on(Editor& editor, const DrawRect& g) {
     Outcome outcome{.toolDone = true};
-    apply(editor, [&](Document& doc) {
-        const PanelId panel = doc.add(Panel{.name = freeName(doc, "panel"), .x = g.x, .y = g.y});
-        doc.add(panel, Rect{.width = Expr(g.width), .height = Expr(g.height)});
-        selection = {panel, {}, {}};
-    }, adding, outcome);
+    draw(editor, AddPanel{.shape = Rect{.width = Expr(g.width), .height = Expr(g.height)}, .at = {g.x, g.y}}, outcome);
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const DrawCircle& g) {
     Outcome outcome{.toolDone = true};
-    apply(editor, [&](Document& doc) {
-        const PanelId panel = doc.add(Panel{.name = freeName(doc, "circle"), .x = g.x, .y = g.y});
-        doc.add(panel, Circle{.radius = Expr(g.radius)});
-        selection = {panel, {}, {}};
-    }, adding, outcome);
+    draw(editor, AddPanel{.shape = Circle{.radius = Expr(g.radius)}, .at = {g.x, g.y}}, outcome);
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const PlaceRing& g) {
     Outcome outcome{.toolDone = true};
-    apply(editor, [&](Document& doc) {
-        const PanelId panel = doc.add(Panel{.name = freeName(doc, "skirt"), .x = g.x, .y = g.y});
-        doc.add(panel, RingSector{.innerLength = 70_cm, .sweep = 180_deg, .depth = 60_cm});
-        selection = {panel, {}, {}};
-    }, adding, outcome);
+    draw(editor, AddPanel{.shape = RingSector{.innerLength = 70_cm, .sweep = 180_deg, .depth = 60_cm}, .at = {g.x, g.y}}, outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const BendEdge& image) {
+Outcome Drafting::on(Editor& editor, const BendEdge& g) {
     Outcome outcome{.toolDone = true};  // so the handles can be dragged straight away
     const Document& doc = editor.document();
-    // On a symmetric panel, bending a mirrored edge bends its original: both follow.
-    const BendEdge g{image.panel, drawnSide(doc, image.panel, image.edge).edge};
+    if (!doc.contains(g.panel)) return outcome;
     selection.panel = g.panel;
-    if (curveOf(doc, g.panel, g.edge)) return outcome;  // already a free curve: its handles are showing now
-    const Pattern& shape = editor.shapes()[g.panel];
-    if (!shape.contains(g.edge)) return outcome;
-    // Handles a third of the way along the edge: it starts out straight.
-    const Edge& edge = shape.edge(g.edge);
-    const Vec2 start = shape.vertices[edge.start].position, end = shape.vertices[edge.end].position;
-    double x = std::round((end.x - start.x) / 3.0 * 10.0) / 10.0, y = std::round((end.y - start.y) / 3.0 * 10.0) / 10.0;
-    double endX = -x, endY = -y;
-    if (edge.arc) {
-        // An arc becomes a free curve that follows it, so bending it starts from what is drawn.
-        const std::optional<CubicCurve> follow = cubicFromArc(shape, edge);
-        if (!follow) {
-            outcome.notice = "A whole circle has no ends to bend between. Make it a slice, or cut it first.";
-            return outcome;
-        }
-        const auto tenth = [](double v) { return std::round(v * 10.0) / 10.0; };
-        x = tenth(follow->control1.x - start.x), y = tenth(follow->control1.y - start.y);
-        endX = tenth(follow->control2.x - end.x), endY = tenth(follow->control2.y - end.y);
-    }
-    apply(editor, [&](Document& d) { d.add(g.panel, Bezier{.edge = g.edge, .startHandle = {Expr(x), Expr(y)}, .endHandle = {Expr(endX), Expr(endY)}}); }, adding, outcome);
+    const EdgeRef drawn = drawnSide(doc, g.panel, g.edge).edge;
+    if (curveOf(doc, g.panel, drawn) || !editor.shapes()[g.panel].contains(drawn)) return outcome;  // a free curve already shows its handles
+    taken(editor.run(CurveEdge{g.panel, g.edge}), outcome);
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const AddPointOn& g) {
     Outcome outcome{.toolDone = true};  // to drag the new corner straight away
-    const Document& doc = editor.document();
     selection.panel = g.panel;
-    // On a symmetric panel the point goes on the half that was drawn, and
-    // the mirror makes its image: a click on the mirrored side is moved across.
-    const DrawnEdge drawn = drawnSide(doc, g.panel, g.at.edge);
-    const double along = drawn.wasImage ? 1.0 - g.at.along : g.at.along;
-    const std::vector<SeamId> seams = doc.seams();
-    const bool sewn = std::any_of(seams.begin(), seams.end(), [&](SeamId id) {
-        const Seam& seam = doc.get(id);
-        return (seam.a.panel == g.panel && seam.a.edge == drawn.edge) || (seam.b.panel == g.panel && seam.b.edge == drawn.edge);
-    });
-    if (apply(editor, [&](Document& d) { d.add(g.panel, AddPoint{.at = {drawn.edge, Expr(along)}}); }, adding, outcome) && sewn)
+    const auto added = editor.run(AddCorner{g.panel, {g.at.edge, Expr(g.at.along)}});
+    if (taken(added, outcome) && added->splitsSeam)
         outcome.notice = "This edge was sewn: the seam now sews only the part before the new point. Sew the part after it too, if it should be sewn.";
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const DrawLine& g) {
     Outcome outcome;
-    const Document& doc = editor.document();
     selection.panel = g.panel;
-    // On a symmetric panel the line is drawn on the half that was drawn. An
-    // end placed on the mirrored side is moved to the same place on the original edge.
-    const DrawnEdge from = drawnSide(doc, g.panel, g.from.edge), to = drawnSide(doc, g.panel, g.to.edge);
-    if (from.wasImage != to.wasImage) {
-        outcome.notice = "A line can't cross the mirror of a symmetric panel. Draw it on one half, or switch off \"Applied last\" on the mirror.";
-        outcome.refused = true;
-        return outcome;
-    }
-    const double fromAlong = from.wasImage ? 1.0 - g.from.along : g.from.along;
-    const double toAlong = to.wasImage ? 1.0 - g.to.along : g.to.along;
-    apply(editor, [&](Document& d) { d.add(g.panel, LineBetween{.from = {from.edge, Expr(fromAlong)}, .to = {to.edge, Expr(toAlong)}}); }, adding, outcome);
+    taken(editor.run(AddLine{g.panel, {g.from.edge, Expr(g.from.along)}, {g.to.edge, Expr(g.to.along)}}), outcome);
     return outcome;
 }
 
@@ -514,27 +429,21 @@ Outcome Drafting::on(Editor& editor, const UseShapeLength& g) {
 Outcome Drafting::on(Editor& editor, const CutAway& g) {
     Outcome outcome;
     selection.panel = g.panel;
-    apply(editor, [&](Document& d) { d.add(g.panel, Cut{.along = g.line, .keep = g.keep}); }, adding, outcome);
+    taken(editor.run(CutPanel{g.panel, g.line, g.keep}), outcome);
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const SplitAt& g) {
     Outcome outcome{.toolDone = true};
     selection.panel = g.panel;
-    apply(editor, [&](Document& d) {
-        // One panel keeps one side; a new panel is what the cut removes.
-        const OpRef<Cut> cut = d.add(g.panel, Cut{.along = g.line, .keep = Cut::Side::Left});
-        const Panel& source = d.get(g.panel);
-        const PanelId other = d.add(Panel{.name = freeName(d, source.name + " part"), .x = source.x, .y = source.y});
-        d.add(other, Offcut{.of = cut});
-    }, adding, outcome);
+    taken(editor.run(SplitPanel{g.panel, g.line}), outcome);
     return outcome;
 }
 
 Outcome Drafting::on(Editor& editor, const MirrorAcross& g) {
     Outcome outcome{.toolDone = true};
     selection.panel = g.panel;
-    apply(editor, [&](Document& d) { d.add(g.panel, Mirror{.across = g.edge}); }, adding, outcome);
+    taken(editor.run(AddMirror{g.panel, g.edge}), outcome);
     return outcome;
 }
 
