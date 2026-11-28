@@ -38,17 +38,17 @@ Along axisOf(double dx, double dy) { return std::abs(dx) >= std::abs(dy) ? Along
 
 bool sewsReversed(double aAlong, double bAlong) { return (aAlong < 0.5) == (bAlong < 0.5); }
 
-Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
+Outcome Drafting::handle(Session& session, const Gesture& gesture) {
     const Outcome outcome = std::visit(
         [&](const auto& g) {
             if constexpr (requires { g.phase; }) {
                 // Each drag is an edit of its own, from its beginning to its end.
                 if (g.phase == DragPhase::Begin) dragged_.reset();
-                const Outcome done = on(editor, g);
-                if (g.phase == DragPhase::End && dragged_) editor.commit(*dragged_);
+                const Outcome done = on(session, g);
+                if (g.phase == DragPhase::End && dragged_) session.commit(*dragged_);
                 return done;
             } else {
-                return on(editor, g);
+                return on(session, g);
             }
         },
         gesture);
@@ -57,23 +57,23 @@ Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
     return outcome;
 }
 
-Edit Drafting::dragIn(Editor& editor) {
-    if (!dragged_ || !editor.editing(*dragged_)) dragged_ = editor.begin();
+Edit Drafting::dragIn(Session& session) {
+    if (!dragged_ || !session.editing(*dragged_)) dragged_ = session.begin();
     return *dragged_;
 }
 
-Edit Drafting::typingIn(Editor& editor) {
-    if (!typed_ || !editor.editing(*typed_)) typed_ = editor.begin();
+Edit Drafting::typingIn(Session& session) {
+    if (!typed_ || !session.editing(*typed_)) typed_ = session.begin();
     return *typed_;
 }
 
-void Drafting::commitTyping(Editor& editor) {
-    if (typed_) editor.commit(*typed_);
+void Drafting::commitTyping(Session& session) {
+    if (typed_) session.commit(*typed_);
     typed_.reset();
 }
 
-void Drafting::cancelTyping(Editor& editor) {
-    if (typed_) editor.cancel(*typed_);
+void Drafting::cancelTyping(Session& session) {
+    if (typed_) session.cancel(*typed_);
     typed_.reset();
 }
 
@@ -124,21 +124,21 @@ void Drafting::forget(const Document& doc) {
     if (selection.seam && !doc.contains(*selection.seam)) selection.seam.reset();
 }
 
-Outcome Drafting::on(Editor& editor, const SelectPanel& g) {
+Outcome Drafting::on(Session& session, const SelectPanel& g) {
     if (g.how == Pick::Replace) {
         if (g.panel != selection.panel) selection.corners.clear();
         selection.panel = g.panel;
         selection.others.clear();
         selection.seam.reset();
-    } else if (g.panel && editor.document().contains(*g.panel)) {
+    } else if (g.panel && session.document().contains(*g.panel)) {
         if (g.how == Pick::Toggle && selection.has(*g.panel)) drop(*g.panel);
         else join(*g.panel);
     }
     return {};
 }
 
-Outcome Drafting::on(Editor& editor, const SelectPanels& g) {
-    const Document& doc = editor.document();
+Outcome Drafting::on(Session& session, const SelectPanels& g) {
+    const Document& doc = session.document();
     if (g.how == Pick::Replace) {
         selection.panel.reset();
         selection.others.clear();
@@ -153,14 +153,14 @@ Outcome Drafting::on(Editor& editor, const SelectPanels& g) {
     return {};
 }
 
-Outcome Drafting::on(Editor& editor, const SelectSeam& g) {
+Outcome Drafting::on(Session& session, const SelectSeam& g) {
     if (!g.seam) selection.seam.reset();
-    else if (editor.document().contains(*g.seam)) selection = {.panel = {}, .corners = {}, .others = {}, .seam = g.seam};
+    else if (session.document().contains(*g.seam)) selection = {.panel = {}, .corners = {}, .others = {}, .seam = g.seam};
     return {};
 }
 
-Outcome Drafting::on(Editor& editor, const SelectCorners& g) {
-    if (!editor.document().contains(g.panel)) return {};
+Outcome Drafting::on(Session& session, const SelectCorners& g) {
+    if (!session.document().contains(g.panel)) return {};
     if (selection.panel != g.panel) selection.corners.clear();
     selection.panel = g.panel;
     std::vector<CornerRef>& chosen = selection.corners;
@@ -176,77 +176,77 @@ Outcome Drafting::on(Editor& editor, const SelectCorners& g) {
     return {};
 }
 
-Outcome Drafting::on(Editor& editor, const SewEdges& g) {
+Outcome Drafting::on(Session& session, const SewEdges& g) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     if (!doc.contains(g.a.panel) || !doc.contains(g.b.panel)) return outcome;
     const Seam seam{.a = g.a, .b = g.b, .reversed = sewsReversed(g.aAlong, g.bAlong)};
-    if (const auto sewn = editor.run(AddSeam{seam}); !sewn) outcome.notice = sewn.error();
+    if (const auto sewn = session.run(AddSeam{seam}); !sewn) outcome.notice = sewn.error();
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const RotatePanel& g) {
+Outcome Drafting::on(Session& session, const RotatePanel& g) {
     Outcome outcome;
-    if (!editor.document().contains(g.panel)) return outcome;
-    if (g.phase == DragPhase::Begin) carry(editor.document(), g.panel);
+    if (!session.document().contains(g.panel)) return outcome;
+    if (g.phase == DragPhase::Begin) carry(session.document(), g.panel);
     if (!carrying(g.panel)) return outcome;
-    std::erase_if(carried_->panels, [&](PanelId panel) { return !editor.document().contains(panel); });
-    taken(editor.preview(dragIn(editor), TurnPanels{carried_->panels, g.angle - carried_->angle}), outcome);
+    std::erase_if(carried_->panels, [&](PanelId panel) { return !session.document().contains(panel); });
+    taken(session.preview(dragIn(session), TurnPanels{carried_->panels, g.angle - carried_->angle}), outcome);
     if (g.phase == DragPhase::End) carried_.reset();
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
+Outcome Drafting::on(Session& session, const ScalePanel& g) {
     Outcome outcome;
-    if (!editor.document().contains(g.panel)) return outcome;
-    if (g.phase == DragPhase::Begin) carry(editor.document(), g.panel);
+    if (!session.document().contains(g.panel)) return outcome;
+    if (g.phase == DragPhase::Begin) carry(session.document(), g.panel);
     if (!carrying(g.panel)) return outcome;
-    std::erase_if(carried_->panels, [&](PanelId panel) { return !editor.document().contains(panel); });
+    std::erase_if(carried_->panels, [&](PanelId panel) { return !session.document().contains(panel); });
     if (g.x == 1.0 && g.y == 1.0) {
         // A drag that is where it began has changed nothing: no layer and no undo step.
-        if (dragged_) editor.cancel(*dragged_);
+        if (dragged_) session.cancel(*dragged_);
     } else {
-        taken(editor.preview(dragIn(editor), ScalePanels{carried_->panels, g.x, g.y}), outcome);
+        taken(session.preview(dragIn(session), ScalePanels{carried_->panels, g.x, g.y}), outcome);
     }
     if (g.phase == DragPhase::End) carried_.reset();
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const MoveInSpace& g) {
+Outcome Drafting::on(Session& session, const MoveInSpace& g) {
     // Carrying or turning a panel in space only places it: its shape stays, and a draped panel takes its drape along.
     Outcome outcome;
-    if (!editor.document().contains(g.panel)) return outcome;
-    if (g.phase == DragPhase::Begin) carry(editor.document(), g.panel);
+    if (!session.document().contains(g.panel)) return outcome;
+    if (g.phase == DragPhase::Begin) carry(session.document(), g.panel);
     if (!carrying(g.panel)) return outcome;
-    taken(editor.preview(dragIn(editor), MovePanelInSpace{g.panel, g.by}), outcome);
+    taken(session.preview(dragIn(session), MovePanelInSpace{g.panel, g.by}), outcome);
     if (g.phase == DragPhase::End) carried_.reset();
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const TurnInSpace& g) {
+Outcome Drafting::on(Session& session, const TurnInSpace& g) {
     Outcome outcome;
-    if (!editor.document().contains(g.panel)) return outcome;
-    if (g.phase == DragPhase::Begin) carry(editor.document(), g.panel);
+    if (!session.document().contains(g.panel)) return outcome;
+    if (g.phase == DragPhase::Begin) carry(session.document(), g.panel);
     if (!carrying(g.panel)) return outcome;
-    taken(editor.preview(dragIn(editor), TurnPanelInSpace{g.panel, g.axis, g.degrees, g.about}), outcome);
+    taken(session.preview(dragIn(session), TurnPanelInSpace{g.panel, g.axis, g.degrees, g.about}), outcome);
     if (g.phase == DragPhase::End) carried_.reset();
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const MovePanel& g) {
+Outcome Drafting::on(Session& session, const MovePanel& g) {
     Outcome outcome;
-    if (!editor.document().contains(g.panel)) return outcome;
+    if (!session.document().contains(g.panel)) return outcome;
     // A move says where the panel is to be, so one that was not seen to begin can start here.
-    if (g.phase == DragPhase::Begin || !carrying(g.panel)) carry(editor.document(), g.panel);
-    std::erase_if(carried_->panels, [&](PanelId panel) { return !editor.document().contains(panel); });
-    taken(editor.preview(dragIn(editor), MovePanels{carried_->panels, {g.x - carried_->x, g.y - carried_->y}}), outcome);
+    if (g.phase == DragPhase::Begin || !carrying(g.panel)) carry(session.document(), g.panel);
+    std::erase_if(carried_->panels, [&](PanelId panel) { return !session.document().contains(panel); });
+    taken(session.preview(dragIn(session), MovePanels{carried_->panels, {g.x - carried_->x, g.y - carried_->y}}), outcome);
     if (g.phase == DragPhase::End) carried_.reset();
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const MoveCorner& g) {
+Outcome Drafting::on(Session& session, const MoveCorner& g) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     if (!doc.contains(g.panel)) return outcome;
     std::vector<CornerRef>& chosen = selection.corners;
     const auto isSelected = [&](const CornerRef& c) { return std::find(chosen.begin(), chosen.end(), c) != chosen.end(); };
@@ -257,14 +257,14 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& g) {
     const std::vector<CornerRef> grabbed = chosen.size() > 1 && isSelected(g.corner) ? chosen : std::vector<CornerRef>{g.corner};
 
     if (g.phase == DragPhase::Begin) {
-        const auto movable = movableCorners(editor.document(), editor.shapes(), g.panel, grabbed, {0.0, 0.0});
+        const auto movable = movableCorners(session.document(), session.editor().shapes(), g.panel, grabbed, {0.0, 0.0});
         draggingCorners_ = movable.has_value();
         if (!movable) outcome.notice = movable.error();  // a formula places them
     }
     if (!draggingCorners_) return outcome;
     // Held to one axis, the other coordinate is not moved at all, whatever the pointer does.
     const Vec2 by{g.along == Along::Y ? 0.0 : g.dx, g.along == Along::X ? 0.0 : g.dy};
-    if (const auto moved = editor.preview(dragIn(editor), MoveCorners{.panel = g.panel, .corners = grabbed, .by = by}); !moved) {
+    if (const auto moved = session.preview(dragIn(session), MoveCorners{.panel = g.panel, .corners = grabbed, .by = by}); !moved) {
         outcome.notice = "Not changed: " + moved.error();  // for instance the only point of a whole circle
         outcome.refused = true;
     }
@@ -272,9 +272,9 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& g) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const MoveHandle& g) {
+Outcome Drafting::on(Session& session, const MoveHandle& g) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     if (!doc.contains(g.panel)) return outcome;
     if (g.phase == DragPhase::Begin) {
         const std::string why = handleLock(doc, g.panel, g.edge, g.endHandle);
@@ -282,58 +282,58 @@ Outcome Drafting::on(Editor& editor, const MoveHandle& g) {
         outcome.notice = why;
     }
     if (!draggingHandle_) return outcome;
-    taken(editor.preview(dragIn(editor), MoveCurveHandle{g.panel, g.edge, g.endHandle, {g.dx, g.dy}}), outcome);
+    taken(session.preview(dragIn(session), MoveCurveHandle{g.panel, g.edge, g.endHandle, {g.dx, g.dy}}), outcome);
     if (g.phase == DragPhase::End) draggingHandle_ = false;
     return outcome;
 }
 
-void Drafting::draw(Editor& editor, const AddPanel& command, Outcome& outcome) {
-    const auto made = editor.run(command);
+void Drafting::draw(Session& session, const AddPanel& command, Outcome& outcome) {
+    const auto made = session.run(command);
     if (taken(made, outcome)) selection = {made->panel, {}, {}};
 }
 
-Outcome Drafting::on(Editor& editor, const DrawRect& g) {
+Outcome Drafting::on(Session& session, const DrawRect& g) {
     Outcome outcome{.toolDone = true};
-    draw(editor, AddPanel{.shape = Rect{.width = Expr(g.width), .height = Expr(g.height)}, .at = {g.x, g.y}}, outcome);
+    draw(session, AddPanel{.shape = Rect{.width = Expr(g.width), .height = Expr(g.height)}, .at = {g.x, g.y}}, outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const DrawCircle& g) {
+Outcome Drafting::on(Session& session, const DrawCircle& g) {
     Outcome outcome{.toolDone = true};
-    draw(editor, AddPanel{.shape = Circle{.radius = Expr(g.radius)}, .at = {g.x, g.y}}, outcome);
+    draw(session, AddPanel{.shape = Circle{.radius = Expr(g.radius)}, .at = {g.x, g.y}}, outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const PlaceRing& g) {
+Outcome Drafting::on(Session& session, const PlaceRing& g) {
     Outcome outcome{.toolDone = true};
-    draw(editor, AddPanel{.shape = RingSector{.innerLength = 70_cm, .sweep = 180_deg, .depth = 60_cm}, .at = {g.x, g.y}}, outcome);
+    draw(session, AddPanel{.shape = RingSector{.innerLength = 70_cm, .sweep = 180_deg, .depth = 60_cm}, .at = {g.x, g.y}}, outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const BendEdge& g) {
+Outcome Drafting::on(Session& session, const BendEdge& g) {
     Outcome outcome{.toolDone = true};  // so the handles can be dragged straight away
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     if (!doc.contains(g.panel)) return outcome;
     selection.panel = g.panel;
     const EdgeRef drawn = drawnSide(doc, g.panel, g.edge).edge;
-    if (curveOf(doc, g.panel, drawn) || !editor.shapes()[g.panel].contains(drawn)) return outcome;  // a free curve already shows its handles
-    taken(editor.run(CurveEdge{g.panel, g.edge}), outcome);
+    if (curveOf(doc, g.panel, drawn) || !session.editor().shapes()[g.panel].contains(drawn)) return outcome;  // a free curve already shows its handles
+    taken(session.run(CurveEdge{g.panel, g.edge}), outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const AddPointOn& g) {
+Outcome Drafting::on(Session& session, const AddPointOn& g) {
     Outcome outcome{.toolDone = true};  // to drag the new corner straight away
     selection.panel = g.panel;
-    const auto added = editor.run(AddCorner{g.panel, {g.at.edge, Expr(g.at.along)}});
+    const auto added = session.run(AddCorner{g.panel, {g.at.edge, Expr(g.at.along)}});
     if (taken(added, outcome) && added->splitsSeam)
         outcome.notice = "This edge was sewn: the seam now sews only the part before the new point. Sew the part after it too, if it should be sewn.";
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const DrawLine& g) {
+Outcome Drafting::on(Session& session, const DrawLine& g) {
     Outcome outcome;
     selection.panel = g.panel;
-    taken(editor.run(AddLine{g.panel, {g.from.edge, Expr(g.from.along)}, {g.to.edge, Expr(g.to.along)}}), outcome);
+    taken(session.run(AddLine{g.panel, {g.from.edge, Expr(g.from.along)}, {g.to.edge, Expr(g.to.along)}}), outcome);
     return outcome;
 }
 
@@ -362,15 +362,15 @@ Outcome::LengthField lengthFieldFor(const Document& doc, const EdgeRef& shown, c
 
 } // namespace
 
-Outcome Drafting::on(Editor& editor, const EditLength& g) {
+Outcome Drafting::on(Session& session, const EditLength& g) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     if (!doc.contains(g.panel)) return outcome;
     selection.panel = g.panel;
-    const Pattern& shape = editor.shapes()[g.panel];
+    const Pattern& shape = session.editor().shapes()[g.panel];
     if (!shape.contains(g.edge)) return outcome;
     outcome.toolDone = g.ownLength;  // the Length tool has done its work, unless the edge is refused below
-    const std::optional<LengthSetting> setting = lengthSetBy(doc, editor.shapes(), g.panel, g.edge);
+    const std::optional<LengthSetting> setting = lengthSetBy(doc, session.editor().shapes(), g.panel, g.edge);
     const bool ownAlready = setting && std::holds_alternative<SetLength>(doc.get(setting->operation));
     if (setting && (ownAlready || !g.ownLength)) {
         outcome.typeLength = lengthFieldFor(doc, g.edge, *setting);
@@ -379,62 +379,62 @@ Outcome Drafting::on(Editor& editor, const EditLength& g) {
     // Nothing sets this edge's length yet (a T-shirt's shoulder, or an edge whose
     // corners were dragged), or the tool wants one of its own: give it one, as
     // long as it is now, and type that. On a symmetric panel it is made for the drawn side.
-    const auto given = editor.run(typingIn(editor), GiveEdgeLength{g.panel, g.edge});
+    const auto given = session.run(typingIn(session), GiveEdgeLength{g.panel, g.edge});
     if (!given) {
         outcome.notice = "Not changed: " + given.error();
         outcome.refused = true;
         outcome.toolDone = false;  // the tool stays, to try another edge
         return outcome;
     }
-    outcome.typeLength = lengthFieldFor(editor.document(), g.edge, LengthSetting{given->layer, FieldId{0}});
+    outcome.typeLength = lengthFieldFor(session.document(), g.edge, LengthSetting{given->layer, FieldId{0}});
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const UseShapeLength& g) {
+Outcome Drafting::on(Session& session, const UseShapeLength& g) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     if (!doc.contains(g.panel)) return outcome;
     selection.panel = g.panel;
     if (!ownLengthsOf(doc, g.panel, drawnSide(doc, g.panel, g.edge).edge).empty()) {
-        if (const auto removed = editor.run(typingIn(editor), RemoveEdgeLength{g.panel, g.edge}); !removed) {
+        if (const auto removed = session.run(typingIn(session), RemoveEdgeLength{g.panel, g.edge}); !removed) {
             // The edge's own length stays what is typed.
             outcome.notice = "Not changed: " + removed.error();
             outcome.refused = true;
-            if (const std::optional<LengthSetting> now = lengthSetBy(doc, editor.shapes(), g.panel, g.edge)) outcome.typeLength = lengthFieldFor(doc, g.edge, *now);
+            if (const std::optional<LengthSetting> now = lengthSetBy(doc, session.editor().shapes(), g.panel, g.edge)) outcome.typeLength = lengthFieldFor(doc, g.edge, *now);
             return outcome;
         }
     }
     // The shape's setting gives the edge its length again, as long as it was when it was given up.
-    if (const std::optional<LengthSetting> setting = lengthSetBy(editor.document(), editor.shapes(), g.panel, g.edge))
-        outcome.typeLength = lengthFieldFor(editor.document(), g.edge, *setting);
+    if (const std::optional<LengthSetting> setting = lengthSetBy(session.document(), session.editor().shapes(), g.panel, g.edge))
+        outcome.typeLength = lengthFieldFor(session.document(), g.edge, *setting);
     else
         outcome.notice = "Its corners were moved, so this edge's length is not the shape's setting now. Give it a length of its own, or change the shape's.";
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const CutAway& g) {
+Outcome Drafting::on(Session& session, const CutAway& g) {
     Outcome outcome;
     selection.panel = g.panel;
-    taken(editor.run(CutPanel{g.panel, g.line, g.keep}), outcome);
+    taken(session.run(CutPanel{g.panel, g.line, g.keep}), outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const SplitAt& g) {
+Outcome Drafting::on(Session& session, const SplitAt& g) {
     Outcome outcome{.toolDone = true};
     selection.panel = g.panel;
-    taken(editor.run(SplitPanel{g.panel, g.line}), outcome);
+    taken(session.run(SplitPanel{g.panel, g.line}), outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const MirrorAcross& g) {
+Outcome Drafting::on(Session& session, const MirrorAcross& g) {
     Outcome outcome{.toolDone = true};
     selection.panel = g.panel;
-    taken(editor.run(AddMirror{g.panel, g.edge}), outcome);
+    taken(session.run(AddMirror{g.panel, g.edge}), outcome);
     return outcome;
 }
 
-std::vector<PanelId> Drafting::add(Editor& editor, const DuplicatePanels& command, Outcome& outcome) {
-    const std::expected<DuplicatePanels::Done, std::string> made = editor.run(command);
+std::vector<PanelId> Drafting::add(Session& session, const DuplicatePanels& command, Outcome& outcome) {
+    const std::expected<DuplicatePanels::Done, std::string> made = session.run(command);
     if (!made) {
         outcome.notice = "Not changed: " + made.error();
         outcome.refused = true;
@@ -443,21 +443,21 @@ std::vector<PanelId> Drafting::add(Editor& editor, const DuplicatePanels& comman
     selection = {made->panels.front(), {}, {made->panels.begin() + 1, made->panels.end()}};
     if (made->seams > 0)
         outcome.notice = seamCount(made->seams) + " sewn as on " +
-                         (command.panels.size() == 1 ? editor.document().get(command.panels.front()).name : std::string("the panels they follow")) + ".";
+                         (command.panels.size() == 1 ? session.document().get(command.panels.front()).name : std::string("the panels they follow")) + ".";
     return made->panels;
 }
 
-Outcome Drafting::on(Editor& editor, const AddBeside& g) {
+Outcome Drafting::on(Session& session, const AddBeside& g) {
     Outcome outcome;
-    if (!editor.document().contains(g.source)) return outcome;
-    add(editor, DuplicatePanels{.panels = {g.source}, .how = g.how}, outcome);
+    if (!session.document().contains(g.source)) return outcome;
+    add(session, DuplicatePanels{.panels = {g.source}, .how = g.how}, outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const DeletePanel& g) {
+Outcome Drafting::on(Session& session, const DeletePanel& g) {
     Outcome outcome;
-    if (!editor.document().contains(g.panel)) return outcome;
-    if (const auto done = editor.run(DeletePanels{{g.panel}}); !done) {
+    if (!session.document().contains(g.panel)) return outcome;
+    if (const auto done = session.run(DeletePanels{{g.panel}}); !done) {
         outcome.notice = "Not changed: " + done.error();
         outcome.refused = true;
         return outcome;
@@ -466,9 +466,9 @@ Outcome Drafting::on(Editor& editor, const DeletePanel& g) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const DeleteSelection& g) {
+Outcome Drafting::on(Session& session, const DeleteSelection& g) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     const std::vector<PanelId> panels = selectedInOrder(doc, selection);
     if (panels.empty()) {
         outcome.notice = "Nothing is selected. Click a panel, or some of its corners, and press Delete again.";
@@ -476,7 +476,7 @@ Outcome Drafting::on(Editor& editor, const DeleteSelection& g) {
         return outcome;
     }
     if (g.wholePanels || selection.corners.empty() || !selection.panel || !doc.contains(*selection.panel)) {
-        if (const auto done = editor.run(DeletePanels{panels}); !done) {
+        if (const auto done = session.run(DeletePanels{panels}); !done) {
             outcome.notice = "Not changed: " + done.error();
             outcome.refused = true;
             return outcome;
@@ -484,7 +484,7 @@ Outcome Drafting::on(Editor& editor, const DeleteSelection& g) {
         for (PanelId panel : panels) drop(panel);
         return outcome;
     }
-    if (const auto done = editor.run(DeleteCorners{.panel = *selection.panel, .corners = selection.corners}); !done) {
+    if (const auto done = session.run(DeleteCorners{.panel = *selection.panel, .corners = selection.corners}); !done) {
         outcome.notice = done.error();  // a sentence that says what to do instead
         outcome.refused = true;
         return outcome;
@@ -493,9 +493,9 @@ Outcome Drafting::on(Editor& editor, const DeleteSelection& g) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const CopySelection&) {
+Outcome Drafting::on(Session& session, const CopySelection&) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     const std::vector<PanelId> panels = selectedInOrder(doc, selection);
     if (panels.empty()) {
         outcome.notice = "Nothing to copy. Click a panel first, then press Ctrl+C.";
@@ -508,19 +508,19 @@ Outcome Drafting::on(Editor& editor, const CopySelection&) {
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const DuplicateSelection& g) {
+Outcome Drafting::on(Session& session, const DuplicateSelection& g) {
     Outcome outcome;
-    const std::vector<PanelId> panels = selectedInOrder(editor.document(), selection);
+    const std::vector<PanelId> panels = selectedInOrder(session.document(), selection);
     if (panels.empty()) {
         outcome.notice = "Nothing to duplicate. Click a panel first, then press Ctrl+D.";
         outcome.refused = true;
         return outcome;
     }
-    add(editor, DuplicatePanels{.panels = panels, .how = g.how}, outcome);
+    add(session, DuplicatePanels{.panels = panels, .how = g.how}, outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const PastePanel& g) {
+Outcome Drafting::on(Session& session, const PastePanel& g) {
     Outcome outcome;
     if (copied_.empty()) {
         outcome.notice = "Nothing has been copied. Select a panel and press Ctrl+C first.";
@@ -529,20 +529,20 @@ Outcome Drafting::on(Editor& editor, const PastePanel& g) {
     }
     // Panels deleted since they were copied are left out.
     const std::size_t copiedBefore = copied_.size();
-    std::erase_if(copied_, [&](PanelId panel) { return !editor.document().contains(panel); });
+    std::erase_if(copied_, [&](PanelId panel) { return !session.document().contains(panel); });
     if (copied_.empty()) {
         outcome.notice = copiedBefore == 1 ? "The panel that was copied is gone. Select a panel and press Ctrl+C again."
                                            : "The panels that were copied are gone. Select a panel and press Ctrl+C again.";
         outcome.refused = true;
         return outcome;
     }
-    add(editor, DuplicatePanels{.panels = copied_, .how = Follow::Copy, .at = g.at}, outcome);
+    add(session, DuplicatePanels{.panels = copied_, .how = Follow::Copy, .at = g.at}, outcome);
     return outcome;
 }
 
-Outcome Drafting::on(Editor& editor, const SewAsSource&) {
+Outcome Drafting::on(Session& session, const SewAsSource&) {
     Outcome outcome;
-    const Document& doc = editor.document();
+    const Document& doc = session.document();
     std::vector<PanelId> instances;
     for (PanelId panel : selectedInOrder(doc, selection))
         if (doc.instanceOf(panel)) instances.push_back(panel);
@@ -552,14 +552,14 @@ Outcome Drafting::on(Editor& editor, const SewAsSource&) {
         return outcome;
     }
 
-    const auto sewn = editor.run(SewInstances{instances});
+    const auto sewn = session.run(SewInstances{instances});
     if (!sewn) {
         outcome.notice = sewn.error();
         outcome.refused = true;
         return outcome;
     }
     outcome.notice = seamCount(sewn->seams) + " sewn as on " +
-                     (instances.size() == 1 ? editor.document().get(editor.document().instanceOf(instances.front())->source).name
+                     (instances.size() == 1 ? session.document().get(session.document().instanceOf(instances.front())->source).name
                                             : std::string("the panels they follow")) +
                      ".";
     return outcome;

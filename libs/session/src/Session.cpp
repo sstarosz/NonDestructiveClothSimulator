@@ -275,7 +275,6 @@ void Session::resetCloth() {
 }
 
 bool Session::preview(Edit edit, const PullCloth& pull) {
-    letGoAfterThePull();
     if (!editor_.editing(edit)) return false;
     if (pull_ == edit) {
         if (held_) simulation_->hold(held_->panel, held_->point, pull.to);
@@ -324,6 +323,18 @@ bool Session::cancel(Edit edit) {
     const bool taken = editor_.cancel(edit);  // the drape of the state before comes back at the next update
     letGoAfterThePull();
     return taken;
+}
+
+bool Session::undo() {
+    const bool moved = editor_.undo();
+    letGoAfterThePull();
+    return moved;
+}
+
+bool Session::redo() {
+    const bool moved = editor_.redo();
+    letGoAfterThePull();
+    return moved;
 }
 
 void Session::setThreading(Threading threading) {
@@ -417,7 +428,6 @@ void Session::keepDrape() {
 }
 
 std::optional<std::string> Session::update(bool meshWanted) {
-    letGoAfterThePull();  // an undo, or a change made through the editor, ends it too
     followBody();
     if (!meshWanted) {
         simulation_->run(false);

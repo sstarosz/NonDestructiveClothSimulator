@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "Change.h"
 #include "Expect.h"
 #include "twintailor/render/Renderer.h"
 #include "twintailor/render/SceneOf.h"
@@ -25,8 +26,8 @@ sim::Surface figure() {
 
 // Puts a body made in memory into the session's document, as loading an avatar does.
 void putOn(session::Session& session, const sim::Surface& body) {
-    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(sim::avatarOf(body, "figure.obj"))); },
-                                    {.touches = session::Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(sim::avatarOf(body, "figure.obj"))); },
+                                   {.touches = session::Touches::PlacementOnly}));
 }
 
 // One renderer for all the tests: starting Vulkan takes a moment.
@@ -343,8 +344,8 @@ TEST_CASE("cloth inside a see-through body shows through it, and a deactivated p
 
     // A deactivated panel (see-through itself) in front of the body: the body still shows through it.
     const PanelId front = session.editor().document().panels().front();
-    REQUIRE(session.editor().change([&](Document& d) { d.arrange(front, Arrangement{.placed = true, .x = 0, .y = 80, .z = 20}); },
-                                    {.touches = session::Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& d) { d.arrange(front, Arrangement{.placed = true, .x = 0, .y = 80, .z = 20}); },
+                                   {.touches = session::Touches::PlacementOnly}));
     session.setPanelActive(front, false);
     session.update();
     const Colour faded = middle(true);

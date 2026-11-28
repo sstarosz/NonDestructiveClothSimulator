@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "Change.h"
 #include "Expect.h"
 #include "twintailor/render/SceneOf.h"
 
@@ -25,8 +26,8 @@ sim::Surface figure() {
 
 // Puts a body made in memory into the session's document, as loading an avatar does.
 void putOn(session::Session& session, const sim::Surface& body) {
-    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(sim::avatarOf(body, "figure.obj"))); },
-                                    {.touches = session::Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.setAvatar(std::make_shared<const Avatar>(sim::avatarOf(body, "figure.obj"))); },
+                                   {.touches = session::Touches::PlacementOnly}));
 }
 
 struct TwoPanels {
@@ -237,7 +238,7 @@ TEST_CASE("an open seam is lined along both edges; a closed one has no lines unl
         moved = moved || std::abs(draped[0].points[i].y - flat[0].points[i].y) > 1.0f;
     EXPECT(moved, "which is not where the flat panels had it");
 
-    REQUIRE(session.editor().change([&](Document& d) { d.remove(seam); }));
+    REQUIRE(tests::change(session, [&](Document& d) { d.remove(seam); }));
     session.update();
     EXPECT(seams({}).empty(), "a seam taken away has no line");
 }

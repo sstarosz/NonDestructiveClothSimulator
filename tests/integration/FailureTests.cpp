@@ -13,6 +13,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "Change.h"
 #include "Expect.h"
 #include "twintailor/session/Autosave.h"
 #include "twintailor/session/Session.h"
@@ -93,11 +94,11 @@ TEST_CASE("a body that cannot be worked out is said once; the cloth waits, and t
     EXPECT((!session.update() && !session.update()), "once");
     EXPECT((!session.bodyReady() && session.bodyProblem() == news && !session.bodyProgress()), "no body to collide with, and none being made");
     EXPECT((!session.clothShown() && session.simulating()), "so the cloth waits instead of falling through it");
-    EXPECT((session.editor().change([&](Document& doc) { doc.set(start.width, Expr(90)); })), "and the pattern can still be changed");
+    EXPECT((tests::change(session, [&](Document& doc) { doc.set(start.width, Expr(90)); })), "and the pattern can still be changed");
     EXPECT((!session.update() && !session.mesh()->panels.empty()), "and meshed");
 
     // Another avatar is another try.
-    REQUIRE(session.editor().change([](Document& doc) { doc.setAvatar(nullptr); }));
+    REQUIRE(tests::change(session, [](Document& doc) { doc.setAvatar(nullptr); }));
     session.update();
     EXPECT((session.bodyReady() && !session.bodyProblem()), "without the one that failed there is nothing in the way");
 }
@@ -117,7 +118,7 @@ TEST_CASE("a mesh that cannot be made is said once; the one before stays, and th
     const std::shared_ptr<const sim::ClothMesh> before = session.mesh();
     {
         const NoMemoryElsewhere failing;
-        REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.width, Expr(90)); }));
+        REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.width, Expr(90)); }));
         const std::optional<std::string> news = told(session);
         EXPECT((says(news, "mesh could not be made") && says(news, "Undo")), "told, with what to do");
         for (int frame = 0; frame < 20; ++frame) EXPECT((!session.update()), "once, and not tried again for the same outlines");
@@ -125,7 +126,7 @@ TEST_CASE("a mesh that cannot be made is said once; the one before stays, and th
         const std::expected<sim::Obj, std::string> obj = session.obj();
         EXPECT((!obj && says(obj.error(), "mesh could not be made")), "an export does not pass it off as the pattern as it is");
     }
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.width, Expr(80)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.width, Expr(80)); }));
     frames([&] { return session.meshesMade() == 2; });
     EXPECT((session.obj().has_value()), "and all is well again");
 }

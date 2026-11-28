@@ -8,8 +8,9 @@
 //   if (!done) show(done.error());   // why it was refused, in words
 //   editor.undo();
 //
-// A change is made as a command, by itself or in an edit (Commands.h). What has
-// no command yet is changed through change(), in the same two ways.
+// A change is made as a command, by itself or in an edit (Commands.h). A
+// Session holds the editor of the document that is open and hands it out for
+// reading: there, commands are run by the session.
 //
 // A panel gets its place in space once: the first time it has an outline,
 // in the same step as that change, it stands where the 2D table has it then
@@ -74,9 +75,10 @@ public:
         typename C::Done done{};
         return handedBack(alone(verbOf(command, done), command.rules()), done);
     }
-    // Changes the document through `verb`: what has no command yet. Returns why
-    // it was refused, if it was; then the document is as it was. A verb that
-    // throws (a handle that no longer exists) is refused with the exception's words.
+    // Changes the document through `verb`: any change at all, for tests (the
+    // program runs commands). Returns why it was refused, if it was; then the
+    // document is as it was. A verb that throws (a handle that no longer exists)
+    // is refused with the exception's words.
     std::expected<void, std::string> change(const std::function<void(Document&)>& verb, ChangeRules rules = {});
 
     // ---- Several changes in one undo step (Commands.h) ----

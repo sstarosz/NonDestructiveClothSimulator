@@ -2,13 +2,13 @@
 // What a person does on the table and in the 3D view, and what it changes in
 // the document: the rules every window shares. A view only reports a gesture
 // (a corner dragged, an edge clicked with the Point tool, a panel turned by
-// the gizmo in 3D); Drafting decides, through the editor, so that every
-// change can be undone and one that would break the pattern is refused. A drag
-// is one edit (Editor::begin), committed as it ends. It also keeps the tool in
-// use, what is selected and the drags in progress.
+// the gizmo in 3D); Drafting decides, and runs commands in the session, so that
+// every change can be undone and one that would break the pattern is refused. A
+// drag is one edit (Session::begin), committed as it ends. It also keeps the
+// tool in use, what is selected and the drags in progress.
 //
 //   Drafting drafting;
-//   const Outcome done = drafting.handle(editor, MoveCorner{panel, corner, 2.0, 0.0, DragPhase::Begin});
+//   const Outcome done = drafting.handle(session, MoveCorner{panel, corner, 2.0, 0.0, DragPhase::Begin});
 //   if (!done.notice.empty()) say(done.notice);
 //
 // On a symmetric panel (a mirror applied last), what is done on the mirrored
@@ -22,7 +22,7 @@
 #include "twintailor/core/Document.h"
 #include "twintailor/core/Drawing.h"
 #include "twintailor/core/Fields.h"
-#include "twintailor/session/Editor.h"
+#include "twintailor/session/Session.h"
 #include "twintailor/session/Tools.h"
 #include "twintailor/sim/Vec3.h"
 
@@ -245,7 +245,7 @@ struct Outcome {
 
 class Drafting {
 public:
-    Outcome handle(Editor& editor, const Gesture& gesture);
+    Outcome handle(Session& session, const Gesture& gesture);
     // A new document, or undo and redo: drags in progress are over, and a
     // selection that no longer exists goes.
     void forget(const Document& doc);
@@ -255,10 +255,10 @@ public:
     // pattern in it, and so does what is typed: typingIn is that edit, a new one
     // if none is open. Something else done meanwhile ends it: typingEnded says
     // so, and a field shown for it should close.
-    Edit typingIn(Editor& editor);
-    bool typingEnded(const Editor& editor) const { return typed_ && !editor.editing(*typed_); }
-    void commitTyping(Editor& editor);
-    void cancelTyping(Editor& editor);
+    Edit typingIn(Session& session);
+    bool typingEnded(const Session& session) const { return typed_ && !session.editing(*typed_); }
+    void commitTyping(Session& session);
+    void cancelTyping(Session& session);
 
     // What is selected. Windows read and set it as they please. `panel` is the
     // one the docks show, the gizmo stands at and the corners belong to; `others`
@@ -281,47 +281,47 @@ public:
     const std::vector<PanelId>& copied() const { return copied_; }
 
 private:
-    Outcome on(Editor&, const SelectPanel&);
-    Outcome on(Editor&, const SelectPanels&);
-    Outcome on(Editor&, const MovePanel&);
-    Outcome on(Editor&, const MoveCorner&);
-    Outcome on(Editor&, const MoveHandle&);
-    Outcome on(Editor&, const RotatePanel&);
-    Outcome on(Editor&, const ScalePanel&);
-    Outcome on(Editor&, const SelectCorners&);
-    Outcome on(Editor&, const DrawRect&);
-    Outcome on(Editor&, const DrawCircle&);
-    Outcome on(Editor&, const PlaceRing&);
-    Outcome on(Editor&, const BendEdge&);
-    Outcome on(Editor&, const AddPointOn&);
-    Outcome on(Editor&, const DrawLine&);
-    Outcome on(Editor&, const CutAway&);
-    Outcome on(Editor&, const SplitAt&);
-    Outcome on(Editor&, const MirrorAcross&);
-    Outcome on(Editor&, const SewEdges&);
-    Outcome on(Editor&, const EditLength&);
-    Outcome on(Editor&, const UseShapeLength&);
-    Outcome on(Editor&, const MoveInSpace&);
-    Outcome on(Editor&, const TurnInSpace&);
-    Outcome on(Editor&, const AddBeside&);
-    Outcome on(Editor&, const DeletePanel&);
-    Outcome on(Editor&, const DeleteSelection&);
-    Outcome on(Editor&, const CopySelection&);
-    Outcome on(Editor&, const DuplicateSelection&);
-    Outcome on(Editor&, const PastePanel&);
-    Outcome on(Editor&, const SewAsSource&);
-    Outcome on(Editor&, const SelectSeam&);
+    Outcome on(Session&, const SelectPanel&);
+    Outcome on(Session&, const SelectPanels&);
+    Outcome on(Session&, const MovePanel&);
+    Outcome on(Session&, const MoveCorner&);
+    Outcome on(Session&, const MoveHandle&);
+    Outcome on(Session&, const RotatePanel&);
+    Outcome on(Session&, const ScalePanel&);
+    Outcome on(Session&, const SelectCorners&);
+    Outcome on(Session&, const DrawRect&);
+    Outcome on(Session&, const DrawCircle&);
+    Outcome on(Session&, const PlaceRing&);
+    Outcome on(Session&, const BendEdge&);
+    Outcome on(Session&, const AddPointOn&);
+    Outcome on(Session&, const DrawLine&);
+    Outcome on(Session&, const CutAway&);
+    Outcome on(Session&, const SplitAt&);
+    Outcome on(Session&, const MirrorAcross&);
+    Outcome on(Session&, const SewEdges&);
+    Outcome on(Session&, const EditLength&);
+    Outcome on(Session&, const UseShapeLength&);
+    Outcome on(Session&, const MoveInSpace&);
+    Outcome on(Session&, const TurnInSpace&);
+    Outcome on(Session&, const AddBeside&);
+    Outcome on(Session&, const DeletePanel&);
+    Outcome on(Session&, const DeleteSelection&);
+    Outcome on(Session&, const CopySelection&);
+    Outcome on(Session&, const DuplicateSelection&);
+    Outcome on(Session&, const PastePanel&);
+    Outcome on(Session&, const SewAsSource&);
+    Outcome on(Session&, const SelectSeam&);
     // `panel` joins the selection as the one shown, or goes out of it; the others stay.
     void join(PanelId panel);
     void drop(PanelId panel);
     // The edit the drag in progress is made in; handle() commits it as the drag ends.
-    Edit dragIn(Editor& editor);
+    Edit dragIn(Session& session);
     std::optional<Edit> dragged_, typed_;
 
     // The new panels become the selection; the help line says how they were sewn.
-    std::vector<PanelId> add(Editor&, const DuplicatePanels&, Outcome&);
+    std::vector<PanelId> add(Session&, const DuplicatePanels&, Outcome&);
     // The new panel becomes the selection.
-    void draw(Editor&, const AddPanel&, Outcome&);
+    void draw(Session&, const AddPanel&, Outcome&);
     bool draggingCorners_ = false;  // a drag of corners that began with one that can move
     bool draggingHandle_ = false;   // the same for a curve's handle
     // A drag of panels, on the table or in space: those it takes along, and where

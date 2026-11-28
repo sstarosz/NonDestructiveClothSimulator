@@ -48,11 +48,12 @@ only ones other code may include), `src/` (sources and private headers) and
             what the user did (a session::Gesture or a signal)
 
 - `core` turns a document into outlines, from scratch, every time.
-- `session::Editor` is the only way to change the document; `Session` works
-  out again only what a change touched (version numbers, see Performance).
+- The open document is changed through `session::Session`, by commands; its
+  `Editor` does the work, and `Session` works out again only what a change
+  touched (version numbers, see Performance).
 - `TableView` and `SpaceView` report gestures; the docks report what was
   typed or clicked. `MainWindow` decides what that changes, through
-  `session::Drafting` and `Editor::change`.
+  `session::Drafting` and the session's commands.
 - What the views need worked out (picking, the gizmo, lengths, locks) lives
   in `libs/render` or `libs/session`, where it is tested without Qt.
 
@@ -118,9 +119,10 @@ only ones other code may include), `src/` (sources and private headers) and
   one for each mouse move, and the history gets one step. A window may also
   draw what is coming itself and run the command once, on release; what such a
   picture needs worked out comes from `session`.
-- **Only `session::Session` is to run commands**, with the editor read-only
-  outside `session`. That is not built yet: `session::Drafting` and the window
-  use the editor, and `Editor::change` (any change, for tests) is open to them.
+- **Only `session::Session` changes the open document**, by the commands it
+  runs, undo, redo and opening another: it hands its editor out for reading, so
+  it sees every change. `Editor::change` (any change at all) is for tests,
+  which reach a session's through `tests/support/Change.h`.
 - **A change is made on a copy of the document** and taken only if all of it
   can be done. It is refused, with why, if it adds a problem, unless its rules
   say `IfItBreaks::Allow`. Moving panels is `Touches::PlacementOnly`, so

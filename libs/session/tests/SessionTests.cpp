@@ -8,15 +8,20 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "Change.h"
 #include "Expect.h"
 #include "twintailor/session/Session.h"
 
 using namespace twintailor;
 using namespace twintailor::session;
+
+// The open document is changed through the session alone.
+static_assert(std::is_same_v<decltype(std::declval<Session&>().editor()), const Editor&>, "the editor is handed out for reading");
 
 namespace {
 
@@ -46,7 +51,7 @@ std::shared_ptr<const Avatar> ball(double radius) {
 
 // Puts another avatar into the document, as loading one does.
 void putOn(Session& session, std::shared_ptr<const Avatar> avatar) {
-    REQUIRE(session.editor().change([&](Document& doc) { doc.setAvatar(avatar); }, {.touches = Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.setAvatar(avatar); }, {.touches = Touches::PlacementOnly}));
 }
 
 void waitForTheBody(Session& session) {
@@ -89,17 +94,17 @@ TEST_CASE("the mesh is made again only when the outlines change")
     const auto mesh = session.mesh();
     EXPECT((mesh && mesh->panels.size() == 1u), "the panel is meshed");
 
-    REQUIRE(session.editor().change([&](Document& doc) { doc.place(start.panel, 50, 50); }, {.touches = Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.place(start.panel, 50, 50); }, {.touches = Touches::PlacementOnly}));
     session.update();
     EXPECT(session.meshesMade() == made, "moving the panel on the table does not mesh it again");
 
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(50)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(50)); }));
     session.update();
     EXPECT(session.meshesMade() == made + 1, "changing its length does");
     EXPECT((mesh->panels.size() == 1u), "a view that kept the old mesh still has it whole");
 
     const std::size_t particles = session.mesh()->panels[0].points.size();
-    REQUIRE(session.editor().change([&](Document& doc) { doc.setParticleDistance(start.panel, 3.0); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.setParticleDistance(start.panel, 3.0); }));
     session.update();
     EXPECT(session.meshesMade() == made + 2, "so does a new particle distance of the panel");
     EXPECT(session.mesh()->panels[0].points.size() < particles, "and a coarser one makes fewer particles");
@@ -125,7 +130,7 @@ TEST_CASE("on its own thread the mesh is made in the background and catches up")
 
     // A drag: the length changes every frame, faster than meshes are made.
     for (int frame = 0; frame < 20; ++frame) {
-        REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(41 + frame)); }));
+        REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(41 + frame)); }));
         session.update();
     }
     for (int i = 0; i < 400 && std::abs(height() - 60.0) > 1e-9; ++i) meshed(1);
@@ -135,13 +140,13 @@ TEST_CASE("on its own thread the mesh is made in the background and catches up")
     EXPECT((session.meshesMade() == made), "and then nothing more is made");
 
     // A panel taken away leaves the mesh in the same update, though meshes are made in the background.
-    REQUIRE(session.editor().change([&](Document& doc) {
+    REQUIRE(tests::change(session, [&](Document& doc) {
         const PanelId added = doc.add(Panel{.name = "second"});
         doc.add(added, Rect{.width = 10_cm, .height = 10_cm});
     }));
     for (int i = 0; i < 400 && session.mesh()->panels.size() < 2u; ++i) meshed(1);
     REQUIRE(session.mesh()->panels.size() == 2u);
-    REQUIRE(session.editor().change([&](Document& doc) { doc.remove(start.panel); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.remove(start.panel); }));
     session.update();
     EXPECT((session.mesh()->panels.size() == 1u && session.mesh()->panels.front().panel != start.panel), "a removed panel is out of the mesh at once");
 }
@@ -154,8 +159,8 @@ TEST_CASE("the scene version goes up only when something to draw changed")
     const auto version = session.sceneVersion();
     frames(session, 5);
     EXPECT(session.sceneVersion() == version, "nothing changed, nothing to draw again");
-    REQUIRE(session.editor().change([&](Document& doc) { doc.arrange(start.panel, Arrangement{.placed = true, .x = 10, .y = 140, .z = 40}); },
-                                    {.touches = Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.arrange(start.panel, Arrangement{.placed = true, .x = 10, .y = 140, .z = 40}); },
+                                   {.touches = Touches::PlacementOnly}));
     session.update();
     EXPECT(session.sceneVersion() > version, "arranging the panel elsewhere is something to draw");
 }
@@ -174,15 +179,15 @@ TEST_CASE("a seam added, twisted or taken away is something new to draw")
     };
 
     SeamId seam{};
-    REQUIRE(session.editor().change([&](Document& doc) { seam = doc.add(Seam{.a = {start.panel, start.rect.right()}, .b = {other, rect.left()}}); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { seam = doc.add(Seam{.a = {start.panel, start.rect.right()}, .b = {other, rect.left()}}); }));
     EXPECT(drawnAgain(), "sewn");
-    REQUIRE(session.editor().change([&](Document& doc) {
+    REQUIRE(tests::change(session, [&](Document& doc) {
         Seam twisted = doc.get(seam);
         twisted.reversed = true;
         doc.set(seam, twisted);
     }));
     EXPECT(drawnAgain(), "twisted");
-    REQUIRE(session.editor().change([&](Document& doc) { doc.remove(seam); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.remove(seam); }));
     EXPECT(drawnAgain(), "taken away");
 }
 
@@ -198,7 +203,7 @@ TEST_CASE("simulating moves the cloth, and an edit keeps it draped")
     const double time = session.cloth().time;
     EXPECT(time > 0.6, "and it has moved on in time");
 
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(45)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(45)); }));
     session.update();
     EXPECT(session.cloth().time >= time, "an edit does not start the cloth again");
     EXPECT(session.shownMesh().panels.front().points.size() == session.shownPositions().front().size(), "what is shown fits together");
@@ -214,7 +219,7 @@ TEST_CASE("opening another document ends the cloth and the history")
     Session session(start.doc, Threading::OneStepPerAdvance);
     session.simulate(true);
     frames(session, 5);
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(45)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(45)); }));
     session.open(Document{});
     session.update();
     EXPECT((!session.clothShown() && !session.editor().canUndo() && session.document().panels().empty()), "all of it is gone");
@@ -392,25 +397,25 @@ TEST_CASE("another body ends the cloth; undo and redo bring back the drape that 
     session.update();
     const double secondTime = session.cloth().time;
 
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.update();
     EXPECT((asOnFirst() && session.bodySurface().points.size() == firstBody), "undone, the first body and the drape on it are back");
     EXPECT((!session.simulating()), "standing still");
-    REQUIRE(session.editor().redo());
+    REQUIRE(session.redo());
     session.update();
     EXPECT((session.clothShown() && session.cloth().time == secondTime), "redone, the drape on the second one");
 
     // With nothing drawing the cloth (the 3D view hidden), the drape is kept all the same.
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.update(false);
     session.update();
     EXPECT((asOnFirst()), "undone while the cloth was not looked at, it is back when it is");
 
     // Reset is not undone: with no cloth there is nothing to bring back.
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(45)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(45)); }));
     session.update();
     session.resetCloth();
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.update();
     EXPECT((!session.clothShown()), "after Reset, undo brings no cloth back");
 }
@@ -551,10 +556,10 @@ TEST_CASE("unsaved is the document, what is hidden and frozen, the body's looks 
     EXPECT(session.unsaved(), "cloth where there was none");
     session.markSaved();
     EXPECT((!session.unsaved()), "saved as it hangs");
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(two.start.length, Expr(45)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(two.start.length, Expr(45)); }));
     session.update();
     EXPECT(session.unsaved(), "a change of the pattern");
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.update();
     EXPECT((!session.unsaved()), "undone, with the drape that was saved");
     session.simulate(true);
@@ -604,7 +609,7 @@ TEST_CASE("a draped panel moved in space takes its drape along; nothing starts a
 
     Arrangement higher = session.document().get(start.panel).arrangement;
     higher.y += 20.0;
-    REQUIRE(session.editor().change([&](Document& doc) { doc.arrange(start.panel, higher); }, {.touches = Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.arrange(start.panel, higher); }, {.touches = Touches::PlacementOnly}));
     session.update();
     double off = 0.0;
     for (std::size_t i = 0; i < draped.front().size(); ++i) off = std::max(off, sim::length(session.cloth().positions.front()[i] - (draped.front()[i] + sim::Vec3{0, 20, 0})));
@@ -677,12 +682,12 @@ TEST_CASE("a pull of the cloth is one undo step: undo brings back the drape as i
     REQUIRE(apart(pulled, before) > 1.0);
     EXPECT((session.unsaved()), "the file would hold the pulled cloth");
 
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.update();
     EXPECT((apart(session.cloth().positions, before) < 1e-5), "the whole pull is taken back at once");
     EXPECT((session.editor().step() == changed && session.editor().shapes()[start.panel].length(start.rect.left()) == 55.0),
            "and only the pull: the change before it stays");
-    REQUIRE(session.editor().redo());
+    REQUIRE(session.redo());
     session.update();
     EXPECT((apart(session.cloth().positions, pulled) < 1e-5), "redo brings the pulled drape back");
 }
@@ -729,13 +734,18 @@ TEST_CASE("a held particle is let go once something else is done, however it is 
     REQUIRE(session.preview(first, up));
     REQUIRE(session.run(SetField{start.length, 55_cm}));
     EXPECT((!session.pulling() && !session.preview(first, up)), "a command lets go, and that pull is over");
-    EXPECT((session.editor().undo() && session.editor().undo() && !session.editor().canUndo()), "the pull and the command are an undo step each");
+    EXPECT((session.undo() && session.undo() && !session.editor().canUndo()), "the pull and the command are an undo step each");
 
     session.update();
+    const Edit second = session.begin();
+    REQUIRE(session.preview(second, up));
+    REQUIRE(session.undo());
+    EXPECT((!session.pulling() && !session.editing(second)), "undo lets go at once");
+    session.update();
     REQUIRE(session.preview(session.begin(), up));
-    REQUIRE(session.editor().undo());  // not through the session
-    frames(session, 1);
-    EXPECT((!session.pulling()), "undo lets go by the next update");
+    REQUIRE(session.undo());
+    REQUIRE(session.preview(session.begin(), up));
+    EXPECT((session.undo() && session.redo() && !session.pulling()), "and so does redo");
 }
 
 TEST_CASE("undo and redo bring the drape back")
@@ -750,22 +760,22 @@ TEST_CASE("undo and redo bring the drape back")
     const double timeBefore = session.cloth().time;
 
     // A change, then the cloth runs on and drapes differently.
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(55)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(55)); }));
     session.simulate(true);
     frames(session, 60);
     session.simulate(false);
     session.update();
     const sim::Placement after = session.cloth().positions;
 
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.update();
     EXPECT((apart(session.cloth().positions, before) == 0.0 && session.cloth().time == timeBefore), "undo puts the drape back exactly as it was before the change");
-    REQUIRE(session.editor().redo());
+    REQUIRE(session.redo());
     session.update();
     EXPECT((apart(session.cloth().positions, after) == 0.0), "redo brings back the drape as it was left");
 
     // Simulating on after an undo works as ever.
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.simulate(true);
     frames(session, 10);
     EXPECT((session.cloth().time > timeBefore && session.shownMesh().panels.front().points.size() == session.shownPositions().front().size()),
@@ -789,7 +799,7 @@ TEST_CASE("a draped panel's change of wrap is applied: it bends where it hangs, 
 
     Arrangement wrapped = session.document().get(start.panel).arrangement;
     wrapped.wrap = 120.0;
-    REQUIRE(session.editor().change([&](Document& doc) { doc.arrange(start.panel, wrapped); }, {.touches = Touches::PlacementOnly}));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.arrange(start.panel, wrapped); }, {.touches = Touches::PlacementOnly}));
     session.update();
     const sim::Placement bent = sim::arranged(session.document(), *session.mesh());
     REQUIRE((draped.size() == 2u && bent.size() == 2u && session.cloth().positions.size() == 2u));
@@ -836,7 +846,7 @@ TEST_CASE("a panel is hidden without leaving the cloth; deactivated, it stands s
     EXPECT(heightOf(other) < othersAt, "the other goes on falling");
     session.preview(session.begin(), PullCloth{start.panel, 0, {0, 180, 0}});
     EXPECT(!session.pulling(), "it cannot be pulled");
-    REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(45)); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(45)); }));
     frames(session, 5);
     const double afterEdit = heightOf(start.panel);
     frames(session, 5);
@@ -855,7 +865,7 @@ TEST_CASE("a panel is hidden without leaving the cloth; deactivated, it stands s
     EXPECT(heightOf(start.panel) < before, "active again, it falls");
 
     session.setPanelActive(start.panel, false);
-    REQUIRE(session.editor().change([&](Document& doc) { doc.remove(start.panel); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.remove(start.panel); }));
     session.update();
     EXPECT((session.hiddenPanels().empty() && session.inactivePanels().empty()), "a panel that is gone is forgotten");
     session.setPanelShown(start.panel, false);
@@ -882,12 +892,12 @@ TEST_CASE("a seam is hidden and shown again, and forgotten when it is gone")
     session.setSeamShown(seam, false);
     EXPECT(session.sceneVersion() == version, "hidden again changes nothing");
     EXPECT(!session.editor().canUndo(), "and the document is untouched");
-    REQUIRE(session.editor().change([&](Document& doc) { doc.remove(seam); }));
+    REQUIRE(tests::change(session, [&](Document& doc) { doc.remove(seam); }));
     session.update();
     EXPECT(session.hiddenSeams().empty(), "a seam that is gone is forgotten");
     session.setSeamShown(seam, false);
     EXPECT(session.hiddenSeams().empty(), "and cannot be hidden");
-    REQUIRE(session.editor().undo());
+    REQUIRE(session.undo());
     session.update();
     EXPECT(session.seamShown(seam), "brought back, it is shown");
     session.setSeamShown(seam, false);
@@ -925,11 +935,11 @@ TEST_CASE("an export is of the pattern as it is now, also when nothing has shown
         Session session(start.doc, threading);
         session.update(false);  // the table alone: no mesh has been made
         EXPECT_NEAR(heightOf(verticesOf(session.obj())), 40.0, "a mesh is made for it");
-        REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(55)); }));
+        REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(55)); }));
         session.update(false);
         EXPECT_NEAR(heightOf(verticesOf(session.obj())), 55.0, "an edit is in it");
-        REQUIRE(session.editor().change([&](Document& doc) { doc.arrange(start.panel, Arrangement{.placed = true, .x = 70, .y = 140, .z = 40}); },
-                                        {.touches = Touches::PlacementOnly}));
+        REQUIRE(tests::change(session, [&](Document& doc) { doc.arrange(start.panel, Arrangement{.placed = true, .x = 70, .y = 140, .z = 40}); },
+                                       {.touches = Touches::PlacementOnly}));
         session.update(false);
         double middle = 0.0;
         const std::vector<sim::Vec3> moved = verticesOf(session.obj());
@@ -952,7 +962,7 @@ TEST_CASE("a draped cloth catches up with the pattern before it is exported")
         session.simulate(false);
         session.update();
         const std::size_t before = verticesOf(session.obj()).size();
-        REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(70)); }));
+        REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(70)); }));
         session.update(false);  // the 3D view is not shown
         const std::vector<sim::Vec3> written = verticesOf(session.obj());
         EXPECT(written.size() > before, "the longer panel has more particles");

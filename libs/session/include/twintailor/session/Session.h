@@ -6,10 +6,14 @@
 //
 //   Session session(std::move(doc));
 //   session.run(SetField{.field = waist, .value = 80_cm});  // a command (Commands.h), one undo step
+//   session.undo();
 //   session.simulate(true);
 //   ...each frame:
 //   session.update();
 //   draw(session.shownMesh(), session.shownPositions(), session.bodySurface());
+//
+// The document is changed by commands run here, and in no other way: the
+// editor that holds it is handed out for reading.
 //
 // What it hands out stays valid until the next call that changes it; the
 // mesh is shared, so a view may keep it as long as it likes.
@@ -38,7 +42,7 @@ public:
     explicit Session(Document document = {}, Threading threading = Threading::OwnThread);
     ~Session();  // a body still being worked out is given up
 
-    Editor& editor() { return editor_; }
+    // The outlines, the history and what else there is to read of the document.
     const Editor& editor() const { return editor_; }
     const Document& document() const { return editor_.document(); }
 
@@ -73,6 +77,10 @@ public:
     bool cancel(Edit edit);
     bool editing(Edit edit) const { return editor_.editing(edit); }
     bool pulling() const { return held_.has_value(); }
+    // One step back or forth in the history, as the editor's: an open edit ends
+    // first, and the drape comes back at the next update(). False: there was no step.
+    bool undo();
+    bool redo();
     // Another document, with no history: opening a file. The scene is as
     // `state` leaves it: its drape hangs again, paused. It starts saved.
     void open(Document document, SceneState state = {});

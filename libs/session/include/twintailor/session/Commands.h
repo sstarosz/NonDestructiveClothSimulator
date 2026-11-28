@@ -1,10 +1,11 @@
 #pragma once
 // What can be done to the work, each as a plain struct that holds all it
-// needs: no selection, no tool, no drag in progress. A Session or an Editor
-// runs them. A command is made on a copy of the document: one that cannot be
-// done changes nothing. A command run by itself is one undo step:
+// needs: no selection, no tool, no drag in progress. A Session runs them (its
+// Editor does the work on the document). A command is made on a copy of the
+// document: one that cannot be done changes nothing. A command run by itself is
+// one undo step:
 //
-//   auto made = editor.run(DuplicatePanels{.panels = {front}, .how = Follow::MirroredInstance});
+//   auto made = session.run(DuplicatePanels{.panels = {front}, .how = Follow::MirroredInstance});
 //   if (!made) say(made.error());
 //   else select(made->panels);
 //
@@ -13,10 +14,10 @@
 // command to it, and `preview` shows a command in place of the preview before
 // it, so a command that follows the mouse says how far the mouse has come in all:
 //
-//   const Edit edit = editor.begin();
-//   editor.preview(edit, MoveCorners{.panel = front, .corners = {corner}, .by = {1, 0}});
-//   editor.preview(edit, MoveCorners{.panel = front, .corners = {corner}, .by = {3, 0}});  // 3 cm in all
-//   editor.commit(edit);  // it stays; or editor.cancel(edit): as if it never was
+//   const Edit edit = session.begin();
+//   session.preview(edit, MoveCorners{.panel = front, .corners = {corner}, .by = {1, 0}});
+//   session.preview(edit, MoveCorners{.panel = front, .corners = {corner}, .by = {3, 0}});  // 3 cm in all
+//   session.commit(edit);  // it stays; or session.cancel(edit): as if it never was
 //
 // One edit is open at a time. A command run by itself, undo, redo or another
 // begin ends it first, and what it made stays. A call with an edit that is over
@@ -43,8 +44,7 @@
 
 namespace twintailor::session {
 
-// An edit that was begun (Editor::begin, Session::begin): what is run in it is
-// one undo step.
+// An edit that was begun (Session::begin): what is run in it is one undo step.
 struct Edit {
     std::uint64_t number = 0;
     friend bool operator==(const Edit&, const Edit&) = default;

@@ -174,14 +174,14 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         say(QString(nameOf(tool)) + ": " + hintFor(tool));
     });
     connect(shelf_->undo(), &QAction::triggered, this, [this] {
-        if (!session_.editor().undo()) return;
+        if (!session_.undo()) return;
         stopPicking();
         drafting_.forget(session_.document());
         table_->cancel();
         refresh();
     });
     connect(shelf_->redo(), &QAction::triggered, this, [this] {
-        if (!session_.editor().redo()) return;
+        if (!session_.redo()) return;
         stopPicking();
         drafting_.forget(session_.document());
         table_->cancel();
@@ -365,7 +365,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(attributes_, &AttributeEditor::fieldTyped, this, [this](OpId layer, FieldId id, QString text) { typed(layer, id, text, attributes_->field(layer, id)); });
     connect(table_, &TableView::keepingChosen, this, [this](OpId layer, SetLength::Keeping keeping) {
         if (!session_.document().contains(layer)) return;
-        const auto done = session_.run(drafting_.typingIn(session_.editor()),
+        const auto done = session_.run(drafting_.typingIn(session_),
                                        session::SetKeeping{OpRef<SetLength>(layer), keeping, session::Grows::InPlaceUnlessSewn});
         if (!done) table_->showLengthProblem(QString::fromStdString(done.error()));
         // The anchor shown is the one the document has, whether or not the change was taken.
@@ -380,7 +380,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(table_, &TableView::lengthEdited, this, [this](OpId layer, FieldId id, QString text) { previewLength(layer, id, text); });
     connect(table_, &TableView::lengthCommitted, this, [this](OpId layer, FieldId id, QString text) {
         previewLength(layer, id, text);  // what is in the field, if it was not shown yet
-        drafting_.commitTyping(session_.editor());
+        drafting_.commitTyping(session_);
         say({});
     });
     connect(table_, &TableView::lengthCancelled, this, [this] { cancelLength(); });
@@ -999,14 +999,14 @@ void MainWindow::startPicking(OpId layer, ReferenceId reference) {
 void MainWindow::select(std::optional<PanelId> panel) {
     if (panel && !session_.document().contains(*panel)) panel.reset();
     if (panel == drafting_.selection.panel && !drafting_.selection.seam) return;
-    drafting_.handle(session_.editor(), session::SelectPanel{panel});
+    drafting_.handle(session_, session::SelectPanel{panel});
     refresh();
 }
 
 void MainWindow::selectSeam(std::optional<SeamId> seam) {
     if (seam && !session_.document().contains(*seam)) seam.reset();
     if (seam == drafting_.selection.seam) return;
-    drafting_.handle(session_.editor(), session::SelectSeam{seam});
+    drafting_.handle(session_, session::SelectSeam{seam});
     refresh();
 }
 
@@ -1210,7 +1210,7 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
     }
     const Expr value = std::get<Expr>(parsed);
     // A preview: what is typed so far takes the place of what was typed before.
-    const auto done = session_.preview(drafting_.typingIn(session_.editor()),
+    const auto done = session_.preview(drafting_.typingIn(session_),
                                        session::SetField{session::OperationField{layer, id}, value, session::Grows::InPlaceUnlessSewn});
     if (!done) {
         table_->showLengthProblem(QString::fromStdString(done.error()));  // the document is as it was
@@ -1223,14 +1223,14 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
 
 void MainWindow::closeLengthIfOver() {
     const auto& typing = table_->lengthBeingTyped();
-    if (!typing || (session_.document().contains(typing->operation) && !drafting_.typingEnded(session_.editor()))) return;
+    if (!typing || (session_.document().contains(typing->operation) && !drafting_.typingEnded(session_))) return;
     table_->closeLength();
-    drafting_.commitTyping(session_.editor());
+    drafting_.commitTyping(session_);
 }
 
 void MainWindow::cancelLength() {
     // All of the edit goes, and is forgotten: it must not be left to redo.
-    drafting_.cancelTyping(session_.editor());
+    drafting_.cancelTyping(session_);
     // A length moves corners and makes none, so the corners that are chosen stay chosen: the click that
     // left the bar may be the one that adds to them.
     const std::vector<CornerRef> corners = drafting_.selection.corners;
@@ -1265,7 +1265,7 @@ void MainWindow::on(const session::Gesture& gesture) {
     const bool lengthGesture = std::holds_alternative<session::EditLength>(gesture) || std::holds_alternative<session::UseShapeLength>(gesture);
     QElapsedTimer took;  // a drag's every step is a change, shown again in every dock
     took.start();
-    const session::Outcome done = drafting_.handle(session_.editor(), gesture);
+    const session::Outcome done = drafting_.handle(session_, gesture);
     if (!done.notice.empty()) say(QString::fromStdString(done.notice), done.refused);
     else if (std::holds_alternative<session::MoveCorner>(gesture) || std::holds_alternative<session::MovePanel>(gesture)) say({});
     shelf_->setTool(drafting_.tool);  // a drawing tool that has done its work is back to Select
@@ -1282,7 +1282,7 @@ void MainWindow::on(const session::Gesture& gesture) {
         table_->typeLength(wanted, lengthText_);
         if (done.notice.empty()) say(lengthStatus(wanted));  // a refusal's words stay
     } else if (lengthGesture && !table_->lengthEditor()) {
-        drafting_.commitTyping(session_.editor());  // nothing to type: the gesture was refused, or has nothing to say
+        drafting_.commitTyping(session_);  // nothing to type: the gesture was refused, or has nothing to say
     }
     gesturing_ = false;
     closeLengthIfOver();  // a bar left for a length that this gesture took away, or for one before it
