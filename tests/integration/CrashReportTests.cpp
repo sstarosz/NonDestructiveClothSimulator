@@ -84,7 +84,7 @@ TEST_CASE("the session notes what is done before it is done, a drag once, and no
     session.simulate(true);
     session.update();
     const Edit pull = session.begin();
-    const sim::Vec3 up = session.cloth().positions.front()[0] + sim::Vec3{0, 0, 5};
+    const Vec3 up = session.cloth().positions.front()[0] + Vec3{0, 0, 5};
     REQUIRE((session.preview(pull, PullCloth{panel, 0, up}) && session.preview(pull, PullCloth{panel, 0, up})));
     session.commit(pull);
     session.simulate(false);

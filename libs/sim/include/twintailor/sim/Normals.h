@@ -2,7 +2,7 @@
 // Which way the cloth faces at each particle, smooth across closed seams: what
 // the 3D view shades it with and an exported file keeps.
 //
-//   std::vector<std::vector<sim::Vec3>> normals = sim::clothNormals(mesh, positions);
+//   std::vector<std::vector<Vec3>> normals = sim::clothNormals(mesh, positions);
 //   normals[i][k]      // at particle k of mesh.panels[i], of length 1
 //
 // A normal points out of the panel's front, the side its triangles run

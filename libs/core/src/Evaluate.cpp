@@ -292,8 +292,8 @@ private:
             return;
         }
         // A slice, hanging downward: centred on the negative y axis.
-        const double radians = sweep * (pi / 180.0);
-        const double startAngle = -pi / 2.0 - radians / 2.0, endAngle = -pi / 2.0 + radians / 2.0;
+        const double half = radians(sweep) / 2.0;
+        const double startAngle = -pi / 2.0 - half, endAngle = -pi / 2.0 + half;
         pattern.vertices = {
             {names.start(), {radius * std::cos(startAngle), radius * std::sin(startAngle)}},
             {names.end(), {radius * std::cos(endAngle), radius * std::sin(endAngle)}},
@@ -310,13 +310,13 @@ private:
         if (!starts(first, "a ring sector", op)) return;
         const double innerLength = value[0], sweep = value[1], depth = value[2];
 
-        const double radians = sweep * (pi / 180.0);
-        const double inner = innerLength / radians;  // arc length = radius * angle
+        const double angle = radians(sweep);
+        const double inner = innerLength / angle;  // arc length = radius * angle
         const double outer = inner + depth;
 
         // Hangs downward: centred on the negative y axis.
-        const double startAngle = -pi / 2.0 - radians / 2.0;
-        const double endAngle = -pi / 2.0 + radians / 2.0;
+        const double startAngle = -pi / 2.0 - angle / 2.0;
+        const double endAngle = -pi / 2.0 + angle / 2.0;
         const auto at = [](double radius, double angle) {
             return Vec2{radius * std::cos(angle), radius * std::sin(angle)};
         };
@@ -396,7 +396,7 @@ private:
         const Vec2 start = pattern.vertices[edge->start].position;
         const Vec2 end = pattern.vertices[edge->end].position;
         edge->arc.reset();
-        edge->cubic = CubicCurve{{start.x + value[0], start.y + value[1]}, {end.x + value[2], end.y + value[3]}};
+        edge->cubic = CubicCurve{start + Vec2{value[0], value[1]}, end + Vec2{value[2], value[3]}};
     }
 
     void apply(const Line& line, const std::vector<double>& value, OpId op, bool first, Pattern& pattern) {
@@ -421,7 +421,7 @@ private:
         if (!to) return;
         const Vec2 start = outline::pointAt(pattern, *from, value[0]);
         const Vec2 end = outline::pointAt(pattern, *to, value[1]);
-        if (std::hypot(end.x - start.x, end.y - start.y) < 1e-6) {
+        if (length(end - start) < 1e-6) {
             error(op, "the line starts and ends at the same point");
             return;
         }
@@ -473,20 +473,20 @@ private:
             return;
         }
         const Vec2 start = pattern.vertices[edge.start].position, end = pattern.vertices[edge.end].position;
-        const double now = std::hypot(end.x - start.x, end.y - start.y);
+        const double now = length(end - start);
         if (now < 1e-7) {
             error(op, "the edge has no length to stretch: its two corners are in the same place");
             return;
         }
         // The corners slide along the line between them. Start and end follow the outline.
-        const Vec2 along{(end.x - start.x) / now, (end.y - start.y) / now};
+        const Vec2 along = (end - start) * (1.0 / now);
         const double growth = *chord - now;
         const double startShare = set.keeping == SetLength::Keeping::Start ? 0.0 : set.keeping == SetLength::Keeping::End ? 1.0 : 0.5;
         const double endShare = 1.0 - startShare;
         attempt(pattern, op, [&](Pattern& changed) {
             return outline::moveCorners(changed, {
-                {edge.start, {-along.x * growth * startShare, -along.y * growth * startShare}},
-                {edge.end, {along.x * growth * endShare, along.y * growth * endShare}},
+                {edge.start, along * (-growth * startShare)},
+                {edge.end, along * (growth * endShare)},
             });
         });
     }
@@ -511,7 +511,7 @@ private:
                 }
         const std::optional<Bounds> box = bounds(pattern);
         if (!box) return;
-        const Vec2 middle{(box->min.x + box->max.x) / 2.0, (box->min.y + box->max.y) / 2.0};
+        const Vec2 middle = (box->min + box->max) * 0.5;
         const auto scaled = [&](Vec2 p) { return Vec2{middle.x + (p.x - middle.x) * x, middle.y + (p.y - middle.y) * y}; };
         attempt(pattern, op, [&](Pattern& changed) -> outline::Problem {
             for (Vertex& v : changed.vertices) v.position = scaled(v.position);

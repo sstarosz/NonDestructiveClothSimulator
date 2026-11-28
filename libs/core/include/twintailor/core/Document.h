@@ -29,6 +29,7 @@
 #include "twintailor/core/Expr.h"
 #include "twintailor/core/Fields.h"
 #include "twintailor/core/Ids.h"
+#include "twintailor/core/Math.h"
 #include "twintailor/core/Operations.h"
 #include "twintailor/core/Pattern.h"
 #include "twintailor/core/Units.h"
@@ -63,12 +64,6 @@ struct Arrangement {
     friend bool operator==(const Arrangement&, const Arrangement&) = default;
 };
 
-// A point in space, in cm: y points up and the floor is y = 0.
-struct Point3 {
-    double x = 0.0, y = 0.0, z = 0.0;
-    friend bool operator==(const Point3&, const Point3&) = default;
-};
-
 // A direction along one of the axes of a file.
 enum class Axis { X, Y, Z, MinusX, MinusY, MinusZ };
 
@@ -86,7 +81,7 @@ struct AvatarImport {
     double rescale = 1.0;  // how many times as large as the file has it the body was made; more than 0
     Axis up = Axis::Y;
     Axis facing = Axis::Z;
-    Point3 moved{};  // in cm
+    Vec3 moved{};  // in cm
     // What one unit of the file came to be, in cm.
     double cmPerUnit() const { return unit * rescale; }
     friend bool operator==(const AvatarImport&, const AvatarImport&) = default;
@@ -99,7 +94,7 @@ struct AvatarImport {
 //   doc.setAvatar(std::make_shared<const Avatar>(Avatar{.name = "me.obj", .points = points, .triangles = triangles}));
 struct Avatar {
     std::string name;  // display label: the file it was read from
-    std::vector<Point3> points;  // in cm, y up, whatever the file had
+    std::vector<Vec3> points;  // in cm, y up, whatever the file had
     std::vector<std::array<std::uint32_t, 3>> triangles;  // each names three of the points
     AvatarImport readAs{};
     friend bool operator==(const Avatar&, const Avatar&) = default;

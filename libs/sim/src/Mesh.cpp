@@ -21,8 +21,6 @@ constexpr std::size_t mostPoints = 400000;
 constexpr std::size_t mostAlongTheOutline = 20000;
 constexpr const char* panelTooLarge = "the particle distance is too small for a panel this large";
 
-double distance(Vec2 a, Vec2 b) { return std::hypot(b.x - a.x, b.y - a.y); }
-
 double distanceToSegment(Vec2 p, Vec2 a, Vec2 b) {
     const double dx = b.x - a.x, dy = b.y - a.y;
     const double lengthSquared = dx * dx + dy * dy;
@@ -33,7 +31,7 @@ double distanceToSegment(Vec2 p, Vec2 a, Vec2 b) {
 
 double lengthOf(const std::vector<Vec2>& line) {
     double sum = 0.0;
-    for (std::size_t i = 1; i < line.size(); ++i) sum += distance(line[i - 1], line[i]);
+    for (std::size_t i = 1; i < line.size(); ++i) sum += length(line[i] - line[i - 1]);
     return sum;
 }
 
@@ -74,11 +72,11 @@ std::vector<Vec2> spreadAlong(const std::vector<Vec2>& line, std::size_t pieces)
     double before = 0.0;  // length of the line up to line[segment - 1]
     for (std::size_t k = 1; k < pieces; ++k) {
         const double target = total * static_cast<double>(k) / static_cast<double>(pieces);
-        while (segment + 1 < line.size() && before + distance(line[segment - 1], line[segment]) < target) {
-            before += distance(line[segment - 1], line[segment]);
+        while (segment + 1 < line.size() && before + length(line[segment] - line[segment - 1]) < target) {
+            before += length(line[segment] - line[segment - 1]);
             ++segment;
         }
-        const double span = distance(line[segment - 1], line[segment]);
+        const double span = length(line[segment] - line[segment - 1]);
         const double t = span > 0.0 ? std::clamp((target - before) / span, 0.0, 1.0) : 0.0;
         points.push_back({line[segment - 1].x + (line[segment].x - line[segment - 1].x) * t,
                           line[segment - 1].y + (line[segment].y - line[segment - 1].y) * t});
@@ -167,7 +165,7 @@ PanelMesh meshPanel(PanelId panel, const Pattern& pattern, const PieceCounts& co
     for (std::size_t i = 0; i < pattern.vertices.size(); ++i) {
         const Vec2 at = pattern.vertices[i].position;
         std::size_t same = 0;
-        while (same < mesh.points.size() && distance(mesh.points[same], at) >= weld) ++same;
+        while (same < mesh.points.size() && length(at - mesh.points[same]) >= weld) ++same;
         if (same == mesh.points.size()) mesh.points.push_back(at);
         cornerPoint[i] = static_cast<uint32_t>(same);
     }

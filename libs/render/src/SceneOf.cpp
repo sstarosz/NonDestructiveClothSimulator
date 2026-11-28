@@ -9,7 +9,7 @@ namespace twintailor::render {
 
 namespace {
 
-Point pointOf(sim::Vec3 v) { return {static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}; }
+Point pointOf(Vec3 v) { return {static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}; }
 
 // The meaning of colours, as on the table.
 constexpr Colour bodyColour{0.55f, 0.56f, 0.6f};
@@ -27,7 +27,7 @@ constexpr float seamLift = 0.5f;                             // cm
 constexpr float inactiveAlpha = 0.3f;  // a deactivated panel is seen through
 constexpr float seeThroughBodyAlpha = 0.35f;
 
-Point normalOf(sim::Vec3 sum) { return pointOf(sim::length(sum) > 0.0 ? sim::normalized(sum) : sim::Vec3{0.0, 1.0, 0.0}); }
+Point normalOf(Vec3 sum) { return pointOf(length(sum) > 0.0 ? normalized(sum) : Vec3{0.0, 1.0, 0.0}); }
 
 // A panel's back: its colour, darker and cooler, so that which way it faces
 // shows at a glance and what it is (selected, an instance) still does.
@@ -65,8 +65,8 @@ void addSeams(Scene& scene, const session::Session& session, const SceneOptions&
         for (std::size_t k = from; k < to; ++k) {
             const sim::Stitch& stitch = mesh.stitches[k];
             if (!placed(stitch.panelA, stitch.pointA) || !placed(stitch.panelB, stitch.pointB)) continue;
-            const sim::Vec3 a = positions[stitch.panelA][stitch.pointA], b = positions[stitch.panelB][stitch.pointB];
-            closed = closed && sim::length(a - b) <= sim::joinedWithin;
+            const Vec3 a = positions[stitch.panelA][stitch.pointA], b = positions[stitch.panelB][stitch.pointB];
+            closed = closed && length(a - b) <= sim::joinedWithin;
             if (session.panelShown(mesh.panels[stitch.panelA].panel) && session.panelShown(mesh.panels[stitch.panelB].panel))
                 threads.points.insert(threads.points.end(), {pointOf(a), pointOf(b)});
         }
@@ -107,24 +107,24 @@ void addFloor(Scene& scene) {
 } // namespace
 
 std::vector<Point> normalsOf(const std::vector<Point>& points, const std::vector<std::uint32_t>& triangles) {
-    std::vector<sim::Vec3> sums(points.size());
-    const auto at = [&](std::uint32_t i) { return sim::Vec3{points[i].x, points[i].y, points[i].z}; };
+    std::vector<Vec3> sums(points.size());
+    const auto at = [&](std::uint32_t i) { return Vec3{points[i].x, points[i].y, points[i].z}; };
     for (std::size_t t = 0; t + 2 < triangles.size(); t += 3) {
         const std::uint32_t a = triangles[t], b = triangles[t + 1], c = triangles[t + 2];
         if (a >= points.size() || b >= points.size() || c >= points.size()) continue;
-        const sim::Vec3 face = sim::cross(at(b) - at(a), at(c) - at(a));  // its length is twice the area
+        const Vec3 face = cross(at(b) - at(a), at(c) - at(a));  // its length is twice the area
         sums[a] = sums[a] + face, sums[b] = sums[b] + face, sums[c] = sums[c] + face;
     }
     std::vector<Point> normals;
     normals.reserve(points.size());
-    for (const sim::Vec3& sum : sums) normals.push_back(normalOf(sum));
+    for (const Vec3& sum : sums) normals.push_back(normalOf(sum));
     return normals;
 }
 
 namespace {
 
 // A box grown to take a point in.
-void take(std::optional<Box>& box, sim::Vec3 p) {
+void take(std::optional<Box>& box, Vec3 p) {
     if (!box) box = Box{p, p};
     box->first = {std::min(box->first.x, p.x), std::min(box->first.y, p.y), std::min(box->first.z, p.z)};
     box->second = {std::max(box->second.x, p.x), std::max(box->second.y, p.y), std::max(box->second.z, p.z)};
@@ -134,7 +134,7 @@ BodyShape shapeOf(const std::shared_ptr<const sim::Surface>& body) {
     Shape shape;
     std::optional<Box> box;
     shape.points.reserve(body->points.size());
-    for (const sim::Vec3& p : body->points) {
+    for (const Vec3& p : body->points) {
         shape.points.push_back(pointOf(p));
         take(box, p);
     }
@@ -150,7 +150,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     Scene scene;
     scene.viewProjection = camera.viewProjection(aspect);
     // A light at the camera, a little above it: the side facing the eye is lit.
-    scene.toLight = pointOf(sim::normalized(camera.toEye() + sim::Vec3{0.0, 0.4, 0.0}));
+    scene.toLight = pointOf(normalized(camera.toEye() + Vec3{0.0, 0.4, 0.0}));
 
     // A body being chosen is shown also while the avatar's is hidden: it is what is looked at.
     const bool shown = options.body || session.previewingBody();
@@ -173,7 +173,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
     const sim::ClothMesh& mesh = session.shownMesh();
     const sim::Placement& positions = session.shownPositions();
     Lines wire{{}, {0.1f, 0.12f, 0.16f, 0.55f}};
-    const std::vector<std::vector<sim::Vec3>> normals = sim::clothNormals(mesh, positions);
+    const std::vector<std::vector<Vec3>> normals = sim::clothNormals(mesh, positions);
     for (std::size_t i = 0; i < mesh.panels.size() && i < positions.size(); ++i) {
         const sim::PanelMesh& panel = mesh.panels[i];
         if (positions[i].size() != panel.points.size() || panel.triangles.empty() || !session.panelShown(panel.panel)) continue;
@@ -187,14 +187,14 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
         surface.back = behind(surface.colour);
         surface.panel = panel.panel;
         surface.points.reserve(panel.points.size());
-        for (const sim::Vec3& p : positions[i]) surface.points.push_back(pointOf(p));
+        for (const Vec3& p : positions[i]) surface.points.push_back(pointOf(p));
         for (const auto& t : panel.triangles) {
             surface.triangles.insert(surface.triangles.end(), t.begin(), t.end());
             if (options.mesh)
                 for (int side = 0; side < 3; ++side) wire.points.insert(wire.points.end(), {surface.points[t[side]], surface.points[t[(side + 1) % 3]]});
         }
         surface.normals.reserve(panel.points.size());
-        for (const sim::Vec3& n : normals[i]) surface.normals.push_back(pointOf(n));
+        for (const Vec3& n : normals[i]) surface.normals.push_back(pointOf(n));
         scene.surfaces.push_back(std::move(surface));
     }
     addFloor(scene);
@@ -207,12 +207,12 @@ std::optional<Box> extentOf(const session::Session& session, const BodyShape* bo
     std::optional<Box> box;
     if (body && body->of == session.sharedBody()) box = body->box;
     else
-        for (const sim::Vec3& p : session.shownBody().points) take(box, p);
+        for (const Vec3& p : session.shownBody().points) take(box, p);
     const std::vector<sim::PanelMesh>& panels = session.shownMesh().panels;
     const sim::Placement& positions = session.shownPositions();
     for (std::size_t i = 0; i < positions.size() && i < panels.size(); ++i)
         if (session.panelShown(panels[i].panel))
-            for (const sim::Vec3& p : positions[i]) take(box, p);
+            for (const Vec3& p : positions[i]) take(box, p);
     return box;
 }
 

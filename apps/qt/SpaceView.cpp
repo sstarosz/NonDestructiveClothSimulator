@@ -281,7 +281,7 @@ void SpaceView::showTime(std::optional<double> seconds, bool sewing) {
 render::Scene SpaceView::sceneFor(int width, int height) const {
     render::Scene scene = scene_;
     scene.viewProjection = camera_.viewProjection(width / std::max(1.0, static_cast<double>(height)));
-    const sim::Vec3 light = sim::normalized(camera_.toEye() + sim::Vec3{0.0, 0.4, 0.0});
+    const Vec3 light = normalized(camera_.toEye() + Vec3{0.0, 0.4, 0.0});
     scene.toLight = {static_cast<float>(light.x), static_cast<float>(light.y), static_cast<float>(light.z)};
     if (const std::optional<render::Gizmo> shown = gizmo())
         render::addGizmo(scene, *shown, camera_, {width, height}, carrying_ && carrying_->byGizmo ? std::optional(carrying_->handle) : hovered_);
@@ -382,7 +382,7 @@ void SpaceView::moveTo(QPointF at, Qt::MouseButtons held, Qt::KeyboardModifiers 
     case Hand::Dolly: camera_.dolly(std::pow(1.005, -(moved.x() + moved.y()))); break;  // right or down comes nearer
     case Hand::Pick:
         if (pulling_ && movedFromPress_) {
-            if (const std::optional<sim::Vec3> by = render::acrossTheView(camera_, pictureSize(), pulling_->held.at, inPicture(pressedAt_), inPicture(at))) {
+            if (const std::optional<Vec3> by = render::acrossTheView(camera_, pictureSize(), pulling_->held.at, inPicture(pressedAt_), inPicture(at))) {
                 pulling_->to = pulling_->held.at + *by;
                 const session::DragPhase phase = pullingStarted_ ? session::DragPhase::Continue : session::DragPhase::Begin;
                 pullingStarted_ = true;
@@ -396,7 +396,7 @@ void SpaceView::moveTo(QPointF at, Qt::MouseButtons held, Qt::KeyboardModifiers 
             switch (carrying_->gizmo.mode) {
             case session::GizmoMode::Move:
                 // Whole centimetres with Ctrl, else millimetres.
-                if (const std::optional<sim::Vec3> by = render::moveBy(carrying_->gizmo, carrying_->handle, camera_, pictureSize(), from, to, snapping ? 1.0 : 0.1)) {
+                if (const std::optional<Vec3> by = render::moveBy(carrying_->gizmo, carrying_->handle, camera_, pictureSize(), from, to, snapping ? 1.0 : 0.1)) {
                     carrying_->by = *by;
                     carryingStarted_ = true;
                     emit gestured(session::MoveInSpace{carrying_->panel, *by, phase});

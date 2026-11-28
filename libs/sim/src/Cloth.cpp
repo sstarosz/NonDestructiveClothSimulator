@@ -26,8 +26,6 @@ constexpr double givingUpAfter = 3.0;  // seconds after the last thread is drawn
 constexpr double heldWhileSewing = 0.03;  // how much of its weight cloth feels while its seams are closing
 constexpr double topSpeed = 600.0;    // cm per second: nothing moves faster than this
 
-double distance(Vec2 a, Vec2 b) { return std::hypot(b.x - a.x, b.y - a.y); }
-
 } // namespace
 
 Cloth::Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric) : fabric_(fabric) {
@@ -58,9 +56,9 @@ Cloth::Cloth(const ClothMesh& mesh, const Placement& start, Fabric fabric) : fab
                 const auto seen = farCorner.find(side);
                 if (seen == farCorner.end()) {
                     farCorner.emplace(side, far);
-                    edges_.push_back({first + from, first + to, distance(panel.points[from], panel.points[to])});
+                    edges_.push_back({first + from, first + to, length(panel.points[to] - panel.points[from])});
                 } else {
-                    folds_.push_back({first + seen->second, first + far, distance(panel.points[seen->second], panel.points[far])});
+                    folds_.push_back({first + seen->second, first + far, length(panel.points[far] - panel.points[seen->second])});
                 }
             }
         }

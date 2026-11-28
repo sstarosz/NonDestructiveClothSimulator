@@ -119,7 +119,7 @@ TEST_CASE("a view that keeps the body's shape has it made once, until the body i
     EXPECT(moved.surfaces[0].shape == shape, "the cloth has moved, however it is looked at: the same shape");
     const auto framed = extentOf(session, &kept), plain = extentOf(session);
     REQUIRE((framed && plain));
-    EXPECT((sim::length(framed->first - plain->first) == 0.0 && sim::length(framed->second - plain->second) == 0.0), "and framed as without it");
+    EXPECT((length(framed->first - plain->first) == 0.0 && length(framed->second - plain->second) == 0.0), "and framed as without it");
     EXPECT(sceneOf(session, camera, 1.5, {.body = false}, &kept).surfaces.size() == 2, "hidden, it is not shown");
 
     const sim::Surface tall{.points = {{0, 0, 0}, {10, 0, 0}, {0, 400, 0}}, .triangles = {{0, 1, 2}}};
@@ -200,7 +200,7 @@ TEST_CASE("an open seam is lined along both edges; a closed one has no lines unl
             const sim::EdgeParticles* along = panel->along(side.edge);
             segments += along->points.size() - 1;
             for (std::uint32_t point : along->points) {
-                const sim::Vec3 p = session.shownPositions()[i][point];
+                const Vec3 p = session.shownPositions()[i][point];
                 expected.push_back({static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z)});
             }
         }

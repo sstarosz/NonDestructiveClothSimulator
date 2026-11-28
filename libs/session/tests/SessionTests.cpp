@@ -63,23 +63,23 @@ void waitForTheBody(Session& session) {
 }
 
 // The particles' places an OBJ's text holds.
-std::vector<sim::Vec3> verticesOf(const std::expected<sim::Obj, std::string>& obj) {
+std::vector<Vec3> verticesOf(const std::expected<sim::Obj, std::string>& obj) {
     REQUIRE(obj.has_value());
     return sim::readObj(obj->text).surface.points;
 }
 
-double heightOf(const std::vector<sim::Vec3>& points) {
+double heightOf(const std::vector<Vec3>& points) {
     double low = 1e9, high = -1e9;
-    for (const sim::Vec3& p : points) low = std::min(low, p.y), high = std::max(high, p.y);
+    for (const Vec3& p : points) low = std::min(low, p.y), high = std::max(high, p.y);
     return high - low;
 }
 
 // Whether an OBJ's particles are where these are, one by one.
-bool alike(const std::vector<sim::Vec3>& written, const sim::Placement& at) {
+bool alike(const std::vector<Vec3>& written, const sim::Placement& at) {
     std::size_t k = 0;
     for (const auto& panel : at)
-        for (const sim::Vec3& p : panel)
-            if (k >= written.size() || sim::length(written[k++] - p) > 1e-5) return false;
+        for (const Vec3& p : panel)
+            if (k >= written.size() || length(written[k++] - p) > 1e-5) return false;
     return k == written.size();
 }
 
@@ -306,7 +306,7 @@ TEST_CASE("Play asked while the body is being worked out is kept: the cloth star
     REQUIRE((session.simulating() && session.clothShown()));
     EXPECT(session.cloth().time > 0.5, "it runs, without being asked again");
     double lowest = 1e9;
-    for (const sim::Vec3& p : session.cloth().positions.front()) lowest = std::min(lowest, std::hypot(p.x, p.y - 100.0, p.z));
+    for (const Vec3& p : session.cloth().positions.front()) lowest = std::min(lowest, std::hypot(p.x, p.y - 100.0, p.z));
     EXPECT(lowest > 76.0, "and rests on the body (its flat faces come to 78 cm): it did not start before there was one");
 
     // Pressed and let go again while the next one is worked out: nothing runs.
@@ -383,7 +383,7 @@ TEST_CASE("another body ends the cloth; undo and redo bring back the drape that 
     const auto asOnFirst = [&] {
         if (!session.clothShown() || session.cloth().time != firstTime) return false;
         for (std::size_t i = 0; i < onFirst.front().size(); ++i)
-            if (sim::length(session.cloth().positions.front()[i] - onFirst.front()[i]) > 1e-9) return false;
+            if (length(session.cloth().positions.front()[i] - onFirst.front()[i]) > 1e-9) return false;
         return true;
     };
 
@@ -437,7 +437,7 @@ double furthest(const sim::Placement& a, const sim::Placement& b) {
     double most = a.size() == b.size() ? 0.0 : 1e9;
     for (std::size_t p = 0; p < a.size() && p < b.size(); ++p) {
         if (a[p].size() != b[p].size()) return 1e9;
-        for (std::size_t i = 0; i < a[p].size(); ++i) most = std::max(most, sim::length(a[p][i] - b[p][i]));
+        for (std::size_t i = 0; i < a[p].size(); ++i) most = std::max(most, length(a[p][i] - b[p][i]));
     }
     return most;
 }
@@ -585,9 +585,9 @@ TEST_CASE("a drape saved from a mesh made otherwise is carried over to the one m
     REQUIRE((again.clothShown() && again.cloth().positions.size() == 2));
     REQUIRE(again.cloth().positions[0].size() > session.cloth().positions[0].size());
     double furthestFromThen = 0.0;
-    for (const sim::Vec3& at : again.cloth().positions[0]) {
+    for (const Vec3& at : again.cloth().positions[0]) {
         double nearest = 1e9;
-        for (const sim::Vec3& was : session.cloth().positions[0]) nearest = std::min(nearest, sim::length(at - was));
+        for (const Vec3& was : session.cloth().positions[0]) nearest = std::min(nearest, length(at - was));
         furthestFromThen = std::max(furthestFromThen, nearest);
     }
     EXPECT((furthestFromThen < 2.0), "every new particle hangs where the cloth hung");
@@ -610,7 +610,7 @@ TEST_CASE("a draped panel moved in space takes its drape along; nothing starts a
     REQUIRE(tests::change(session, [&](Document& doc) { doc.arrange(start.panel, higher); }, {.touches = Touches::PlacementOnly}));
     session.update();
     double off = 0.0;
-    for (std::size_t i = 0; i < draped.front().size(); ++i) off = std::max(off, sim::length(session.cloth().positions.front()[i] - (draped.front()[i] + sim::Vec3{0, 20, 0})));
+    for (std::size_t i = 0; i < draped.front().size(); ++i) off = std::max(off, length(session.cloth().positions.front()[i] - (draped.front()[i] + Vec3{0, 20, 0})));
     EXPECT((off < 1e-9), "every particle is 20 cm higher: the drape went with it");
     EXPECT((session.cloth().time == time), "and the cloth did not start again");
 }
@@ -627,16 +627,16 @@ TEST_CASE("cloth pulled by hand runs while it is held, even when paused")
     frames(session, 5);
     REQUIRE(session.cloth().time == time);
 
-    const sim::Vec3 corner = session.cloth().positions.front()[0];
+    const Vec3 corner = session.cloth().positions.front()[0];
     const Edit pull = session.begin();
-    session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 0, 15}});
+    session.preview(pull, PullCloth{start.panel, 0, corner + Vec3{0, 0, 15}});
     EXPECT((session.pulling()), "it is held");
     frames(session, 30);
     EXPECT((session.cloth().time > time), "held, the cloth runs though it is paused");
-    EXPECT((sim::length(session.cloth().positions.front()[0] - (corner + sim::Vec3{0, 0, 15})) < 1e-6), "and the held particle is where the hand is");
-    session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 10, 15}});
+    EXPECT((length(session.cloth().positions.front()[0] - (corner + Vec3{0, 0, 15})) < 1e-6), "and the held particle is where the hand is");
+    session.preview(pull, PullCloth{start.panel, 0, corner + Vec3{0, 10, 15}});
     frames(session, 30);
-    EXPECT((sim::length(session.cloth().positions.front()[0] - (corner + sim::Vec3{0, 10, 15})) < 1e-6), "the hand moves on, and the particle follows");
+    EXPECT((length(session.cloth().positions.front()[0] - (corner + Vec3{0, 10, 15})) < 1e-6), "the hand moves on, and the particle follows");
     session.commit(pull);
     frames(session, 2);
     const double after = session.cloth().time;
@@ -650,7 +650,7 @@ static double apart(const sim::Placement& a, const sim::Placement& b) {
     double most = 0.0;
     for (std::size_t p = 0; p < a.size(); ++p) {
         if (a[p].size() != b[p].size()) return 1e300;
-        for (std::size_t i = 0; i < a[p].size(); ++i) most = std::max(most, sim::length(a[p][i] - b[p][i]));
+        for (std::size_t i = 0; i < a[p].size(); ++i) most = std::max(most, length(a[p][i] - b[p][i]));
     }
     return most;
 }
@@ -668,11 +668,11 @@ TEST_CASE("a pull of the cloth is one undo step: undo brings back the drape as i
     const std::uint64_t changed = session.editor().step();
     const sim::Placement before = session.cloth().positions;
 
-    const sim::Vec3 corner = before.front()[0];
+    const Vec3 corner = before.front()[0];
     const Edit pull = session.begin();
-    REQUIRE(session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 0, 15}}));
+    REQUIRE(session.preview(pull, PullCloth{start.panel, 0, corner + Vec3{0, 0, 15}}));
     frames(session, 20);
-    session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 10, 15}});
+    session.preview(pull, PullCloth{start.panel, 0, corner + Vec3{0, 10, 15}});
     frames(session, 20);
     session.commit(pull);
     frames(session, 1);
@@ -702,7 +702,7 @@ TEST_CASE("a pull that is cancelled leaves the drape as it was and no undo step"
     const std::uint64_t step = session.editor().step();
 
     const Edit pull = session.begin();
-    REQUIRE(session.preview(pull, PullCloth{start.panel, 0, before.front()[0] + sim::Vec3{0, 0, 15}}));
+    REQUIRE(session.preview(pull, PullCloth{start.panel, 0, before.front()[0] + Vec3{0, 0, 15}}));
     frames(session, 20);
     EXPECT((session.cancel(pull) && !session.pulling()), "let go, and taken back");
     session.update();
@@ -726,7 +726,7 @@ TEST_CASE("a held particle is let go once something else is done, however it is 
     Session session(start.doc, Threading::OneStepPerAdvance);
     session.simulate(true);
     frames(session, 30);
-    const PullCloth up{start.panel, 0, session.cloth().positions.front()[0] + sim::Vec3{0, 0, 15}};
+    const PullCloth up{start.panel, 0, session.cloth().positions.front()[0] + Vec3{0, 0, 15}};
 
     const Edit first = session.begin();
     REQUIRE(session.preview(first, up));
@@ -1040,7 +1040,7 @@ TEST_CASE("an export is the panels where they are arranged until simulated, then
     session.update();
     const sim::Placement draped = session.cloth().positions;
     const double time = session.cloth().time;
-    const std::vector<sim::Vec3> written = verticesOf(session.obj());
+    const std::vector<Vec3> written = verticesOf(session.obj());
     EXPECT(alike(written, draped), "as it hangs");
     EXPECT(!alike(written, arranged), "which is not where it started");
     session.simulate(true);
@@ -1062,8 +1062,8 @@ TEST_CASE("an export is of the pattern as it is now, also when nothing has shown
                                        {.touches = Touches::PlacementOnly}));
         session.update(false);
         double middle = 0.0;
-        const std::vector<sim::Vec3> moved = verticesOf(session.obj());
-        for (const sim::Vec3& p : moved) middle += p.x / static_cast<double>(moved.size());
+        const std::vector<Vec3> moved = verticesOf(session.obj());
+        for (const Vec3& p : moved) middle += p.x / static_cast<double>(moved.size());
         EXPECT(std::abs(middle - 70.0) < 1.0, "and so is a move in space");
     }
 }
@@ -1084,7 +1084,7 @@ TEST_CASE("a draped cloth catches up with the pattern before it is exported")
         const std::size_t before = verticesOf(session.obj()).size();
         REQUIRE(tests::change(session, [&](Document& doc) { doc.set(start.length, Expr(70)); }));
         session.update(false);  // the 3D view is not shown
-        const std::vector<sim::Vec3> written = verticesOf(session.obj());
+        const std::vector<Vec3> written = verticesOf(session.obj());
         EXPECT(written.size() > before, "the longer panel has more particles");
         EXPECT((session.cloth().mesh->panels.front().points.size() == written.size()), "those of the cloth, which has followed");
         EXPECT(alike(written, session.cloth().positions), "where it hangs");

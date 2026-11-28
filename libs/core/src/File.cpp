@@ -296,7 +296,7 @@ void write(std::string& out, const Avatar& avatar) {
         out += "import " + shortest(as.unit) + " " + shortest(as.rescale) + " " + std::string(axisNames[static_cast<std::size_t>(as.up)]) + " " +
                std::string(axisNames[static_cast<std::size_t>(as.facing)]) + " " + shortest(as.moved.x) + " " + shortest(as.moved.y) + " " +
                shortest(as.moved.z) + "\n";
-    for (const Point3& p : avatar.points) out += "v " + shortest(p.x) + " " + shortest(p.y) + " " + shortest(p.z) + "\n";
+    for (const Vec3& p : avatar.points) out += "v " + shortest(p.x) + " " + shortest(p.y) + " " + shortest(p.z) + "\n";
     for (const std::array<uint32_t, 3>& t : avatar.triangles) out += "t " + std::to_string(t[0]) + " " + std::to_string(t[1]) + " " + std::to_string(t[2]) + "\n";
 }
 
@@ -325,7 +325,7 @@ void write(std::string& out, const SceneState& state) {
                std::to_string(particles) + " " + std::to_string(cloth.triangles.size()) + "\n";
         for (std::size_t i = 0; i < particles; ++i) {
             const Vec2& flat = cloth.flat[i];
-            const Point3& at = cloth.at[i];
+            const Vec3& at = cloth.at[i];
             out += "d " + shortest(flat.x) + " " + shortest(flat.y) + " " + shortest(at.x) + " " + shortest(at.y) + " " + shortest(at.z) + "\n";
         }
         for (const std::array<uint32_t, 3>& t : cloth.triangles) out += "f " + std::to_string(t[0]) + " " + std::to_string(t[1]) + " " + std::to_string(t[2]) + "\n";
@@ -551,7 +551,7 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 body.imported = true;
             } else if (what == "v") {
                 if (!body.avatar || body.avatar->points.size() == body.points) throw Problem{"there is a point more than the avatar announces"};
-                Point3 p;
+                Vec3 p;
                 p.x = words.real();
                 p.y = words.real();
                 p.z = words.real();
@@ -595,7 +595,7 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 Vec2 flat;
                 flat.x = words.real();
                 flat.y = words.real();
-                Point3 at;
+                Vec3 at;
                 at.x = words.real();
                 at.y = words.real();
                 at.z = words.real();

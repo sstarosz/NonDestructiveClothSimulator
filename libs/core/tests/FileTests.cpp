@@ -529,7 +529,7 @@ TEST_CASE("the trousers saved by 0.1 open, with the same lengths and their avata
     EXPECT((doc.get(front).name == "right front" && doc.get(front).arrangement.x == -11.5 && doc.get(front).arrangement.wrap == 180.0), "where it stands in space");
     REQUIRE(doc.avatar());
     EXPECT((doc.avatar()->name == "avatar.obj" && doc.avatar()->points.size() == 4 && doc.avatar()->triangles.size() == 4 &&
-            doc.avatar()->points[0] == Point3{-6.312365, 0.0, 7.981731}),
+            doc.avatar()->points[0] == Vec3{-6.312365, 0.0, 7.981731}),
            "its avatar, out of the file");
 
     // And its formulas are formulas still: a wider waist.
@@ -610,7 +610,7 @@ TEST_CASE("every other operation saved by 0.1 opens, with the same lengths")
     EXPECT((left.drape->time == 1.5 && left.drape->sewing), "the drape's time, still sewing");
     const DrapedPanel& draped = left.drape->panels.front();
     EXPECT((draped.panel == half && draped.anchor == Vec2{7.5, 58.25} && draped.flat.size() == 3 && draped.flat[1] == Vec2{10, 0} &&
-            draped.at[2] == Point3{1.5, 110.125, -2.25} && draped.triangles.size() == 1),
+            draped.at[2] == Vec3{1.5, 110.125, -2.25} && draped.triangles.size() == 1),
            "a panel's cloth, particle by particle");
     EXPECT((left.drape->panels.back().panel == twin && left.drape->panels.back().at.size() == 4 && left.drape->panels.back().triangles.size() == 2),
            "and the next one's");

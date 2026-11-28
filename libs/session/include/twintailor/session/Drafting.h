@@ -22,9 +22,9 @@
 #include "twintailor/core/Document.h"
 #include "twintailor/core/Drawing.h"
 #include "twintailor/core/Fields.h"
+#include "twintailor/core/Math.h"
 #include "twintailor/session/Session.h"
 #include "twintailor/session/Tools.h"
-#include "twintailor/sim/Vec3.h"
 
 namespace twintailor::session {
 
@@ -151,7 +151,7 @@ bool sewsReversed(double aAlong, double bAlong);
 // itself: how far, in cm, since the drag began. It only places the panel.
 struct MoveInSpace {
     PanelId panel;
-    sim::Vec3 by;
+    Vec3 by;
     DragPhase phase;
 };
 // The selected panel turned in space by the rotate gizmo: about which axis,
@@ -161,10 +161,10 @@ struct MoveInSpace {
 // places the panel.
 struct TurnInSpace {
     PanelId panel;
-    sim::Vec3 axis;
+    Vec3 axis;
     double degrees;
     DragPhase phase;
-    std::optional<sim::Vec3> about{};
+    std::optional<Vec3> about{};
 };
 // A double-click on an edge's length: the user wants to type it. With
 // `ownLength` (the Length tool's click) the edge gets a length of its own even

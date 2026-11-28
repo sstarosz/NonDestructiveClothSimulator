@@ -38,7 +38,7 @@ struct DrapedPanel {
     PanelId panel;
     Vec2 anchor;                                          // the panel's anchor when the mesh was made
     std::vector<Vec2> flat;                               // per particle
-    std::vector<Point3> at;                               // per particle, as many as flat
+    std::vector<Vec3> at;                               // per particle, as many as flat
     std::vector<std::array<std::uint32_t, 3>> triangles;  // each names three of the particles
     friend bool operator==(const DrapedPanel&, const DrapedPanel&) = default;
 };

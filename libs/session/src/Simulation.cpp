@@ -95,7 +95,7 @@ void Simulation::follow(std::shared_ptr<const sim::ClothMesh> mesh, sim::Placeme
     });
 }
 
-void Simulation::hold(std::uint32_t panel, std::uint32_t point, sim::Vec3 to) {
+void Simulation::hold(std::uint32_t panel, std::uint32_t point, Vec3 to) {
     hand([this, panel, point, to] {
         if (!cloth_) return;
         held_ = Held{panel, point, to};

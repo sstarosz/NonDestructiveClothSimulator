@@ -15,7 +15,7 @@
 #include <QDialog>
 
 #include "twintailor/core/Document.h"
-#include "twintailor/sim/Vec3.h"
+#include "twintailor/core/Math.h"
 
 class QComboBox;
 
@@ -27,7 +27,7 @@ class AvatarDialog : public QDialog {
     Q_OBJECT
 public:
     // `fileSize` is the size of the file's box in its own units (sim::sizeOf).
-    AvatarDialog(sim::Vec3 fileSize, const AvatarImport& guess, QWidget* parent = nullptr);
+    AvatarDialog(Vec3 fileSize, const AvatarImport& guess, QWidget* parent = nullptr);
 
     // The unit, scale, up and facing as chosen; where it stands is not chosen here.
     AvatarImport choice() const { return choice_; }
@@ -49,7 +49,7 @@ private:
     void showChoice();
     void listFacings();
 
-    sim::Vec3 fileSize_;
+    Vec3 fileSize_;
     AvatarImport choice_;
     QComboBox* unit_;
     ValueField* scale_;

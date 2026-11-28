@@ -8,14 +8,14 @@
 //   camera.orbit(dx, dy);                 // pixels the mouse moved
 //   scene.viewProjection = camera.viewProjection(width / double(height));
 
+#include "twintailor/core/Math.h"
 #include "twintailor/render/Scene.h"
-#include "twintailor/sim/Vec3.h"
 
 namespace twintailor::render {
 
 class OrbitCamera {
 public:
-    sim::Vec3 target{0.0, 100.0, 0.0};  // what it turns about
+    Vec3 target{0.0, 100.0, 0.0};  // what it turns about
     double yaw = 0.0;        // degrees about the up axis; 0 looks at the front (from +z)
     double pitch = 10.0;     // degrees up from level; positive looks down on the target
     double distance = 400.0; // cm from the target
@@ -27,10 +27,10 @@ public:
     // Nearer (factor below 1) or farther (above 1).
     void dolly(double factor);
     // Everything in the box in view, seen from where the camera looks now.
-    void frame(sim::Vec3 low, sim::Vec3 high);
+    void frame(Vec3 low, Vec3 high);
 
-    sim::Vec3 eye() const;
-    sim::Vec3 toEye() const;  // the unit direction from the target to the eye
+    Vec3 eye() const;
+    Vec3 toEye() const;  // the unit direction from the target to the eye
     Matrix viewProjection(double aspect) const;
 };
 
@@ -41,6 +41,6 @@ Matrix operator*(const Matrix& a, const Matrix& b);
 struct Projected {
     double x, y, depth, w;
 };
-Projected project(const Matrix& viewProjection, sim::Vec3 point);
+Projected project(const Matrix& viewProjection, Vec3 point);
 
 } // namespace twintailor::render

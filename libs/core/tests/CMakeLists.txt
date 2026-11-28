@@ -6,6 +6,7 @@ twintailor_unit_tests(core SOURCES
     ExprTests.cpp
     FieldsTests.cpp
     FileTests.cpp
+    MathTests.cpp
     OutlineTests.cpp
     PatternTests.cpp
     ReferencesTests.cpp

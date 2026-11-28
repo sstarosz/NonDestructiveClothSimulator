@@ -45,7 +45,7 @@ struct SceneOptions {
 };
 
 // A box in space: its lowest and its highest corner.
-using Box = std::pair<sim::Vec3, sim::Vec3>;
+using Box = std::pair<Vec3, Vec3>;
 
 // The body as the latest scene showed it, with what it was made from.
 struct BodyShape {

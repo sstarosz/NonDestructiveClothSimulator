@@ -92,7 +92,7 @@ signals:
     // (MoveInSpace), turned (TurnInSpace) or scaled (ScalePanel).
     void gestured(const twintailor::session::Gesture& gesture);
     // The draped cloth pulled by a particle (an index into its panel's mesh) towards `to`, in space.
-    void clothPulled(twintailor::PanelId panel, std::uint32_t point, twintailor::sim::Vec3 to, twintailor::session::DragPhase phase);
+    void clothPulled(twintailor::PanelId panel, std::uint32_t point, twintailor::Vec3 to, twintailor::session::DragPhase phase);
     // What the handle under the mouse does.
     void hinted(const QString& next);
     // A key the view does not use itself (Q, W, E, R, Space, Delete, Ctrl+C ...): the window may.
@@ -120,7 +120,7 @@ private:
     render::OrbitCamera camera_;
     render::Scene scene_;  // without its camera, which is put in when it is drawn
     render::BodyShape body_;  // made once for a body, however often the scene is
-    std::optional<std::pair<sim::Vec3, sim::Vec3>> extent_;
+    std::optional<std::pair<Vec3, Vec3>> extent_;
     std::optional<PanelId> selected_;          // the panel the gizmo moves
     // What a drag on cloth does depends on these (session::clothDrag).
     session::Tool tool_ = session::Tool::Select;
@@ -150,7 +150,7 @@ private:
         render::Gizmo gizmo;
         render::GizmoHandle handle;
         bool byGizmo = true;
-        sim::Vec3 by;               // the last move reported
+        Vec3 by;               // the last move reported
         render::Turn turn;          // the last turn reported
         session::Factors scale;     // the last scale reported
     };
@@ -158,7 +158,7 @@ private:
     // The draped cloth held by a particle.
     struct Pulling {
         render::ClothHit held;
-        sim::Vec3 to;  // where the hand was last reported
+        Vec3 to;  // where the hand was last reported
     };
     std::optional<Pulling> pulling_;
     bool pullingStarted_ = false;

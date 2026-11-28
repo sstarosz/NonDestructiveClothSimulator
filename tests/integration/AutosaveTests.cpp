@@ -160,7 +160,7 @@ TEST_CASE("the cloth is copied as it comes to rest, not as it moves")
     EXPECT((paused > atChange && band.copiedState().drape->time == paused), "paused, the cloth is copied");
 
     const Edit pull = session.begin();
-    REQUIRE(session.preview(pull, PullCloth{band.start.panel, 0, session.cloth().positions.front()[0] + sim::Vec3{0, 0, 10}}));
+    REQUIRE(session.preview(pull, PullCloth{band.start.panel, 0, session.cloth().positions.front()[0] + Vec3{0, 0, 10}}));
     for (int i = 0; i < 10; ++i) band.frame();
     EXPECT((band.copiedState().drape->time == paused), "not while it is pulled");
     session.commit(pull);

@@ -39,8 +39,8 @@
 #include "twintailor/core/Document.h"
 #include "twintailor/core/Evaluate.h"
 #include "twintailor/core/Fields.h"
+#include "twintailor/core/Math.h"
 #include "twintailor/session/Offers.h"
-#include "twintailor/sim/Vec3.h"
 
 namespace twintailor::session {
 
@@ -608,7 +608,7 @@ struct ScalePanels {
 // own starts from where the table has it. Its shape stays.
 struct MovePanelInSpace {
     PanelId panel;
-    sim::Vec3 by;
+    Vec3 by;
 
     using Done = Nothing;
     ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
@@ -620,9 +620,9 @@ struct MovePanelInSpace {
 // else through its anchor. It starts as MovePanelInSpace does.
 struct TurnPanelInSpace {
     PanelId panel;
-    sim::Vec3 axis;
+    Vec3 axis;
     double degrees;
-    std::optional<sim::Vec3> about{};
+    std::optional<Vec3> about{};
 
     using Done = Nothing;
     ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
@@ -663,7 +663,7 @@ concept DocumentChange = isAlternative<C, DocumentCommand>;
 struct PullCloth {
     PanelId panel;
     std::uint32_t point;  // indexes the panel's particles in Session::cloth().mesh
-    sim::Vec3 to;
+    Vec3 to;
 };
 
 // The cloth taken off: the panels are back where they are arranged, and nothing

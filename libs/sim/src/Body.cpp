@@ -271,17 +271,11 @@ LoadedSurface loadObj(const std::string& path) {
 
 Avatar avatarOf(const Surface& file, std::string name, const AvatarImport& readAs) {
     const Surface surface = imported(file, readAs);
-    Avatar avatar{.name = std::move(name), .points = {}, .triangles = surface.triangles, .readAs = readAs};
-    avatar.points.reserve(surface.points.size());
-    for (const Vec3& p : surface.points) avatar.points.push_back({p.x, p.y, p.z});
-    return avatar;
+    return {.name = std::move(name), .points = surface.points, .triangles = surface.triangles, .readAs = readAs};
 }
 
 Surface surfaceOf(const Avatar& avatar) {
-    Surface surface{.points = {}, .triangles = avatar.triangles};
-    surface.points.reserve(avatar.points.size());
-    for (const Point3& p : avatar.points) surface.points.push_back({p.x, p.y, p.z});
-    return surface;
+    return {.points = avatar.points, .triangles = avatar.triangles};
 }
 
 namespace {

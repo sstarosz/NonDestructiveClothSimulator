@@ -26,8 +26,6 @@ Box boxOf(const PanelMesh& mesh) {
     return box;
 }
 
-double radians(double degrees) { return degrees * (pi / 180.0); }
-
 // Where the table has a panel whose own centre is `centre`, a step in front of the body.
 Arrangement standingWhereTheTableHasIt(const Panel& panel, Vec2 centre) {
     const Vec2 onTable = turned(centre, panel.angle);
