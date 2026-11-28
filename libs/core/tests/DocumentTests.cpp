@@ -41,6 +41,112 @@ TEST_CASE("copy keeps expressions and is otherwise independent")
     EXPECT_THROWS([&] { (void)skirt[skirtRect]; }, std::out_of_range, "only originals can be looked up in a copy");
 }
 
+TEST_CASE("copy points references at the copy")
+{
+    Document doc;
+    PanelId original = doc.add(Panel{.name = "original"});
+    OpRef<Rect> rect = doc.add(original, Rect{.width = 10_cm, .height = 20_cm});
+    OpRef<Curve> curve = doc.add(original, Curve{.edge = rect.top(), .bulge = 2_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    OpRef<Rect> copyRect = copy[rect];
+    OpRef<Curve> copyCurve = copy[curve];
+
+    EXPECT((doc.get(copyCurve).edge == copyRect.top()), "the copied curve bends the copied rectangle");
+    Result result = evaluate(doc);
+    EXPECT((result.ok()), "no errors");
+    EXPECT((result[copy].edge(copyRect.top()).arc.has_value()), "the copy is curved");
+}
+
+TEST_CASE("a copied scale scales the copy, and follows the same parameter")
+{
+    Document doc;
+    const Param wider = doc.add(Parameter{.name = "wider", .value = 1.25, .unit = Unit::Fraction});
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 20_cm, .height = 20_cm});
+    const OpRef<Scale> scale = doc.add(original, Scale{.x = wider, .y = 1.0});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[copy].length(copy[rect].bottom())), (25.0), "the copy is scaled as the original is");
+    doc.set(wider, Expr(1.5));
+    doc.set(copy[scale], &Scale::y, Expr(2.0));
+    result = evaluate(doc);
+    EXPECT_NEAR((result[copy].length(copy[rect].bottom())), (30.0), "both follow the parameter");
+    EXPECT_NEAR((result[original].length(rect.left())), (20.0), "and the copy's own scale is its own");
+}
+
+TEST_CASE("a copied point is on the copy's edge, and so is its after-part")
+{
+    Document doc;
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 10_cm, .height = 20_cm});
+    const OpRef<AddPoint> point = doc.add(original, AddPoint{.at = {rect.top(), 0.5}});
+    const OpRef<Curve> curve = doc.add(original, Curve{.edge = point.after(rect.top()), .bulge = 1_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> copyRect = copy[rect];
+    const OpRef<AddPoint> copyPoint = copy[point];
+    EXPECT((doc.get(copyPoint).at.edge == copyRect.top()), "the copied point splits the copy's top");
+    EXPECT((doc.get(copy[curve]).edge == copyPoint.after(copyRect.top())), "and what refers to its after-part follows it to the copy");
+    const Result result = evaluate(doc);
+    EXPECT((result.ok() && result[copy].edge(copyPoint.after(copyRect.top())).arc.has_value()), "the copy's after-part is curved, as the original's is");
+}
+
+TEST_CASE("a copied set length sets the length of the copy's edge")
+{
+    Document doc;
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 20_cm, .height = 30_cm});
+    const OpRef<SetLength> top = doc.add(original, SetLength{.edge = rect.top(), .length = 50_cm});
+
+    PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> copyRect = copy[rect];
+    EXPECT((doc.get(copy[top]).edge == copyRect.top()), "the copied length is of the copy's top edge");
+    doc.set(top, &SetLength::length, Expr(40_cm));
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT_NEAR((result[original].length(rect.top())), (40.0), "the original follows its own length");
+    EXPECT_NEAR((result[copy].length(copyRect.top())), (50.0), "the copy follows its own");
+}
+
+TEST_CASE("every reference within a copied panel points into the copy, and one out of it stays")
+{
+    Document doc;
+    const PanelId other = doc.add(Panel{.name = "other"});
+    const OpRef<Rect> elsewhere = doc.add(other, Rect{.width = 1_cm, .height = 1_cm});
+
+    const PanelId original = doc.add(Panel{.name = "original"});
+    const OpRef<Rect> rect = doc.add(original, Rect{.width = 10_cm, .height = 20_cm});
+    const OpRef<Mirror> mirror = doc.add(original, Mirror{.across = rect.left()});
+    const OpRef<Bezier> bezier = doc.add(original, Bezier{.edge = rect.top()});
+    const OpRef<Line> line = doc.add(original, Line{.from = rect.bottomLeft(), .angle = 45_deg});
+    const OpRef<LineBetween> across = doc.add(original, LineBetween{.from = {rect.bottom(), 0.5}, .to = {mirror.image(rect.right()), 0.5}});
+    const OpRef<Cut> cut = doc.add(original, Cut{.along = line.line()});
+    const OpRef<AdjustPoint> adjust = doc.add(original, AdjustPoint{.corner = mirror.image(rect.topLeft())});
+    const OpRef<AddPoint> point = doc.add(original, AddPoint{.at = {cut.farPart(rect.top()), 0.5}});
+    const OpRef<SetLength> outside = doc.add(original, SetLength{.edge = elsewhere.top(), .length = 5_cm});
+    const OpRef<Instance> instance = doc.add(original, Instance{.source = other});
+    const OpRef<Offcut> offcut = doc.add(original, Offcut{.of = cut});
+
+    const PanelCopy copy = doc.copy(original, Panel{.name = "copy"});
+    const OpRef<Rect> r = copy[rect];
+    const OpRef<Mirror> m = copy[mirror];
+
+    EXPECT((doc.get(m).across == r.left()), "a mirror's edge");
+    EXPECT((doc.get(copy[bezier]).edge == r.top()), "a free curve's edge");
+    EXPECT((doc.get(copy[line]).from == r.bottomLeft()), "a line's corner");
+    EXPECT((doc.get(copy[across]).from.edge == r.bottom()), "one end of a line between");
+    EXPECT((doc.get(copy[across]).to.edge == m.image(r.right())), "and the other, a mirror image");
+    EXPECT((doc.get(copy[cut]).along == copy[line].line()), "a cut's line");
+    EXPECT((doc.get(copy[adjust]).corner == m.image(r.topLeft())), "a mirrored corner");
+    EXPECT((doc.get(copy[point]).at.edge == copy[cut].farPart(r.top())), "the far part a cut left");
+    EXPECT((doc.get(copy[outside]).edge == elsewhere.top()), "an edge of another panel stays");
+    EXPECT((doc.get(copy[instance]).source == other), "as does the panel an instance follows");
+    EXPECT((OpId(doc.get(copy[offcut]).of) == OpId(copy[cut])), "an offcut of a cut in the panel follows it to the copy");
+}
+
 TEST_CASE("document copy is an independent snapshot")
 {
     Document doc;

@@ -5,7 +5,6 @@
 #include <stdexcept>
 
 #include "internal/FieldAccess.h"
-#include "internal/References.h"
 
 namespace twintailor {
 

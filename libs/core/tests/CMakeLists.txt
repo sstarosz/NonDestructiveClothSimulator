@@ -9,6 +9,5 @@ twintailor_unit_tests(core SOURCES
     MathTests.cpp
     OutlineTests.cpp
     PatternTests.cpp
-    ReferencesTests.cpp
     TextTests.cpp
 )
