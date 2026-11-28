@@ -12,6 +12,7 @@
 
 #include "Expect.h"
 #include "twintailor/session/Autosave.h"
+#include "twintailor/session/CrashDump.h"
 #include "twintailor/session/CrashReport.h"
 
 using namespace twintailor;
@@ -128,14 +129,20 @@ TEST_CASE("a run that left a log gets a report with it and the pattern last copi
         session.markUnsaved();
         REQUIRE(autosave.writeNow(session, "band", ""));
     }
+    std::ofstream(filePath(crashDumpIn(run))) << "a dump";
 
     const std::optional<std::string> report = keepCrashReport(run, reports, "2026-01-02");
     REQUIRE(report);
     EXPECT((*report == reports + "/2026-01-02" && saidIn(actionLogIn(*report)).back() == "Play" && !there(actionLogIn(run))), "the log is moved into it");
     const std::variant<SavedScene, FileError> kept = twintailor::open(*report + "/pattern.twintail");
     EXPECT((std::holds_alternative<SavedScene>(kept) && std::get<SavedScene>(kept).document.panels().size() == 1), "with the pattern, which opens");
+    EXPECT((there(crashDumpIn(*report)) && !there(crashDumpIn(run))), "and the crash dump");
     EXPECT((hasRecovery(run)), "and the recovery copy is left to be offered");
     EXPECT((!keepCrashReport(run, reports, "2026-01-02")), "reported once");
+
+    std::ofstream(filePath(crashDumpIn(run))) << "a dump";
+    const std::optional<std::string> alone = keepCrashReport(run, reports, "2025-12-31");
+    EXPECT((alone && there(crashDumpIn(*alone))), "a dump alone is a report too");
 
     std::filesystem::create_directories(filePath(reports + "/mine"));
     for (const char* name : {"2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"}) {
@@ -143,6 +150,7 @@ TEST_CASE("a run that left a log gets a report with it and the pattern last copi
         REQUIRE(keepCrashReport(run, reports, name, 3));
     }
     EXPECT((there(reports + "/2026-01-05") && there(reports + "/2026-01-04") && there(reports + "/2026-01-03")), "the last three stay");
-    EXPECT((!there(reports + "/2026-01-02") && !there(reports + "/2026-01-02 (2)")), "older ones go, also the second of one name");
+    EXPECT((!there(reports + "/2026-01-02") && !there(reports + "/2026-01-02 (2)") && !there(reports + "/2025-12-31")),
+           "older ones go, also the second of one name and one with a dump alone");
     EXPECT((there(reports + "/mine")), "a folder that is no report is left alone");
 }

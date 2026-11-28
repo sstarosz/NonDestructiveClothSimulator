@@ -6,6 +6,7 @@ twintailor_library(session
     SOURCES
         src/Autosave.cpp
         src/Commands.cpp
+        src/CrashDump.cpp
         src/CrashReport.cpp
         src/Drafting.cpp
         src/DrawingCommands.cpp
@@ -24,6 +25,9 @@ twintailor_library(session
         src/TableGizmo.cpp
     DEPENDS twintailor::core twintailor::sim Threads::Threads
 )
+if(WIN32)
+    target_link_libraries(twintailor_session PRIVATE dbghelp)  # part of Windows: it writes crash dumps
+endif()
 if(TWINTAILOR_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

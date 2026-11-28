@@ -40,6 +40,7 @@
 #include "twintailor/core/Drawing.h"
 #include "twintailor/core/File.h"
 #include "twintailor/core/Text.h"
+#include "twintailor/session/CrashDump.h"
 #include "twintailor/session/Samples.h"
 #include "twintailor/sim/AvatarImport.h"
 #include "twintailor/sim/Body.h"
@@ -450,7 +451,10 @@ MainWindow::~MainWindow() {
     // Not closed: a copy of unsaved work stays for the next start. After an error the log stays too, for a report.
     if (!autosave_) return;
     autosave_.reset();  // waits for a copy being written
-    if (!failed_) session_.endLog();
+    if (!failed_) {
+        session_.endLog();
+        session::writeCrashDumpTo({});
+    }
     recoveryLock_.reset();
     if (!failed_ && !session::hasRecovery(recoveryFolder_.toStdString())) QDir(recoveryFolder_).removeRecursively();
 }
@@ -707,6 +711,7 @@ void MainWindow::keepRecoveryIn(const QString& folder, double waitSeconds) {
     recoveryFolder_ = own;
     recoveryLock_ = std::move(lock);
     session_.keepLog(session::actionLogIn(own.toStdString()), versionLine().toStdString());
+    session::writeCrashDumpTo(session::crashDumpIn(own.toStdString()));
     autosave_ = std::make_unique<session::Autosave>(own.toStdString(), waitSeconds);
     offerRecovery(folder);
 }
@@ -790,6 +795,7 @@ void MainWindow::endRecovery() {
     autosave_->forget();
     autosave_.reset();
     session_.endLog();
+    session::writeCrashDumpTo({});
     recoveryLock_.reset();
     QDir(recoveryFolder_).removeRecursively();
 }

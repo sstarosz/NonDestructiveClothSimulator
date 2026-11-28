@@ -2,8 +2,9 @@
 # must be the version in CMakeLists.txt and CHANGELOG.md must have that
 # version's section. It is built and tested as every pull request is (ci.yml),
 # installed into a folder, the installed program is started once, and the
-# folder is zipped into a draft GitHub Release. A draft is seen only by those
-# who may write to the repository, until it is published by hand.
+# folder is zipped into a draft GitHub Release, with the program's debug symbols
+# in a zip of their own. A draft is seen only by those who may write to the
+# repository, until it is published by hand.
 name: Release
 
 on:

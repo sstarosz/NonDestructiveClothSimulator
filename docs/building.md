@@ -71,5 +71,22 @@ drawing changed.
 3. `.github/workflows/release.yml` checks the tag against the version, builds
    and tests as for a pull request, installs, starts the installed program,
    zips the folder and makes a **draft** GitHub Release with the changelog's
-   section as its notes.
+   section as its notes. A second zip, `…-symbols.zip`, holds the program's
+   debug symbols (`twintailor.pdb`).
 4. Try the zip on a PC that never built the project, then publish the draft.
+
+## Reading a crash dump
+
+A crash report (see the [user guide](user-guide.md)) may hold `crash.dmp`. The
+first line of its `actions.log` names the version and the commit the program was
+built from.
+
+1. Get that build's program and `twintailor.pdb`: from the release's two zips,
+   or from your own build folder, where the `.pdb` is beside the program. They
+   must be of the very same build as the program that crashed.
+2. Open `crash.dmp` in Visual Studio, add the folder of the `.pdb` under "Set
+   symbol paths", and choose "Debug with Native Only".
+3. The call stack shows where it was. Check out that commit to see the lines.
+
+A build folder keeps the symbols of its latest build only: keep the `.pdb` of a
+program you hand to someone.

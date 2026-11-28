@@ -19,6 +19,13 @@ option(TWINTAILOR_WINDOW "Build the program that opens a window" ON)
 # out with a compiler that warns about things the project's compilers do not.
 option(TWINTAILOR_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 
+# Debug symbols for a release too, in .pdb files that are not part of the
+# package: a crash dump is read with them. They leave the code as fast.
+if(MSVC)
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,Release,RelWithDebInfo>:ProgramDatabase>")
+    add_link_options("$<$<CONFIG:Release>:/DEBUG;/OPT:REF;/OPT:ICF>")
+endif()
+
 include(cmake/Twintailor.cmake)
 
 if(TWINTAILOR_BUILD_TESTS)
