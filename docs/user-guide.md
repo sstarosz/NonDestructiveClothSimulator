@@ -237,6 +237,15 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   the work was saved, the next start offers the copy: Open (Save then writes it
   to the pattern's own file), Delete, or Not Now, which asks again at the next
   start. The undo history does not come back.
+- **A crash report**: if the program did not close properly (a crash, an error
+  it cannot go on from, or an end from outside), the next start puts a report
+  into `%LOCALAPPDATA%\Twintailor\crash-reports`, a folder for each, and says
+  where. `actions.log` lists the last things the program did, and the error if
+  it raised one; `pattern.twintail` is the pattern as last copied, without its
+  avatar, if there was unsaved work. The last five reports are kept. Nothing is
+  sent anywhere. The log holds no names of panels or of your files, though an
+  error's words may name a file; and the pattern is your work. Look at a report
+  before you share it.
 - **After an error**: if the program meets an error it cannot go on from (out
   of memory in the middle of a change), it writes the recovery copy at once,
   says what happened and where the work is, and closes. If what fails is

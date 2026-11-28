@@ -24,7 +24,8 @@ the same version of the program, and a way past a command that crashes it.
   either.
 - To find the cause of a crash, the program records its last actions and the
   error and writes a crash dump, on the user's computer only; nothing is sent.
-  Not built yet.
+  The report of a crash also holds the pattern as it was last copied, without
+  its avatar. The crash dump is not built yet.
 - Commands are not stored. This replaces that part of 0027.
 
 ## Why

@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cmath>
 #include <exception>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include "twintailor/core/Drawing.h"
@@ -32,7 +34,31 @@ Session::Session(Document document, Threading threading)
     followAvatar();
 }
 
+void Session::keepLog(std::string file, std::string heading) { log_.emplace(std::move(file), std::move(heading)); }
+
+void Session::note(std::string_view what) {
+    if (log_) log_->note(what);
+}
+
+void Session::endLog() {
+    if (!log_) return;
+    const std::string file = log_->file();
+    log_.reset();
+    std::error_code ignored;
+    std::filesystem::remove(filePath(file), ignored);
+}
+
+void Session::noteCommand(const std::type_info& command) { note(plainName(command)); }
+
+void Session::notePreview(Edit edit, const std::type_info& command) {
+    const std::pair<std::uint64_t, std::type_index> shown{edit.number, command};
+    if (!log_ || previewed_ == shown) return;
+    previewed_ = shown;
+    log_->note(std::string(plainName(command)) + ", previewed");
+}
+
 void Session::open(Document document, SceneState state) {
+    note("Open a pattern");
     dropCloth();
     if (meshing_.mesh.valid()) meshing_.mesh.wait();  // of the old document; dropped
     meshing_ = {};
@@ -174,13 +200,16 @@ void Session::markSaved() {
 // ---- Panels hidden and deactivated, seams hidden ---------------------------------
 
 void Session::setPanelShown(PanelId panel, bool shown) {
-    if (document().contains(panel) && keep(hidden_, panel, !shown)) ++sceneVersion_;
+    if (!document().contains(panel) || !keep(hidden_, panel, !shown)) return;
+    note(shown ? "Show a panel" : "Hide a panel");
+    ++sceneVersion_;
 }
 
 bool Session::panelShown(PanelId panel) const { return !listed(hidden_, panel); }
 
 void Session::setPanelActive(PanelId panel, bool active) {
     if (!document().contains(panel) || !keep(inactive_, panel, !active)) return;
+    note(active ? "Activate a panel" : "Deactivate a panel");
     if (!active && held_ && cloth_.mesh->panels[held_->panel].panel == panel) release();
     simulation_->leaveOut(inactive_);
     ++sceneVersion_;
@@ -189,7 +218,9 @@ void Session::setPanelActive(PanelId panel, bool active) {
 bool Session::panelActive(PanelId panel) const { return !listed(inactive_, panel); }
 
 void Session::setSeamShown(SeamId seam, bool shown) {
-    if (document().contains(seam) && keep(hiddenSeams_, seam, !shown)) ++sceneVersion_;
+    if (!document().contains(seam) || !keep(hiddenSeams_, seam, !shown)) return;
+    note(shown ? "Show a seam" : "Hide a seam");
+    ++sceneVersion_;
 }
 
 bool Session::seamShown(SeamId seam) const { return !listed(hiddenSeams_, seam); }
@@ -209,12 +240,14 @@ void Session::forgetTheGone() {
 
 void Session::setBodyPresent(bool present) {
     if (bodyPresent_ == present) return;
+    note(present ? "Show the body" : "Hide the body");
     bodyPresent_ = present;
     ++sceneVersion_;
 }
 
 void Session::setBodySeeThrough(bool seeThrough) {
     if (bodySeeThrough_ == seeThrough) return;
+    note(seeThrough ? "See through the body" : "Make the body solid");
     bodySeeThrough_ = seeThrough;
     ++sceneVersion_;
 }
@@ -259,7 +292,8 @@ void Session::followAvatar() {
 
 // ---- The cloth ---------------------------------------------------------------------
 
-bool Session::run(const ResetCloth&) {
+bool Session::run(const ResetCloth& command) {
+    noteCommand(typeid(command));
     // The cloth kept is that of the state being left: what has not been followed or heard of yet comes first.
     followBody();
     if (editor_.step() != shownStep_) followShapes(false);
@@ -270,7 +304,7 @@ bool Session::run(const ResetCloth&) {
         keepDrape();
         const Edit reset = begin();
         editor_.addStep(reset);
-        commit(reset);
+        editor_.commit(reset);  // not commit(): the log has the Reset already
         shownStep_ = editor_.step();
         drapes_[shownStep_] = std::nullopt;
     }
@@ -303,6 +337,7 @@ bool Session::preview(Edit edit, const PullCloth& pull) {
     const std::vector<sim::PanelMesh>& panels = cloth_.mesh->panels;
     const auto found = std::find_if(panels.begin(), panels.end(), [&](const sim::PanelMesh& p) { return p.panel == pull.panel; });
     if (found == panels.end() || pull.point >= found->points.size()) return false;
+    noteCommand(typeid(pull));
     // The pull is an undo step: the drape as it is now is kept for the state before it.
     keepDrape();
     editor_.addStep(edit);
@@ -332,23 +367,27 @@ Edit Session::begin() {
 }
 
 void Session::commit(Edit edit) {
+    if (editor_.editing(edit) && editor_.unfinished()) note("Commit");
     editor_.commit(edit);
     letGoAfterThePull();
 }
 
 bool Session::cancel(Edit edit) {
+    if (editor_.editing(edit) && editor_.unfinished()) note("Cancel");
     const bool taken = editor_.cancel(edit);  // the drape of the state before comes back at the next update
     letGoAfterThePull();
     return taken;
 }
 
 bool Session::undo() {
+    if (editor_.canUndo()) note("Undo");
     const bool moved = editor_.undo();
     letGoAfterThePull();
     return moved;
 }
 
 bool Session::redo() {
+    if (editor_.canRedo()) note("Redo");
     const bool moved = editor_.redo();
     letGoAfterThePull();
     return moved;
@@ -446,15 +485,21 @@ void Session::keepDrape() {
 
 std::optional<std::string> Session::update(bool meshWanted) {
     followBody();
-    if (!meshWanted) {
+    std::optional<std::string> news;
+    if (meshWanted) {
+        followShapes(false);
+        simulation_->run(simulating_ && bodyReady());  // and while the cloth is held: the simulation sees to that
+        simulation_->advance();
+        news = takeNews();
+    } else {
         simulation_->run(false);
-        return std::exchange(toTell_, std::nullopt);
     }
-    followShapes(false);
-    simulation_->run(simulating_ && bodyReady());  // and while the cloth is held: the simulation sees to that
-    simulation_->advance();
-    if (std::optional<std::string> news = takeNews()) return news;  // anything else is told next time
-    return std::exchange(toTell_, std::nullopt);
+    if (!news) news = std::exchange(toTell_, std::nullopt);  // anything else is told next time
+    if (news) {
+        note("A problem to tell:");  // two lines: nothing is put together while memory may be short
+        note(*news);
+    }
+    return news;
 }
 
 void Session::followBody() {
@@ -559,6 +604,7 @@ bool Session::hasGarment() const {
 }
 
 std::expected<sim::Obj, std::string> Session::obj() {
+    note("Export OBJ");
     followBody();
     followShapes(true);
     if (meshFailed_ == editor_.shapesVersion()) {

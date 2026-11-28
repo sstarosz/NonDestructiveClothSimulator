@@ -25,9 +25,14 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <typeindex>
+#include <typeinfo>
+#include <utility>
 #include <vector>
 
 #include "twintailor/core/File.h"
+#include "twintailor/session/CrashReport.h"
 #include "twintailor/session/Editor.h"
 #include "twintailor/session/Simulation.h"
 #include "twintailor/sim/Body.h"
@@ -52,6 +57,7 @@ public:
     // is over.
     template <DocumentChange C>
     std::expected<typename C::Done, std::string> run(const C& command) {
+        noteCommand(typeid(C));
         auto done = editor_.run(command);
         letGoAfterThePull();
         return done;
@@ -59,10 +65,12 @@ public:
     Edit begin();
     template <DocumentChange C>
     std::expected<typename C::Done, std::string> run(Edit edit, const C& command) {
+        noteCommand(typeid(C));
         return editor_.run(edit, command);
     }
     template <DocumentChange C>
     std::expected<typename C::Done, std::string> preview(Edit edit, const C& command) {
+        notePreview(edit, typeid(C));
         return editor_.preview(edit, command);
     }
     // Takes hold of a particle of the cloth shown, or leads the one held, as a
@@ -87,6 +95,17 @@ public:
     // Another document, with no history: opening a file. The scene is as
     // `state` leaves it: its drape hangs again, paused. It starts saved.
     void open(Document document, SceneState state = {});
+
+    // ---- The log of what is done (CrashReport.h) ----
+    // From now on what is done here is noted in `file` before it is done:
+    // commands (one that is previewed, once in its edit), undo and redo, the
+    // cloth, what is hidden and frozen, and what update() has to tell.
+    // `heading` is the log's first line.
+    void keepLog(std::string file, std::string heading);
+    // A line for something done outside the session, as saving a file.
+    void note(std::string_view what);
+    // The run ends as it should: the log's file goes, and nothing more is noted.
+    void endLog();
 
     // ---- Saving ----
     // How the scene is now, for a file: what is hidden and frozen, the body's
@@ -166,7 +185,10 @@ public:
     // Lets the cloth fall, or holds it where it is. It starts the first time,
     // from where the panels are arranged. While a body is being worked out the
     // cloth waits, and what was asked is kept: it runs once the body is ready.
-    void simulate(bool on) { simulating_ = on; }
+    void simulate(bool on) {
+        if (on != simulating_) note(on ? "Play" : "Pause");
+        simulating_ = on;
+    }
     bool simulating() const { return simulating_; }
     // Whether there is cloth to show: started and not reset.
     bool clothShown() const { return simulation_->exists() && cloth_.mesh != nullptr; }
@@ -227,6 +249,11 @@ private:
     std::optional<std::string> takeNews();
 
     Editor editor_;
+
+    void noteCommand(const std::type_info& command);
+    void notePreview(Edit edit, const std::type_info& command);  // once for each command an edit previews
+    std::optional<ActionLog> log_;
+    std::optional<std::pair<std::uint64_t, std::type_index>> previewed_;  // the preview last noted, and its edit
 
     std::shared_ptr<const sim::ClothMesh> mesh_ = std::make_shared<const sim::ClothMesh>();
     std::uint64_t meshedShapes_ = 0;

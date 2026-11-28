@@ -16,6 +16,14 @@ target_compile_definitions(twintailor_autosave_tests PRIVATE TWINTAILOR_TEST_FOL
 twintailor_warnings(twintailor_autosave_tests)
 catch_discover_tests(twintailor_autosave_tests TEST_PREFIX "autosave: " PROPERTIES LABELS integration)
 
+# The log of actions and the crash report: files too.
+add_executable(twintailor_crash_report_tests CrashReportTests.cpp)
+target_link_libraries(twintailor_crash_report_tests PRIVATE twintailor::session Catch2::Catch2WithMain)
+target_include_directories(twintailor_crash_report_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+target_compile_definitions(twintailor_crash_report_tests PRIVATE TWINTAILOR_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/crash-report")
+twintailor_warnings(twintailor_crash_report_tests)
+catch_discover_tests(twintailor_crash_report_tests TEST_PREFIX "crash reports: " PROPERTIES LABELS integration)
+
 # Saving over a file that another program holds. Labelled "integration".
 add_executable(twintailor_saving_tests SavingTests.cpp)
 target_link_libraries(twintailor_saving_tests PRIVATE twintailor::core Catch2::Catch2WithMain)

@@ -6,6 +6,7 @@ twintailor_library(session
     SOURCES
         src/Autosave.cpp
         src/Commands.cpp
+        src/CrashReport.cpp
         src/Drafting.cpp
         src/DrawingCommands.cpp
         src/Editor.cpp
