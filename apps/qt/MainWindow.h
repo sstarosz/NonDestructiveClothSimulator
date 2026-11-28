@@ -202,7 +202,6 @@ private:
     // What the bar says is going to happen to the ends of the edge.
     QString lengthStatus(const session::Outcome::LengthField& what) const;
     bool gesturing_ = false;                       // a gesture is being handled: the bar may be reopened on something else
-    session::ChangeRules lengthRules(PanelId panel) const;  // how a length typed on the table is changed
     void closeLengthIfOver();                      // its length was undone or removed, or something else was done
     QString lengthText_;                           // the text that is applied now
     // What was typed for a field of a layer, in the Attribute Editor (`field` shows a refusal) or on the table.

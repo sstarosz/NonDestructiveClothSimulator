@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "twintailor/core/Drawing.h"
+#include "twintailor/session/Lengths.h"
 #include "twintailor/session/Locks.h"
 #include "twintailor/sim/Layout.h"
 #include "Corners.h"
@@ -36,7 +37,35 @@ std::expected<std::vector<MovingCorner>, std::string> movableCorners(const Docum
     return moving;
 }
 
+std::vector<OpId> ownLengthsOf(const Document& doc, PanelId panel, const EdgeRef& drawn) {
+    std::vector<OpId> own;
+    for (OpId op : doc.operations(panel))
+        if (const SetLength* set = std::get_if<SetLength>(&doc.get(op)); set && set->edge == drawn && doc.enabled(op)) own.push_back(op);
+    return own;
+}
+
 namespace {
+
+// Which end of an edge stays where it is when the edge is given a length: the
+// end on the mirror of a symmetric panel (the fold), else neither, and both
+// ends move.
+SetLength::Keeping keepingFor(const Document& doc, PanelId panel, const EdgeRef& drawn, const Pattern& shape) {
+    const std::optional<OpRef<Mirror>> mirror = symmetryOf(doc, panel);
+    if (!mirror || !shape.contains(drawn)) return SetLength::Keeping::Middle;
+    // The mirror's own edge is gone from the finished outline: look at the half it was made from.
+    const Pattern half = outlineBefore(doc, *mirror);
+    const EdgeRef& across = doc.get(*mirror).across;
+    if (!half.contains(across)) return SetLength::Keeping::Middle;
+    const Edge& fold = half.edge(across);
+    const Edge& edge = shape.edge(drawn);
+    const auto onFold = [&](uint32_t corner) {
+        const CornerRef& name = shape.vertices[corner].name;
+        return half.vertices[fold.start].name == name || half.vertices[fold.end].name == name;
+    };
+    if (onFold(edge.start)) return SetLength::Keeping::Start;
+    if (onFold(edge.end)) return SetLength::Keeping::End;
+    return SetLength::Keeping::Middle;
+}
 
 // "front copy", or "front copy 2" if that is taken.
 std::string firstFreeName(const Document& doc, const std::string& wanted) {
@@ -111,6 +140,24 @@ std::string layerName(const Document& doc, OpId layer) {
     return std::to_string(index + 1) + ". " + std::string(label(doc.get(layer)));
 }
 
+// The adjustment that goes on moving `corner`: its own, of plain numbers, with
+// nothing after it but adjustments of other corners (applied in any order, they
+// come to the same), layers that are off and a mirror applied last.
+std::optional<OpRef<AdjustPoint>> adjustmentOf(const Document& doc, PanelId panel, const CornerRef& corner) {
+    const std::vector<OpId> operations = doc.operations(panel);
+    for (auto op = operations.rbegin(); op != operations.rend(); ++op) {
+        if (!doc.enabled(*op)) continue;
+        const OpData& data = doc.get(*op);
+        if (const Mirror* mirror = std::get_if<Mirror>(&data); mirror && mirror->appliedLast) continue;
+        const AdjustPoint* adjust = std::get_if<AdjustPoint>(&data);
+        if (!adjust) break;
+        if (!(adjust->corner == corner)) continue;
+        if (asNumber(adjust->dx) && asNumber(adjust->dy)) return OpRef<AdjustPoint>(*op);
+        break;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 std::expected<Nothing, std::string> SetField::apply(Document& doc, const Result&) const {
@@ -127,19 +174,16 @@ std::expected<Nothing, std::string> MoveCorners::apply(Document& doc, const Resu
     const Vec2 own = turned(by, -doc.get(panel).angle);  // the movement in the panel's own coordinates
     const std::expected<std::vector<MovingCorner>, std::string> moving = movableCorners(doc, before, panel, corners, {own.x, own.y});
     if (!moving) return std::unexpected(moving.error().empty() ? std::string("there is no such corner") : moving.error());
-    if (moving->size() == 1) {
-        const MovingCorner& one = moving->front();
-        const std::vector<OpId> operations = doc.operations(panel);
-        const AdjustPoint* last = operations.empty() ? nullptr : std::get_if<AdjustPoint>(&doc.get(operations.back()));
-        if (last && last->corner == one.corner && asNumber(last->dx) && asNumber(last->dy)) {
-            const double x = *asNumber(last->dx) + one.by.dx, y = *asNumber(last->dy) + one.by.dy;
-            const OpRef<AdjustPoint> adjust(operations.back());
-            doc.set(adjust, &AdjustPoint::dx, Expr(x));
-            doc.set(adjust, &AdjustPoint::dy, Expr(y));
-            return Nothing{};
+    for (const MovingCorner& m : *moving) {
+        const std::optional<OpRef<AdjustPoint>> kept = adjustmentOf(doc, panel, m.corner);
+        if (!kept) {
+            doc.add(panel, AdjustPoint{.corner = m.corner, .dx = Expr(m.by.dx), .dy = Expr(m.by.dy)});
+            continue;
         }
+        const double x = *asNumber(doc.get(*kept).dx) + m.by.dx, y = *asNumber(doc.get(*kept).dy) + m.by.dy;
+        doc.set(*kept, &AdjustPoint::dx, Expr(x));
+        doc.set(*kept, &AdjustPoint::dy, Expr(y));
     }
-    for (const MovingCorner& m : *moving) doc.add(panel, AdjustPoint{.corner = m.corner, .dx = Expr(m.by.dx), .dy = Expr(m.by.dy)});
     return Nothing{};
 }
 
@@ -193,6 +237,30 @@ std::expected<Nothing, std::string> DeleteCorners::apply(Document& doc, const Re
     }
     if (points.empty()) return std::unexpected("There is no such corner to delete.");
     for (OpId point : points) doc.remove(point);
+    return Nothing{};
+}
+
+std::expected<GiveEdgeLength::Done, std::string> GiveEdgeLength::apply(Document& doc, const Result& before) const {
+    static_cast<void>(doc.get(panel));  // it is there
+    const Pattern& shape = before[panel];
+    if (!shape.contains(edge)) return std::unexpected("there is no such edge");
+    const EdgeRef drawn = drawnSide(doc, panel, edge).edge;
+    return Done{doc.add(panel, SetLength{.edge = drawn, .length = Expr(shape.length(edge)), .keeping = keepingFor(doc, panel, drawn, shape)})};
+}
+
+std::expected<Nothing, std::string> RemoveEdgeLength::apply(Document& doc, const Result&) const {
+    const std::vector<OpId> own = ownLengthsOf(doc, panel, drawnSide(doc, panel, edge).edge);
+    if (own.empty()) return std::unexpected("this edge has no length of its own");
+    for (OpId op : own) doc.remove(op);
+    // The command runs on a copy: refused here, nothing is taken away.
+    if (!lengthSetBy(doc, evaluate(doc), panel, edge))
+        return std::unexpected("the edge's corners were moved after the shape made it, so the shape's setting no longer gives it a length. "
+                               "Keep the edge's own length, or change the corners.");
+    return Nothing{};
+}
+
+std::expected<Nothing, std::string> SetKeeping::apply(Document& doc, const Result&) const {
+    doc.set(layer, &SetLength::keeping, keeping);
     return Nothing{};
 }
 

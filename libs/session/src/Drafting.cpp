@@ -686,27 +686,6 @@ Outcome::LengthField lengthFieldFor(const Document& doc, const EdgeRef& shown, c
     return field;
 }
 
-// Which end of an edge stays where it is when the edge is given a length: the
-// end on the mirror of a symmetric panel (the fold), else neither, and both
-// ends move.
-SetLength::Keeping keepingFor(const Document& doc, PanelId panel, const EdgeRef& drawn, const Pattern& shape) {
-    const std::optional<OpRef<Mirror>> mirror = symmetryOf(doc, panel);
-    if (!mirror || !shape.contains(drawn)) return SetLength::Keeping::Middle;
-    // The mirror's own edge is gone from the finished outline: look at the half it was made from.
-    const Pattern half = outlineBefore(doc, *mirror);
-    const EdgeRef& across = doc.get(*mirror).across;
-    if (!half.contains(across)) return SetLength::Keeping::Middle;
-    const Edge& fold = half.edge(across);
-    const Edge& edge = shape.edge(drawn);
-    const auto onFold = [&](uint32_t corner) {
-        const CornerRef& name = shape.vertices[corner].name;
-        return half.vertices[fold.start].name == name || half.vertices[fold.end].name == name;
-    };
-    if (onFold(edge.start)) return SetLength::Keeping::Start;
-    if (onFold(edge.end)) return SetLength::Keeping::End;
-    return SetLength::Keeping::Middle;
-}
-
 } // namespace
 
 Outcome Drafting::on(Editor& editor, const EditLength& g) {
@@ -726,14 +705,14 @@ Outcome Drafting::on(Editor& editor, const EditLength& g) {
     // Nothing sets this edge's length yet (a T-shirt's shoulder, or an edge whose
     // corners were dragged), or the tool wants one of its own: give it one, as
     // long as it is now, and type that. On a symmetric panel it is made for the drawn side.
-    const DrawnEdge drawn = drawnSide(doc, g.panel, g.edge);
-    const SetLength::Keeping keeping = keepingFor(doc, g.panel, drawn.edge, shape);
-    OpRef<SetLength> added;
-    if (!apply(editor, typingIn(editor), [&](Document& d) { added = d.add(g.panel, SetLength{.edge = drawn.edge, .length = Expr(shape.length(g.edge)), .keeping = keeping}); }, {}, outcome)) {
-        outcome.toolDone = false;  // refused: the tool stays, to try another edge
+    const auto given = editor.run(typingIn(editor), GiveEdgeLength{g.panel, g.edge});
+    if (!given) {
+        outcome.notice = "Not changed: " + given.error();
+        outcome.refused = true;
+        outcome.toolDone = false;  // the tool stays, to try another edge
         return outcome;
     }
-    outcome.typeLength = lengthFieldFor(editor.document(), g.edge, LengthSetting{added, FieldId{0}});
+    outcome.typeLength = lengthFieldFor(editor.document(), g.edge, LengthSetting{given->layer, FieldId{0}});
     return outcome;
 }
 
@@ -742,23 +721,14 @@ Outcome Drafting::on(Editor& editor, const UseShapeLength& g) {
     const Document& doc = editor.document();
     if (!doc.contains(g.panel)) return outcome;
     selection.panel = g.panel;
-    const EdgeRef drawn = drawnSide(doc, g.panel, g.edge).edge;
-    std::vector<OpId> own;
-    for (OpId op : doc.operations(g.panel))
-        if (const SetLength* set = std::get_if<SetLength>(&doc.get(op)); set && set->edge == drawn && doc.enabled(op)) own.push_back(op);  // one switched off is kept
-    if (!own.empty()) {
-        // Would the shape's setting give the edge its length? Worked out on a copy, so that when it would
-        // not (a corner was moved after the shape made the edge) nothing is taken away, and the edge's own
-        // length stays what is typed.
-        Document trial = doc;
-        for (OpId op : own) trial.remove(op);
-        if (!lengthSetBy(trial, evaluate(trial), g.panel, g.edge)) {
-            outcome.notice = "Not changed: the edge's corners were moved after the shape made it, so the shape's setting no longer gives it a length. Keep the edge's own length, or change the corners.";
+    if (!ownLengthsOf(doc, g.panel, drawnSide(doc, g.panel, g.edge).edge).empty()) {
+        if (const auto removed = editor.run(typingIn(editor), RemoveEdgeLength{g.panel, g.edge}); !removed) {
+            // The edge's own length stays what is typed.
+            outcome.notice = "Not changed: " + removed.error();
             outcome.refused = true;
             if (const std::optional<LengthSetting> now = lengthSetBy(doc, editor.shapes(), g.panel, g.edge)) outcome.typeLength = lengthFieldFor(doc, g.edge, *now);
             return outcome;
         }
-        if (!apply(editor, typingIn(editor), [&](Document& d) { for (OpId op : own) d.remove(op); }, {}, outcome)) return outcome;
     }
     // The shape's setting gives the edge its length again, as long as it was when it was given up.
     if (const std::optional<LengthSetting> setting = lengthSetBy(editor.document(), editor.shapes(), g.panel, g.edge))
