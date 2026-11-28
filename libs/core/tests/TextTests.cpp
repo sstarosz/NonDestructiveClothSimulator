@@ -104,3 +104,19 @@ TEST_CASE("what is typed into a field is read in the field's unit")
     EXPECT((std::holds_alternative<TextError>(wrong) && std::get<TextError>(wrong).position >= 2), "a problem points into what was typed");
     (void)chest;
 }
+
+TEST_CASE("a chain of one kind of step is read from the left, and times before plus")
+{
+    Document doc;
+    const auto comesTo = [&](const char* text) {
+        const std::variant<Expr, TextError> parsed = parseExpr(text, doc);
+        REQUIRE(std::holds_alternative<Expr>(parsed));
+        return valueOf(std::get<Expr>(parsed), evaluate(doc)).value();
+    };
+    EXPECT_NEAR((comesTo("10 - 4 - 3")), (3.0), "take away");
+    EXPECT_NEAR((comesTo("100 / 5 / 2")), (10.0), "divide");
+    EXPECT_NEAR((comesTo("10 - 4 + 3")), (9.0), "mixed");
+    EXPECT_NEAR((comesTo("100 / 5 * 2")), (40.0), "mixed the other way");
+    EXPECT_NEAR((comesTo("1 + 2 * 3 - 4 / 2")), (5.0), "times and divide first");
+    for (const char* half : {"1 +", "1 -", "1 *", "1 /"}) EXPECT((std::holds_alternative<TextError>(parseExpr(half, doc))), half);
+}

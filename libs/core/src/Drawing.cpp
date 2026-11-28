@@ -88,7 +88,7 @@ bool encloses(const Pattern& pattern, Vec2 point) {
 }
 
 std::optional<CubicCurve> cubicFromArc(const Pattern& pattern, const Edge& edge) {
-    if (!edge.arc || std::abs(edge.arc->sweep) > 360.0 - 1e-6 || edge.start == edge.end) return std::nullopt;
+    if (!edge.arc || outline::wholeTurn(edge)) return std::nullopt;
     const Arc& arc = *edge.arc;
     const Vec2 start = pattern.vertices[edge.start].position, end = pattern.vertices[edge.end].position;
     const double turn = radians(arc.sweep);
@@ -104,22 +104,7 @@ std::optional<CubicCurve> cubicFromArc(const Pattern& pattern, const Edge& edge)
 Pattern turned(const Pattern& pattern, double degrees) {
     if (degrees == 0.0) return pattern;
     Pattern result = pattern;
-    for (Vertex& v : result.vertices) v.position = turned(v.position, degrees);
-    for (Edge& e : result.edges) {
-        if (e.arc) e.arc->center = turned(e.arc->center, degrees);
-        if (e.cubic) {
-            e.cubic->control1 = turned(e.cubic->control1, degrees);
-            e.cubic->control2 = turned(e.cubic->control2, degrees);
-        }
-    }
-    for (InternalLine& l : result.lines) {
-        l.start = turned(l.start, degrees);
-        l.end = turned(l.end, degrees);
-    }
-    for (SymmetryAxis& a : result.axes) {
-        a.start = turned(a.start, degrees);
-        a.end = turned(a.end, degrees);
-    }
+    outline::forEachPoint(result, [&](Vec2& p) { p = turned(p, degrees); });
     return result;
 }
 

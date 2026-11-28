@@ -288,3 +288,63 @@ TEST_CASE("a corner is moved with the curves on it: a big arc, two corners of on
     EXPECT_NEAR((refused[flatPanel].position(half.start()).x), (start.x), "and the corner stays where it was");
     EXPECT_NEAR((refused[flatPanel].length(half.arc())), (evaluate([&] { Document d; const PanelId p = d.add(Panel{.name = "slice"}); d.add(p, Circle{.radius = 10_cm, .sweep = 90_deg}); return d; }())[PanelId{1}].length(half.arc())), "so the arc is whole");
 }
+
+TEST_CASE("flipping, turning and scaling move every position a pattern holds")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 20_cm, .height = 10_cm});
+    doc.add(panel, Curve{.edge = rect.top(), .bulge = 2_cm});
+    doc.add(panel, Bezier{.edge = rect.right(), .startHandle = {3_cm, 1_cm}, .endHandle = {4_cm, -1_cm}});
+    const OpRef<LineBetween> line = doc.add(panel, LineBetween{.from = {rect.bottom(), 0.25}, .to = {rect.left(), 0.75}});
+    const OpRef<Mirror> mirror = doc.add(panel, Mirror{.across = rect.left()});
+    const PanelId flipped = doc.add(Panel{.name = "flipped"});
+    doc.add(flipped, Instance{.source = panel, .mirrored = true});
+
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    const Pattern& was = result[panel];
+
+    // Whether every position of `now` is where `moved` puts it; a flipped edge runs the other way, its handles swapped.
+    const auto movedAll = [&](const Pattern& now, bool swapped, const auto& moved) {
+        const auto there = [&](Vec2 to, Vec2 from) { return length(to - moved(from)) < 1e-9; };
+        for (const Vertex& v : was.vertices) EXPECT((there(now.position(v.name), v.position)), "a corner");
+        for (const Edge& e : was.edges) {
+            const Edge& after = now.edge(e.name);
+            if (e.arc) EXPECT((there(after.arc->center, e.arc->center)), "the centre of an arc");
+            if (e.cubic) {
+                EXPECT((there(swapped ? after.cubic->control2 : after.cubic->control1, e.cubic->control1)), "a free curve's first handle");
+                EXPECT((there(swapped ? after.cubic->control1 : after.cubic->control2, e.cubic->control2)), "and its second");
+            }
+        }
+        const InternalLine& drawn = now.line(line.line());
+        EXPECT((there(drawn.start, was.line(line.line()).start) && there(drawn.end, was.line(line.line()).end)), "a line");
+        REQUIRE(now.axes.size() == 1);
+        EXPECT((there(now.axes[0].start, was.axes[0].start) && there(now.axes[0].end, was.axes[0].end)), "and an axis");
+    };
+
+    movedAll(result[flipped], true, [](Vec2 p) { return Vec2{-p.x, p.y}; });
+    movedAll(turned(was, 30.0), false, [](Vec2 p) { return turned(p, 30.0); });
+
+    // Scaled about the middle of its box: evenly, and then more one way than the other.
+    const Bounds box = bounds(was).value();
+    const Vec2 middle = (box.min + box.max) * 0.5;
+    const OpRef<Scale> scale = doc.add(panel, Scale{.x = 2.0, .y = 2.0});
+    const Result even = evaluate(doc);
+    REQUIRE(even.ok());
+    // The mirror is applied last, after the scale: step to the scale alone to compare the drawn half.
+    doc.set(mirror, &Mirror::appliedLast, false);
+    doc.move(scale, doc.operations(panel).size() - 1);
+    const Result after = evaluate(doc);
+    REQUIRE(after.ok());
+    movedAll(after[panel], false, [&](Vec2 p) { return middle + (p - middle) * 2.0; });
+
+    doc.set(scale, &Scale::x, Expr(3.0));
+    const Result uneven = evaluate(doc);
+    REQUIRE(uneven.ok());
+    const auto stretched = [&](Vec2 p) { return middle + Vec2{(p.x - middle.x) * 3.0, (p.y - middle.y) * 2.0}; };
+    for (const Vertex& v : was.vertices) EXPECT((length(uneven[panel].position(v.name) - stretched(v.position)) < 1e-9), "a corner, stretched");
+    EXPECT((length(uneven[panel].line(line.line()).end - stretched(was.line(line.line()).end)) < 1e-9), "and a line");
+    EXPECT((uneven[panel].edge(rect.top()).arc && std::abs(uneven[panel].edge(rect.top()).arc->sweep - was.edge(rect.top()).arc->sweep) < 1e-9),
+           "an arc stays round, through the same angle");
+}

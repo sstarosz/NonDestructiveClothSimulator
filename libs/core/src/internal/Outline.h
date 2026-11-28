@@ -26,6 +26,34 @@ struct Nearest {
 };
 std::optional<Nearest> nearest(const Pattern& pattern, Vec2 point);
 
+// Calls `visit` on every position a pattern holds: its corners, the centres of
+// its arcs, the handles of its free curves, its lines and its axes. A position
+// added to Pattern belongs here, so that it moves with the rest.
+template <class Visit>
+void forEachPoint(Pattern& pattern, const Visit& visit) {
+    for (Vertex& v : pattern.vertices) visit(v.position);
+    for (Edge& e : pattern.edges) {
+        if (e.arc) visit(e.arc->center);
+        if (e.cubic) {
+            visit(e.cubic->control1);
+            visit(e.cubic->control2);
+        }
+    }
+    for (InternalLine& line : pattern.lines) {
+        visit(line.start);
+        visit(line.end);
+    }
+    for (SymmetryAxis& axis : pattern.axes) {
+        visit(axis.start);
+        visit(axis.end);
+    }
+}
+
+// Whether an arc turning through `sweep` degrees comes back to where it began.
+bool wholeTurn(double sweep);
+// Whether an edge is such an arc: one with no two ends to move apart.
+bool wholeTurn(const Edge& edge);
+
 // An edge's length along its curve.
 double lengthOf(const Pattern& pattern, const Edge& edge);
 

@@ -285,7 +285,7 @@ private:
         const double radius = value[0], sweep = value[1];
         const OpRef<Circle> names(op);
         const Vec2 centre{0.0, 0.0};
-        if (sweep > 360.0 - 1e-9) {
+        if (outline::wholeTurn(sweep)) {
             // A whole circle: one edge that starts and ends at its lowest point.
             pattern.vertices = {{names.start(), {0.0, -radius}}};
             pattern.edges = {{names.arc(), 0, 0, Arc{centre, radius, 360.0}}};
@@ -336,7 +336,7 @@ private:
             {names.startSide(), 3, 0, std::nullopt},
         };
         // A whole turn closes on itself: the two sides are one seam, not edges.
-        if (sweep > 360.0 - 1e-9) pattern.edges[1].seam = pattern.edges[3].seam = true;
+        if (outline::wholeTurn(sweep)) pattern.edges[1].seam = pattern.edges[3].seam = true;
     }
 
     void apply(const Instance& instance, const std::vector<double>&, OpId op, bool first, Pattern& pattern) {
@@ -505,7 +505,7 @@ private:
         const bool evenly = std::abs(x - y) < 1e-12;
         if (!evenly)
             for (const Edge& e : pattern.edges)
-                if (e.arc && (e.start == e.end || std::abs(e.arc->sweep) > 360.0 - 1e-6)) {
+                if (outline::wholeTurn(e)) {
                     error(op, "a whole circle can only be scaled evenly: give x and y the same scale, or change its radius instead");
                     return;
                 }
@@ -514,12 +514,10 @@ private:
         const Vec2 middle = (box->min + box->max) * 0.5;
         const auto scaled = [&](Vec2 p) { return Vec2{middle.x + (p.x - middle.x) * x, middle.y + (p.y - middle.y) * y}; };
         attempt(pattern, op, [&](Pattern& changed) -> outline::Problem {
-            for (Vertex& v : changed.vertices) v.position = scaled(v.position);
+            outline::forEachPoint(changed, [&](Vec2& p) { p = scaled(p); });
             for (Edge& e : changed.edges) {
-                if (e.cubic) e.cubic = CubicCurve{scaled(e.cubic->control1), scaled(e.cubic->control2)};
                 if (!e.arc) continue;
                 if (evenly) {
-                    e.arc->center = scaled(e.arc->center);
                     e.arc->radius *= x;
                     continue;
                 }
@@ -529,8 +527,6 @@ private:
                 if (!arc) return "a curved edge would have no length at this scale";
                 e.arc = arc;
             }
-            for (InternalLine& line : changed.lines) line.start = scaled(line.start), line.end = scaled(line.end);
-            for (SymmetryAxis& axis : changed.axes) axis.start = scaled(axis.start), axis.end = scaled(axis.end);
             return std::nullopt;
         });
     }

@@ -10,11 +10,8 @@
 namespace twintailor {
 
 namespace {
+
 constexpr std::string_view degreeSign = "\u00B0";  // °, as UTF-8
-}
-
-
-namespace {
 
 // ---- Parsing ------------------------------------------------------------------
 
@@ -32,34 +29,24 @@ public:
     }
 
 private:
-    std::optional<Expr> sum() {
-        std::optional<Expr> left = product();
-        while (left) {
-            if (take('+')) {
-                std::optional<Expr> right = product();
-                if (!right) return std::nullopt;
-                left = *left + *right;
-            } else if (take('-')) {
-                std::optional<Expr> right = product();
-                if (!right) return std::nullopt;
-                left = *left - *right;
-            } else break;
-        }
-        return left;
-    }
+    // One step of arithmetic, by the sign that stands for it.
+    struct Step {
+        char sign;
+        Expr (*join)(const Expr&, const Expr&);
+    };
 
-    std::optional<Expr> product() {
-        std::optional<Expr> left = unary();
+    std::optional<Expr> sum() { return chain(&Parser::product, {'+', operator+}, {'-', operator-}); }
+    std::optional<Expr> product() { return chain(&Parser::unary, {'*', operator*}, {'/', operator/}); }
+
+    // Parts joined by either of two steps, taken from the left: a - b - c is (a - b) - c.
+    std::optional<Expr> chain(std::optional<Expr> (Parser::*part)(), Step one, Step other) {
+        std::optional<Expr> left = (this->*part)();
         while (left) {
-            if (take('*')) {
-                std::optional<Expr> right = unary();
-                if (!right) return std::nullopt;
-                left = *left * *right;
-            } else if (take('/')) {
-                std::optional<Expr> right = unary();
-                if (!right) return std::nullopt;
-                left = *left / *right;
-            } else break;
+            const Step* step = take(one.sign) ? &one : take(other.sign) ? &other : nullptr;
+            if (!step) break;
+            const std::optional<Expr> right = (this->*part)();
+            if (!right) return std::nullopt;
+            left = step->join(*left, *right);
         }
         return left;
     }

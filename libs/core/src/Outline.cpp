@@ -269,19 +269,17 @@ std::optional<Arc> arcFromBulge(Vec2 a, Vec2 b, double bulge) {
     return Arc{middle + left * (radius - bulge), std::abs(radius), degrees(4.0 * std::atan(2.0 * bulge / chord))};
 }
 
+bool wholeTurn(double sweep) { return std::abs(sweep) > 360.0 - 1e-6; }
+
+bool wholeTurn(const Edge& e) { return e.arc && (e.start == e.end || wholeTurn(e.arc->sweep)); }
+
 std::optional<Arc> arcFromSweep(Vec2 a, Vec2 b, double sweep) {
-    if (std::abs(sweep) < 1e-9 || std::abs(sweep) > 360.0 - 1e-6) return std::nullopt;
+    if (std::abs(sweep) < 1e-9 || wholeTurn(sweep)) return std::nullopt;
     const double chord = length(b - a);
     if (chord < tolerance) return std::nullopt;
     // Counter-clockwise arcs bulge to the right of a -> b, so the bulge has the sweep's sign.
     return arcFromBulge(a, b, chord / 2.0 * std::tan(radians(sweep) / 4.0));
 }
-
-namespace {
-
-bool wholeTurn(const Edge& e) { return e.arc && (e.start == e.end || std::abs(e.arc->sweep) > 360.0 - 1e-6); }
-
-} // namespace
 
 Problem moveCorners(Pattern& pattern, const std::vector<CornerMove>& moves) {
     const auto moved = [&](uint32_t vertex) {
@@ -427,24 +425,12 @@ Problem mirror(Pattern& pattern, const EdgeRef& axis, OpId mirrorOp) {
 }
 
 void flip(Pattern& pattern) {
-    for (Vertex& v : pattern.vertices) v.position.x = -v.position.x;
-    for (InternalLine& l : pattern.lines) {
-        l.start.x = -l.start.x;
-        l.end.x = -l.end.x;
-    }
-    for (SymmetryAxis& axis : pattern.axes) {
-        axis.start.x = -axis.start.x;
-        axis.end.x = -axis.end.x;
-    }
+    forEachPoint(pattern, [](Vec2& p) { p.x = -p.x; });
+    // The outline stays counter-clockwise: it is walked the other way round.
     std::reverse(pattern.edges.begin(), pattern.edges.end());
     for (Edge& e : pattern.edges) {
         std::swap(e.start, e.end);
-        if (e.arc) e.arc->center.x = -e.arc->center.x;
-        if (e.cubic) {
-            std::swap(e.cubic->control1, e.cubic->control2);
-            e.cubic->control1.x = -e.cubic->control1.x;
-            e.cubic->control2.x = -e.cubic->control2.x;
-        }
+        if (e.cubic) std::swap(e.cubic->control1, e.cubic->control2);
     }
     pattern.flipped = !pattern.flipped;
 }

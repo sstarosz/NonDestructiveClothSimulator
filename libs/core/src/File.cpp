@@ -74,6 +74,13 @@ std::string shortest(double value) {
     return std::string(text, end);
 }
 
+// A point as its numbers, a space between each.
+std::string shortest(Vec2 p) { return shortest(p.x) + " " + shortest(p.y); }
+std::string shortest(const Vec3& p) { return shortest(p.x) + " " + shortest(p.y) + " " + shortest(p.z); }
+
+// The three particles or points of a triangle.
+std::string corners(const std::array<uint32_t, 3>& t) { return std::to_string(t[0]) + " " + std::to_string(t[1]) + " " + std::to_string(t[2]); }
+
 std::string quoted(const std::string& text) {
     std::string out = "\"";
     for (char c : text) {
@@ -197,11 +204,9 @@ public:
         if (error != std::errc{} || end != text.data() + text.size()) throw Problem{"\"" + text + "\" should be a whole number"};
         return value;
     }
-    uint32_t id() {
-        const long long value = whole();
-        if (value <= 0 || value > 4000000000LL) throw Problem{"an id is out of range"};
-        return static_cast<uint32_t>(value);
-    }
+    uint32_t id() { return idFrom(1, "an id is out of range"); }
+    // The id a reference names: 0 while nothing is chosen.
+    uint32_t chosen() { return idFrom(0, "a reference is out of range"); }
     std::size_t count(long long most = 1000) {
         const long long value = whole();
         if (value < 0 || value > most) throw Problem{"a count is out of range"};
@@ -218,6 +223,9 @@ public:
         }
         throw Problem{"\"" + text + "\" should be a number"};
     }
+    // Points, as their numbers in turn. (Braces read them in the order written.)
+    Vec2 vec2() { return {real(), real()}; }
+    Vec3 vec3() { return {real(), real(), real()}; }
     // The window writes none outside these, so one that is has been damaged.
     double particleDistance() {
         const double value = real();
@@ -227,6 +235,11 @@ public:
     }
 
 private:
+    uint32_t idFrom(long long least, const char* otherwise) {
+        const long long value = whole();
+        if (value < least || value > 4000000000LL) throw Problem{otherwise};
+        return static_cast<uint32_t>(value);
+    }
     void skipSpaces() {
         while (at_ < line_.size() && (line_[at_] == ' ' || line_[at_] == '\t' || line_[at_] == '\r')) ++at_;
     }
@@ -260,19 +273,16 @@ std::vector<OpId> readVia(Words& words) {
 }
 Reference readReference(Words& words) {
     const std::string kind = words.word();
+    const uint32_t target = words.chosen();
     if (kind == "e" || kind == "c") {
-        // An unset reference has operation 0.
-        const long long op = words.whole();
         const long long role = words.whole();
-        if (op < 0 || op > 4000000000LL || role < 0 || role > 65535) throw Problem{"a reference is out of range"};
+        if (role < 0 || role > 65535) throw Problem{"a reference is out of range"};
         std::vector<OpId> via = readVia(words);
-        if (kind == "e") return EdgeRef{OpId{static_cast<uint32_t>(op)}, static_cast<uint16_t>(role), std::move(via)};
-        return CornerRef{OpId{static_cast<uint32_t>(op)}, static_cast<uint16_t>(role), std::move(via)};
+        if (kind == "e") return EdgeRef{OpId{target}, static_cast<uint16_t>(role), std::move(via)};
+        return CornerRef{OpId{target}, static_cast<uint16_t>(role), std::move(via)};
     }
-    const long long target = words.whole();
-    if (target < 0 || target > 4000000000LL) throw Problem{"a reference is out of range"};
-    if (kind == "l") return LineRef{OpId{static_cast<uint32_t>(target)}};
-    if (kind == "P") return PanelId{static_cast<uint32_t>(target)};
+    if (kind == "l") return LineRef{OpId{target}};
+    if (kind == "P") return PanelId{target};
     throw Problem{"\"" + kind + "\" is not a kind of reference"};
 }
 EdgeRef readEdge(Words& words) {
@@ -294,10 +304,9 @@ void write(std::string& out, const Avatar& avatar) {
     out += "avatar " + quoted(avatar.name) + " " + std::to_string(avatar.points.size()) + " " + std::to_string(avatar.triangles.size()) + "\n";
     if (const AvatarImport& as = avatar.readAs; as != AvatarImport{})
         out += "import " + shortest(as.unit) + " " + shortest(as.rescale) + " " + std::string(axisNames[static_cast<std::size_t>(as.up)]) + " " +
-               std::string(axisNames[static_cast<std::size_t>(as.facing)]) + " " + shortest(as.moved.x) + " " + shortest(as.moved.y) + " " +
-               shortest(as.moved.z) + "\n";
-    for (const Vec3& p : avatar.points) out += "v " + shortest(p.x) + " " + shortest(p.y) + " " + shortest(p.z) + "\n";
-    for (const std::array<uint32_t, 3>& t : avatar.triangles) out += "t " + std::to_string(t[0]) + " " + std::to_string(t[1]) + " " + std::to_string(t[2]) + "\n";
+               std::string(axisNames[static_cast<std::size_t>(as.facing)]) + " " + shortest(as.moved) + "\n";
+    for (const Vec3& p : avatar.points) out += "v " + shortest(p) + "\n";
+    for (const std::array<uint32_t, 3>& t : avatar.triangles) out += "t " + corners(t) + "\n";
 }
 
 // An avatar as far as it has been read.
@@ -321,14 +330,10 @@ void write(std::string& out, const SceneState& state) {
     out += "drape " + shortest(state.drape->time) + " " + (state.drape->sewing ? "1" : "0") + " " + std::to_string(state.drape->panels.size()) + "\n";
     for (const DrapedPanel& cloth : state.drape->panels) {
         const std::size_t particles = std::min(cloth.flat.size(), cloth.at.size());
-        out += "cloth " + std::to_string(cloth.panel.value) + " " + shortest(cloth.anchor.x) + " " + shortest(cloth.anchor.y) + " " +
-               std::to_string(particles) + " " + std::to_string(cloth.triangles.size()) + "\n";
-        for (std::size_t i = 0; i < particles; ++i) {
-            const Vec2& flat = cloth.flat[i];
-            const Vec3& at = cloth.at[i];
-            out += "d " + shortest(flat.x) + " " + shortest(flat.y) + " " + shortest(at.x) + " " + shortest(at.y) + " " + shortest(at.z) + "\n";
-        }
-        for (const std::array<uint32_t, 3>& t : cloth.triangles) out += "f " + std::to_string(t[0]) + " " + std::to_string(t[1]) + " " + std::to_string(t[2]) + "\n";
+        out += "cloth " + std::to_string(cloth.panel.value) + " " + shortest(cloth.anchor) + " " + std::to_string(particles) + " " +
+               std::to_string(cloth.triangles.size()) + "\n";
+        for (std::size_t i = 0; i < particles; ++i) out += "d " + shortest(cloth.flat[i]) + " " + shortest(cloth.at[i]) + "\n";
+        for (const std::array<uint32_t, 3>& t : cloth.triangles) out += "f " + corners(t) + "\n";
     }
 }
 
@@ -350,9 +355,7 @@ AvatarImport readImport(Words& words) {
     as.up = readAxis(words);
     as.facing = readAxis(words);
     if (alongOneLine(as.up, as.facing)) throw Problem{"the avatar cannot face along the axis that is up"};
-    as.moved.x = words.real();
-    as.moved.y = words.real();
-    as.moved.z = words.real();
+    as.moved = words.vec3();
     return as;
 }
 
@@ -503,10 +506,7 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 in.tilt = words.real();
                 in.roll = words.real();
                 in.wrap = words.real();
-                if (!words.done()) {  // files before 0.1.1 have no anchor
-                    const double x = words.real();
-                    in.anchor = Vec2{x, words.real()};
-                }
+                if (!words.done()) in.anchor = words.vec2();  // files before 0.1.1 have none
                 doc.arrange(*panel, in);
             } else if (what == "op") {
                 if (!panel) throw Problem{"an operation comes before any panel"};
@@ -551,11 +551,7 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 body.imported = true;
             } else if (what == "v") {
                 if (!body.avatar || body.avatar->points.size() == body.points) throw Problem{"there is a point more than the avatar announces"};
-                Vec3 p;
-                p.x = words.real();
-                p.y = words.real();
-                p.z = words.real();
-                body.avatar->points.push_back(p);
+                body.avatar->points.push_back(words.vec3());
             } else if (what == "t") {
                 if (!body.avatar || body.avatar->triangles.size() == body.triangles) throw Problem{"there is a triangle more than the avatar announces"};
                 body.avatar->triangles.push_back(readTriangle(words, body.points, "a triangle of the avatar names a point that is not there"));
@@ -584,21 +580,15 @@ std::variant<SavedScene, FileError> fromText(std::string_view text) {
                 if (!drape.latestWhole(*state.drape)) throw Problem{"the cloth before this one is cut short"};
                 DrapedPanel cloth;
                 cloth.panel = knownPanel(words);
-                cloth.anchor.x = words.real();
-                cloth.anchor.y = words.real();
+                cloth.anchor = words.vec2();
                 drape.particles = words.count(mostOfAnAvatar);
                 drape.triangles = words.count(mostOfAnAvatar);
                 state.drape->panels.push_back(std::move(cloth));
             } else if (what == "d") {
                 if (!state.drape || state.drape->panels.empty() || state.drape->panels.back().at.size() == drape.particles)
                     throw Problem{"there is a particle more than the cloth announces"};
-                Vec2 flat;
-                flat.x = words.real();
-                flat.y = words.real();
-                Vec3 at;
-                at.x = words.real();
-                at.y = words.real();
-                at.z = words.real();
+                const Vec2 flat = words.vec2();
+                const Vec3 at = words.vec3();
                 state.drape->panels.back().flat.push_back(flat);
                 state.drape->panels.back().at.push_back(at);
             } else if (what == "f") {

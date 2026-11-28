@@ -1004,3 +1004,17 @@ TEST_CASE("a set length that cannot be done says why and changes nothing")
     const OpRef<SetLength> first = empty.add(bare, SetLength{.edge = {}, .length = 30_cm});
     EXPECT((evaluate(empty).failed(first.id)), "a length needs an outline before it");
 }
+
+TEST_CASE("a sweep within a millionth of a degree of a full turn is a whole turn")
+{
+    Document doc;
+    const PanelId round = doc.add(Panel{.name = "round"});
+    const OpRef<Circle> circle = doc.add(round, Circle{.radius = 10_cm, .sweep = 360.0 - 1e-7});
+    const PanelId ring = doc.add(Panel{.name = "ring"});
+    const OpRef<RingSector> sector = doc.add(ring, RingSector{.innerLength = 40_cm, .sweep = 360.0 - 1e-7, .depth = 5_cm});
+
+    const Result result = evaluate(doc);
+    REQUIRE(result.ok());
+    EXPECT((result[round].vertices.size() == 1 && result[round].edge(circle.arc()).start == result[round].edge(circle.arc()).end), "a circle with no slice");
+    EXPECT((result[ring].edge(sector.startSide()).seam && result[ring].edge(sector.endSide()).seam), "and a ring closed on itself");
+}
