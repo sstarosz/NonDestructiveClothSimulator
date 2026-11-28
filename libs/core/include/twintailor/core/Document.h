@@ -201,7 +201,7 @@ public:
     // Changes one field: doc.set(rect, &Rect::height, 60_cm);
     template <OperationType T, class Field>
     void set(OpRef<T> operation, Field T::* field, std::type_identity_t<Field> value) {
-        std::get<T>(data(operation)).*field = std::move(value);
+        std::get<T>(entry(operation).data).*field = std::move(value);
     }
     // The same without knowing the operation's type, for the window:
     // `field` comes from fields(doc.get(operation)).
@@ -287,11 +287,11 @@ private:
         Seam seam;
     };
 
+    // These throw std::out_of_range for a handle the document doesn't hold.
     OpId append(PanelId panel, OpData data);
-    OpData& data(OpId operation);
     ParameterEntry& entry(Param parameter);
     PanelEntry& entry(PanelId panel);
-    const PanelEntry* owner(OpId operation) const;
+    OperationEntry& entry(OpId operation);
 
     std::vector<ParameterEntry> parameters_;
     std::vector<PanelEntry> panels_;

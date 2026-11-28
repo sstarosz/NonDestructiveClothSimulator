@@ -93,10 +93,55 @@ TEST_CASE("unknown handles throw")
     doc.remove(panel);
 
     EXPECT_THROWS([&] { doc.set(foreign, 2); }, std::out_of_range, "set unknown parameter");
+    EXPECT_THROWS([&] { doc.rename(foreign, "y"); }, std::out_of_range, "rename unknown parameter");
+    EXPECT_THROWS([&] { doc.remove(foreign); }, std::out_of_range, "remove unknown parameter");
+    EXPECT_THROWS([&] { (void)doc.get(foreign); }, std::out_of_range, "get unknown parameter");
+    EXPECT((!doc.contains(foreign)), "an unknown parameter is not contained");
+
     EXPECT_THROWS([&] { (void)doc.get(panel); }, std::out_of_range, "get removed panel");
     EXPECT_THROWS([&] { doc.add(panel, Rect{}); }, std::out_of_range, "add to removed panel");
+    EXPECT_THROWS([&] { doc.rename(panel, "again"); }, std::out_of_range, "rename removed panel");
+    EXPECT_THROWS([&] { doc.place(panel, 1, 2); }, std::out_of_range, "place removed panel");
+    EXPECT_THROWS([&] { doc.remove(panel); }, std::out_of_range, "remove removed panel");
+    EXPECT_THROWS([&] { (void)doc.copy(panel, Panel{}); }, std::out_of_range, "copy removed panel");
+    EXPECT_THROWS([&] { (void)doc.operations(panel); }, std::out_of_range, "operations of removed panel");
+    EXPECT((!doc.contains(panel)), "a removed panel is not contained");
+
     EXPECT_THROWS([&] { doc.set(rect, &Rect::width, 2_cm); }, std::out_of_range, "set on removed operation");
+    EXPECT_THROWS([&] { doc.set(rect, FieldId{0}, 2_cm); }, std::out_of_range, "set a field of removed operation");
     EXPECT_THROWS([&] { doc.remove(OpId(rect)); }, std::out_of_range, "remove removed operation");
+    EXPECT_THROWS([&] { doc.setEnabled(rect, false); }, std::out_of_range, "switch off removed operation");
+    EXPECT_THROWS([&] { doc.move(rect, 0); }, std::out_of_range, "move removed operation");
+    EXPECT_THROWS([&] { (void)doc.enabled(rect); }, std::out_of_range, "whether removed operation is on");
+    EXPECT_THROWS([&] { (void)doc.get(OpId(rect)); }, std::out_of_range, "get removed operation");
+    EXPECT_THROWS([&] { (void)doc.panelOf(rect); }, std::out_of_range, "panel of removed operation");
+    EXPECT((!doc.contains(OpId(rect))), "a removed operation is not contained");
+
+    const PanelId kept = doc.add(Panel{.name = "kept"});
+    const SeamId seam = doc.add(Seam{.a = {kept, rect.top()}, .b = {kept, rect.bottom()}});
+    EXPECT_THROWS([&] { doc.set(seam, Seam{.a = {panel, rect.top()}, .b = {kept, rect.bottom()}}); }, std::out_of_range,
+                  "a seam cannot be set to a removed panel");
+    doc.remove(seam);
+    EXPECT_THROWS([&] { doc.remove(seam); }, std::out_of_range, "remove removed seam");
+    EXPECT_THROWS([&] { doc.set(seam, Seam{.a = {kept, rect.top()}, .b = {kept, rect.bottom()}}); }, std::out_of_range, "set removed seam");
+    EXPECT_THROWS([&] { (void)doc.get(seam); }, std::out_of_range, "get removed seam");
+    EXPECT((!doc.contains(seam)), "a removed seam is not contained");
+}
+
+TEST_CASE("a panel follows its first operation that is switched on, if that is an instance")
+{
+    Document doc;
+    const PanelId source = doc.add(Panel{.name = "source"});
+    doc.add(source, Rect{.width = 1_cm, .height = 1_cm});
+    const PanelId panel = doc.add(Panel{.name = "panel"});
+    const OpRef<Rect> before = doc.add(panel, Rect{.width = 1_cm, .height = 1_cm});
+    const OpRef<Instance> instance = doc.add(panel, Instance{.source = source});
+
+    EXPECT((!doc.instanceOf(panel)), "a shape of its own comes first");
+    doc.setEnabled(before, false);
+    EXPECT((doc.instanceOf(panel) && doc.instanceOf(panel)->source == source), "with it switched off, the instance comes first");
+    doc.setEnabled(instance, false);
+    EXPECT((!doc.instanceOf(panel)), "with both switched off, it follows nothing");
 }
 
 namespace {
