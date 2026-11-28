@@ -68,6 +68,10 @@ enum class Grows {
     // Exactly as dragged: the panel's own coordinates stay put, on the table
     // and in space, so the corner under the mouse follows the mouse.
     WhereDragged,
+    // For a length typed on the table: a panel without seams stays as
+    // WhereDragged, so the end of the edge that is kept stays where it is on the
+    // screen; a sewn panel grows away from its seams.
+    InPlaceUnlessSewn,
 };
 
 struct ChangeRules {
@@ -91,9 +95,10 @@ struct OperationField {
 struct SetField {
     std::variant<Param, OperationField> field;
     Expr value;
+    Grows grows = Grows::AwayFromSeams;  // how the panels it reshapes grow
 
     using Done = Nothing;
-    ChangeRules rules() const { return {}; }
+    ChangeRules rules() const { return {.grows = grows}; }
     std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
 };
 
@@ -161,8 +166,47 @@ struct DeleteCorners {
     std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
 };
 
+// An edge given a length of its own, as long as it is now (a SetLength layer),
+// where its shape has no setting for it or one that it shares with another edge.
+// On a symmetric panel it is given to the drawn side. It keeps the end on the
+// mirror of a symmetric panel, else both ends move.
+struct GiveEdgeLength {
+    PanelId panel;
+    EdgeRef edge;
+
+    struct Done {
+        OpRef<SetLength> layer;
+    };
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// The lengths given to an edge alone removed, so that its shape's setting gives
+// it a length again; a layer that is off is kept. Refused if the edge has none
+// of its own, or if the shape's setting would not give it a length, its corners
+// having been moved.
+struct RemoveEdgeLength {
+    PanelId panel;
+    EdgeRef edge;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Which end stays where it is when an edge is given its length.
+struct SetKeeping {
+    OpRef<SetLength> layer;
+    SetLength::Keeping keeping;
+    Grows grows = Grows::AwayFromSeams;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.grows = grows}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
 // Every command that changes the document.
-using DocumentCommand = std::variant<SetField, MoveCorners, DuplicatePanels, DeletePanels, DeleteCorners>;
+using DocumentCommand = std::variant<SetField, MoveCorners, DuplicatePanels, DeletePanels, DeleteCorners, GiveEdgeLength, RemoveEdgeLength, SetKeeping>;
 
 template <class C>
 concept DocumentChange = isAlternative<C, DocumentCommand>;

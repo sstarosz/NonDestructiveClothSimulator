@@ -1,6 +1,6 @@
 #pragma once
 // Private to the library: how a drag of corners and handles comes to the drawn
-// side of a panel. Shared by the commands and by Drafting.
+// side of a panel, and other questions that the commands and Drafting share.
 
 #include <expected>
 #include <string>
@@ -34,5 +34,8 @@ std::expected<std::vector<MovingCorner>, std::string> movableCorners(const Docum
 
 // Whether the document has a panel of this name.
 bool panelNamed(const Document& doc, const std::string& name);
+
+// The layers that give the drawn edge `drawn` a length of its own, but those that are off.
+std::vector<OpId> ownLengthsOf(const Document& doc, PanelId panel, const EdgeRef& drawn);
 
 } // namespace twintailor::session

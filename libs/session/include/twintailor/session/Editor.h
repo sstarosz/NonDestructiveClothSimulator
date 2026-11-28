@@ -20,7 +20,8 @@
 // space and on the table: its anchor (Arrangement::anchor) and its place on
 // the table move with them, so a longer skirt grows at the hem in both views.
 // A change made by dragging the outline itself (Grows::WhereDragged) moves
-// neither.
+// neither, nor does a length typed on the table for a panel without seams
+// (Grows::InPlaceUnlessSewn).
 
 #include <cstdint>
 #include <expected>

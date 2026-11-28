@@ -24,11 +24,18 @@ void placeNewPanels(Document& doc, const Result& shapes) {
     }
 }
 
+bool sewn(const Document& doc, PanelId panel) {
+    const std::vector<SeamId> seams = doc.seams();
+    return std::any_of(seams.begin(), seams.end(), [&](SeamId id) { return doc.get(id).a.panel == panel || doc.get(id).b.panel == panel; });
+}
+
 // Moves each reshaped panel's anchor, and its place on the table, with the
-// sewn edges that kept their length (Grows::AwayFromSeams).
-void keepSeamsInPlace(Document& doc, const Result& before, const Result& after) {
+// sewn edges that kept their length (Grows::AwayFromSeams, and the sewn panels
+// of Grows::InPlaceUnlessSewn).
+void keepSeamsInPlace(Document& doc, const Result& before, const Result& after, Grows grows) {
     for (const PanelResult& now : after.panels) {
         if (!doc.contains(now.panel) || now.pattern.vertices.empty()) continue;
+        if (grows == Grows::InPlaceUnlessSewn && !sewn(doc, now.panel)) continue;
         const Panel& panel = doc.get(now.panel);
         const auto was = std::find_if(before.panels.begin(), before.panels.end(), [&](const PanelResult& r) { return r.panel == now.panel; });
         if (was == before.panels.end() || was->pattern.vertices.empty()) continue;
@@ -96,7 +103,7 @@ std::expected<void, std::string> Editor::make(const Document& from, std::shared_
         shapes = std::make_shared<const Result>(evaluate(next));
         if (rules.ifItBreaks == IfItBreaks::Refuse && shapes->errors.size() > before->errors.size())
             return std::unexpected(newProblemIn(*shapes, *before, next));
-        if (rules.grows == Grows::AwayFromSeams) keepSeamsInPlace(next, *before, *shapes);
+        if (rules.grows != Grows::WhereDragged) keepSeamsInPlace(next, *before, *shapes, rules.grows);
     }
     placeNewPanels(next, *shapes);
     if (newStep) takeStep(std::move(document_));

@@ -248,3 +248,64 @@ TEST_CASE("only a corner added as a point is deleted; a shape's corner says whic
     REQUIRE(editor.run(DeleteCorners{.panel = start.panel, .corners = {point.corner()}}));
     EXPECT((editor.document().operations(start.panel).size() == 1), "the point's layer is gone");
 }
+
+TEST_CASE("an edge is given a length of its own, as long as it is now, and gives it up again")
+{
+    Plain start;
+    Editor editor(start.doc);
+    const auto layers = [&] { return editor.document().operations(start.panel).size(); };
+    const auto top = [&] { return editor.shapes()[start.panel].length(start.rect.top()); };
+    const auto none = editor.run(RemoveEdgeLength{start.panel, start.rect.top()});
+    EXPECT((!none && !editor.canUndo()), "an edge without a length of its own has none to give up");
+
+    const auto given = editor.run(GiveEdgeLength{start.panel, start.rect.top()});
+    REQUIRE(given.has_value());
+    EXPECT((layers() == 2 && top() == 20.0 && editor.document().get(given->layer).keeping == SetLength::Keeping::Middle), "a layer, as long as the edge is");
+    REQUIRE(editor.run(SetField{OperationField{given->layer, FieldId{0}}, 12_cm}));
+    EXPECT((top() == 12.0 && editor.shapes()[start.panel].position(start.rect.topLeft()).x == 4.0), "both ends moved in");
+    REQUIRE(editor.run(SetKeeping{given->layer, SetLength::Keeping::Start}));
+    const Pattern& shape = editor.shapes()[start.panel];
+    const Edge& edge = shape.edge(start.rect.top());
+    EXPECT((shape.position(shape.vertices[edge.start].name).x == 20.0), "the end it keeps is where it was before the length");
+
+    REQUIRE(editor.run(RemoveEdgeLength{start.panel, start.rect.top()}));
+    EXPECT((layers() == 1 && top() == 20.0), "the rectangle's width again");
+}
+
+TEST_CASE("an edge whose corners were moved keeps its own length: the shape's setting would not give it one")
+{
+    Plain start;
+    start.doc.add(start.panel, AdjustPoint{.corner = start.rect.topRight(), .dx = -3_cm, .dy = -4_cm});
+    Editor editor(start.doc);
+    REQUIRE(editor.run(GiveEdgeLength{start.panel, start.rect.top()}));
+    const std::uint64_t version = editor.version();
+    const auto refused = editor.run(RemoveEdgeLength{start.panel, start.rect.top()});
+    EXPECT((!refused && refused.error().find("corners were moved") != std::string::npos), "it says why");
+    EXPECT((editor.version() == version && editor.document().operations(start.panel).size() == 3), "and nothing is taken away");
+}
+
+TEST_CASE("a length typed on the table leaves a panel without seams where it is, and a sewn one grows away from its seams")
+{
+    Plain start;
+    const SetField taller{OperationField{start.rect, FieldId{1}}, 50_cm, Grows::InPlaceUnlessSewn};
+    const auto placeAfter = [&](const Document& doc, const SetField& command) {
+        Editor editor(doc);
+        REQUIRE(editor.run(command));
+        return editor.document().get(start.panel);
+    };
+    const Panel before = Editor(start.doc).document().get(start.panel);
+
+    const Panel alone = placeAfter(start.doc, taller);
+    EXPECT((alone.x == before.x && alone.y == before.y && alone.arrangement == before.arrangement), "without seams it stays, on the table and in space");
+
+    Document sewnDoc = start.doc;
+    const PanelId band = sewnDoc.add(Panel{.name = "band", .x = 50});
+    const OpRef<Rect> bandRect = sewnDoc.add(band, Rect{.width = 20_cm, .height = 4_cm});
+    sewnDoc.add(Seam{.a = {start.panel, start.rect.top()}, .b = {band, bandRect.bottom()}, .reversed = true});
+    SetField anywhere = taller;
+    anywhere.grows = Grows::AwayFromSeams;
+    const Panel sewn = placeAfter(sewnDoc, taller), grown = placeAfter(sewnDoc, anywhere);
+    EXPECT((sewn.y == grown.y && sewn.arrangement == grown.arrangement), "sewn, it grows as it does for a formula or a field");
+    EXPECT((sewn.y != alone.y), "which moves it on the table, so that the seam stays");
+}
+
