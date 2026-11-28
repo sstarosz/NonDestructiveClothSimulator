@@ -2,18 +2,25 @@
 // What can be done to the work, each as a plain struct that holds all it
 // needs: no selection, no tool, no drag in progress. A Session or an Editor
 // runs them. A command is made on a copy of the document: one that cannot be
-// done changes nothing.
+// done changes nothing. A command run by itself is one undo step:
 //
 //   auto made = editor.run(DuplicatePanels{.panels = {front}, .how = Follow::MirroredInstance});
 //   if (!made) say(made.error());
 //   else select(made->panels);
 //
-// Dragged, a command is applied each time to the document as it was when the
-// drag began, so it says how far the drag has come in all:
+// What takes several commands, or follows the mouse, is done in an edit: all of
+// it is one undo step, kept or taken back whole. In an edit, `run` adds a
+// command to it, and `preview` shows a command in place of the preview before
+// it, so a command that follows the mouse says how far the mouse has come in all:
 //
-//   editor.drag(MoveCorners{.panel = front, .corners = {corner}, .by = {1, 0}});
-//   editor.drag(MoveCorners{.panel = front, .corners = {corner}, .by = {3, 0}});  // 3 cm in all
-//   editor.endDrag();                                                            // one undo step; or cancelDrag()
+//   const Edit edit = editor.begin();
+//   editor.preview(edit, MoveCorners{.panel = front, .corners = {corner}, .by = {1, 0}});
+//   editor.preview(edit, MoveCorners{.panel = front, .corners = {corner}, .by = {3, 0}});  // 3 cm in all
+//   editor.commit(edit);  // it stays; or editor.cancel(edit): as if it never was
+//
+// One edit is open at a time. A command run by itself, undo, redo or another
+// begin ends it first, and what it made stays. A call with an edit that is over
+// changes nothing.
 //
 // A new command is a struct here, with what it hands back (Done), how it may
 // change the document (rules) and what it does (apply), and a place in
@@ -34,12 +41,14 @@
 
 namespace twintailor::session {
 
-// ---- How a change may change the document ----------------------------------------
-
-enum class Step {
-    New,       // starts an undo step
-    Continue,  // part of the step before it, as the later moments of one drag
+// An edit that was begun (Editor::begin, Session::begin): what is run in it is
+// one undo step.
+struct Edit {
+    std::uint64_t number = 0;
+    friend bool operator==(const Edit&, const Edit&) = default;
 };
+
+// ---- How a change may change the document ----------------------------------------
 
 // What a change may do to the document's problems.
 enum class IfItBreaks {
@@ -62,7 +71,6 @@ enum class Grows {
 };
 
 struct ChangeRules {
-    Step step = Step::New;  // for Editor::change; a command's step follows from how it is run
     IfItBreaks ifItBreaks = IfItBreaks::Refuse;
     Touches touches = Touches::Shapes;
     Grows grows = Grows::AwayFromSeams;
@@ -161,12 +169,13 @@ concept DocumentChange = isAlternative<C, DocumentCommand>;
 // ---- Commands on the cloth -------------------------------------------------------
 
 // A particle of the cloth shown, taken hold of and led to `to`. Only a Session
-// runs it, and only as a drag: it changes no document, and the whole drag is
+// runs it, and only as a preview: it changes no document, and the whole edit is
 // one undo step, which brings back the drape as it was before.
 //
-//   session.drag(PullCloth{panel, point, to});  // takes hold
-//   session.drag(PullCloth{panel, point, further});
-//   session.endDrag();                          // lets go; or cancelDrag()
+//   const Edit pull = session.begin();
+//   session.preview(pull, PullCloth{panel, point, to});  // takes hold
+//   session.preview(pull, PullCloth{panel, point, further});
+//   session.commit(pull);                                // lets go; or cancel(pull)
 struct PullCloth {
     PanelId panel;
     std::uint32_t point;  // indexes the panel's particles in Session::cloth().mesh

@@ -1042,6 +1042,29 @@ TEST_CASE("a length is typed on the table with a live preview; Enter keeps it an
     EXPECT((table->lengthEditor() == nullptr && std::abs(shape().length(rect.bottom()) - 25.0) < 1e-9), "a click elsewhere leaves it, as it was");
 }
 
+TEST_CASE("something else done while a length is typed closes the bar, and each stays an undo step of its own", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
+    TableView* table = w.table();
+    const auto bottom = [&] { return w.window.session().editor().shapes()[plain].length(rect.bottom()); };
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(table->lengthEditor() != nullptr);
+    table->lengthEditor()->setText("22");
+    const std::size_t panels = w.doc().panels().size();
+
+    w.window.shelf()->mirroredInstance()->trigger();  // a button that leaves the focus on the bar
+    EXPECT((table->lengthEditor() == nullptr), "the bar closes");
+    EXPECT((bottom() == 22.0 && w.doc().panels().size() == panels + 1), "what was typed stays, and the instance is made");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((bottom() == 22.0 && w.doc().panels().size() == panels), "one undo for the instance");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((bottom() == 30.0 && !w.window.shelf()->undo()->isEnabled()), "and one for the length");
+}
+
 TEST_CASE("an anchor chosen on an edge that has its own length is part of the edit, and Escape takes it back", "[qt]")
 {
     Table w;

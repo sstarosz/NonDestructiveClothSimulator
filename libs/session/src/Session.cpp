@@ -263,7 +263,7 @@ void Session::followAvatar() {
 
 void Session::resetCloth() {
     held_.reset();
-    pulledFrom_.reset();
+    pull_.reset();
     simulation_->stop();
     cloth_.mesh.reset();  // a cloth started next must not be taken for this one
     cloth_.positions.clear();
@@ -274,8 +274,10 @@ void Session::resetCloth() {
     ++sceneVersion_;
 }
 
-bool Session::drag(const PullCloth& pull) {
-    if (pulledFrom_) {
+bool Session::preview(Edit edit, const PullCloth& pull) {
+    letGoAfterThePull();
+    if (!editor_.editing(edit)) return false;
+    if (pull_ == edit) {
         if (held_) simulation_->hold(held_->panel, held_->point, pull.to);
         return held_.has_value();
     }
@@ -287,9 +289,9 @@ bool Session::drag(const PullCloth& pull) {
     if (found == panels.end() || pull.point >= found->points.size()) return false;
     // The pull is an undo step: the drape as it is now is kept for the state before it.
     keepDrape();
-    pulledFrom_ = editor_.step();
-    editor_.addStep();
+    editor_.addStep(edit);
     shownStep_ = editor_.step();
+    pull_ = edit;
     held_ = Held{static_cast<std::uint32_t>(found - panels.begin()), pull.point};
     simulation_->hold(held_->panel, held_->point, pull.to);
     return true;
@@ -301,17 +303,27 @@ void Session::release() {
     simulation_->letGo();
 }
 
-void Session::endDrag() {
-    editor_.endDrag();
-    if (pulledFrom_) release();
-    pulledFrom_.reset();
+void Session::letGoAfterThePull() {
+    if (!pull_ || editor_.editing(*pull_)) return;
+    pull_.reset();
+    release();
 }
 
-bool Session::cancelDrag() {
-    if (!pulledFrom_) return editor_.cancelDrag();
-    const std::uint64_t before = *pulledFrom_;
-    endDrag();
-    return editor_.rollBackTo(before);  // the drape of that state comes back at the next update
+Edit Session::begin() {
+    const Edit edit = editor_.begin();
+    letGoAfterThePull();
+    return edit;
+}
+
+void Session::commit(Edit edit) {
+    editor_.commit(edit);
+    letGoAfterThePull();
+}
+
+bool Session::cancel(Edit edit) {
+    const bool taken = editor_.cancel(edit);  // the drape of the state before comes back at the next update
+    letGoAfterThePull();
+    return taken;
 }
 
 void Session::setThreading(Threading threading) {
@@ -405,6 +417,7 @@ void Session::keepDrape() {
 }
 
 std::optional<std::string> Session::update(bool meshWanted) {
+    letGoAfterThePull();  // an undo, or a change made through the editor, ends it too
     followBody();
     if (!meshWanted) {
         simulation_->run(false);

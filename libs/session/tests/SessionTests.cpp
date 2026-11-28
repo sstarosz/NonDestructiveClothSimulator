@@ -449,7 +449,8 @@ TEST_CASE("a seam that cannot close is in the cloth's news, until it closes or t
     frames(session, 1);
     // One stitched point held under the floor, where the one sewn to it cannot follow.
     const sim::Stitch stitch = session.cloth().mesh->stitches.front();
-    session.drag(PullCloth{session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}});
+    const Edit held = session.begin();
+    session.preview(held, PullCloth{session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}});
     frames(session, 600);
     REQUIRE(!session.cloth().sewing);
     REQUIRE(session.cloth().open.size() == 1);
@@ -457,7 +458,7 @@ TEST_CASE("a seam that cannot close is in the cloth's news, until it closes or t
 
     session.simulate(false);
     frames(session, 2);
-    session.endDrag();
+    session.commit(held);
     session.simulate(true);
     frames(session, 240);
     EXPECT(session.cloth().open.empty(), "let go, it closes and is not reported");
@@ -465,7 +466,7 @@ TEST_CASE("a seam that cannot close is in the cloth's news, until it closes or t
     session.resetCloth();
     session.simulate(true);
     frames(session, 1);
-    session.drag(PullCloth{session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}});
+    session.preview(session.begin(), PullCloth{session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}});
     frames(session, 600);
     REQUIRE(!session.cloth().open.empty());
     session.resetCloth();
@@ -624,15 +625,16 @@ TEST_CASE("cloth pulled by hand runs while it is held, even when paused")
     REQUIRE(session.cloth().time == time);
 
     const sim::Vec3 corner = session.cloth().positions.front()[0];
-    session.drag(PullCloth{start.panel, 0, corner + sim::Vec3{0, 0, 15}});
+    const Edit pull = session.begin();
+    session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 0, 15}});
     EXPECT((session.pulling()), "it is held");
     frames(session, 30);
     EXPECT((session.cloth().time > time), "held, the cloth runs though it is paused");
     EXPECT((sim::length(session.cloth().positions.front()[0] - (corner + sim::Vec3{0, 0, 15})) < 1e-6), "and the held particle is where the hand is");
-    session.drag(PullCloth{start.panel, 0, corner + sim::Vec3{0, 10, 15}});
+    session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 10, 15}});
     frames(session, 30);
     EXPECT((sim::length(session.cloth().positions.front()[0] - (corner + sim::Vec3{0, 10, 15})) < 1e-6), "the hand moves on, and the particle follows");
-    session.endDrag();
+    session.commit(pull);
     frames(session, 2);
     const double after = session.cloth().time;
     frames(session, 5);
@@ -664,11 +666,12 @@ TEST_CASE("a pull of the cloth is one undo step: undo brings back the drape as i
     const sim::Placement before = session.cloth().positions;
 
     const sim::Vec3 corner = before.front()[0];
-    REQUIRE(session.drag(PullCloth{start.panel, 0, corner + sim::Vec3{0, 0, 15}}));
+    const Edit pull = session.begin();
+    REQUIRE(session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 0, 15}}));
     frames(session, 20);
-    session.drag(PullCloth{start.panel, 0, corner + sim::Vec3{0, 10, 15}});
+    session.preview(pull, PullCloth{start.panel, 0, corner + sim::Vec3{0, 10, 15}});
     frames(session, 20);
-    session.endDrag();
+    session.commit(pull);
     frames(session, 1);
     const sim::Placement pulled = session.cloth().positions;
     REQUIRE(apart(pulled, before) > 1.0);
@@ -695,9 +698,10 @@ TEST_CASE("a pull that is cancelled leaves the drape as it was and no undo step"
     const sim::Placement before = session.cloth().positions;
     const std::uint64_t step = session.editor().step();
 
-    REQUIRE(session.drag(PullCloth{start.panel, 0, before.front()[0] + sim::Vec3{0, 0, 15}}));
+    const Edit pull = session.begin();
+    REQUIRE(session.preview(pull, PullCloth{start.panel, 0, before.front()[0] + sim::Vec3{0, 0, 15}}));
     frames(session, 20);
-    EXPECT((session.cancelDrag() && !session.pulling()), "let go, and taken back");
+    EXPECT((session.cancel(pull) && !session.pulling()), "let go, and taken back");
     session.update();
     EXPECT((apart(session.cloth().positions, before) < 1e-5), "the drape is as before the pull");
     EXPECT((session.editor().step() == step && !session.editor().canUndo() && !session.editor().canRedo()), "and the history holds nothing of it");
@@ -708,8 +712,30 @@ TEST_CASE("with no cloth there is nothing to pull, and no undo step")
     Skirt start;
     Session session(start.doc, Threading::OneStepPerAdvance);
     session.update();
-    EXPECT((!session.drag(PullCloth{start.panel, 0, {0, 100, 0}}) && !session.editor().canUndo()), "nothing is taken hold of");
-    session.endDrag();
+    const Edit pull = session.begin();
+    EXPECT((!session.preview(pull, PullCloth{start.panel, 0, {0, 100, 0}}) && !session.editor().canUndo()), "nothing is taken hold of");
+    session.commit(pull);
+}
+
+TEST_CASE("a held particle is let go once something else is done, however it is done")
+{
+    Skirt start;
+    Session session(start.doc, Threading::OneStepPerAdvance);
+    session.simulate(true);
+    frames(session, 30);
+    const PullCloth up{start.panel, 0, session.cloth().positions.front()[0] + sim::Vec3{0, 0, 15}};
+
+    const Edit first = session.begin();
+    REQUIRE(session.preview(first, up));
+    REQUIRE(session.run(SetField{start.length, 55_cm}));
+    EXPECT((!session.pulling() && !session.preview(first, up)), "a command lets go, and that pull is over");
+    EXPECT((session.editor().undo() && session.editor().undo() && !session.editor().canUndo()), "the pull and the command are an undo step each");
+
+    session.update();
+    REQUIRE(session.preview(session.begin(), up));
+    REQUIRE(session.editor().undo());  // not through the session
+    frames(session, 1);
+    EXPECT((!session.pulling()), "undo lets go by the next update");
 }
 
 TEST_CASE("undo and redo bring the drape back")
@@ -808,7 +834,7 @@ TEST_CASE("a panel is hidden without leaving the cloth; deactivated, it stands s
     frames(session, 10);
     EXPECT(heightOf(start.panel) == stoodAt, "a deactivated panel stands where it was");
     EXPECT(heightOf(other) < othersAt, "the other goes on falling");
-    session.drag(PullCloth{start.panel, 0, {0, 180, 0}});
+    session.preview(session.begin(), PullCloth{start.panel, 0, {0, 180, 0}});
     EXPECT(!session.pulling(), "it cannot be pulled");
     REQUIRE(session.editor().change([&](Document& doc) { doc.set(start.length, Expr(45)); }));
     frames(session, 5);

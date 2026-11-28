@@ -1433,3 +1433,35 @@ TEST_CASE("a seam is selected instead of panels, and let go of when a panel is s
     drafting.handle(editor, SelectSeam{seam});
     EXPECT(!drafting.selection.seam, "and cannot be");
 }
+
+TEST_CASE("a length is typed in one edit: all of it is kept or taken back, and what is done meanwhile stays")
+{
+    Document doc;
+    const PanelId panel = doc.add(Panel{.name = "plain"});
+    const OpRef<Rect> rect = doc.add(panel, Rect{.width = 30_cm, .height = 40_cm});
+    Editor editor(doc);
+    Drafting drafting;
+    const auto layers = [&] { return editor.document().operations(panel).size(); };
+    const auto type = [&](const Outcome::LengthField& field, double length) {
+        REQUIRE(editor.change(drafting.typingIn(editor), [&](Document& d) { d.set(field.operation, field.field, Expr(length)); }));
+    };
+
+    const Outcome made = drafting.handle(editor, EditLength{panel, rect.top(), true});
+    REQUIRE(made.typeLength.has_value());
+    type(*made.typeLength, 20.0);
+    drafting.cancelTyping(editor);
+    EXPECT((layers() == 1 && !editor.canUndo() && !editor.canRedo()), "taken back, with the length that was made");
+
+    const Outcome again = drafting.handle(editor, EditLength{panel, rect.top(), true});
+    type(*again.typeLength, 20.0);
+    drafting.commitTyping(editor);
+    EXPECT((layers() == 2 && editor.undo() && layers() == 1 && !editor.canUndo()), "kept, it is one undo step");
+
+    const Outcome third = drafting.handle(editor, EditLength{panel, rect.top(), true});
+    drafting.handle(editor, AddBeside{panel, Follow::Copy});  // something else, while the length is typed
+    type(*third.typeLength, 25.0);
+    drafting.cancelTyping(editor);
+    EXPECT((layers() == 2 && editor.document().panels().size() == 2), "the length made before it and the copy stay");
+    EXPECT((editor.shapes()[panel].length(rect.top()) == 30.0), "what was typed after it is taken back");
+}
+

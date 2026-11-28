@@ -76,8 +76,15 @@ void Editor::evaluateAgain() {
     ++shapesVersion_;
 }
 
-std::expected<void, std::string> Editor::commit(const Document& from, std::shared_ptr<const Result> before, const Verb& verb, ChangeRules rules,
-                                                bool newStep) {
+// Room for a step is made first: it is the last thing that can fail, and until here nothing has changed.
+void Editor::takeStep(Document&& left) {
+    if (undo_.size() == undo_.capacity()) undo_.reserve(std::max<std::size_t>(16, 2 * undo_.capacity()));
+    undo_.push_back({std::move(left), step_, content_});
+    step_ = ++lastStep_;
+}
+
+std::expected<void, std::string> Editor::make(const Document& from, std::shared_ptr<const Result> before, const Verb& verb, ChangeRules rules,
+                                              bool newStep) {
     Document next = from;
     try {
         if (std::expected<void, std::string> done = verb(next, *before); !done) return done;
@@ -92,13 +99,7 @@ std::expected<void, std::string> Editor::commit(const Document& from, std::share
         if (rules.grows == Grows::AwayFromSeams) keepSeamsInPlace(next, *before, *shapes);
     }
     placeNewPanels(next, *shapes);
-    // With nothing to continue, a continued step starts one.
-    if (newStep || undo_.empty()) {
-        // Room for the step first: it is the last thing that can fail, and until here nothing has changed.
-        if (undo_.size() == undo_.capacity()) undo_.reserve(std::max<std::size_t>(16, 2 * undo_.capacity()));
-        undo_.push_back({std::move(document_), step_, content_});
-        step_ = ++lastStep_;
-    }
+    if (newStep) takeStep(std::move(document_));
     document_ = std::move(next);
     if (shapes != shapes_) {
         shapes_ = std::move(shapes);
@@ -110,33 +111,79 @@ std::expected<void, std::string> Editor::commit(const Document& from, std::share
     return {};
 }
 
-std::expected<void, std::string> Editor::change(const std::function<void(Document&)>& verb, ChangeRules rules) {
-    endDrag();
-    const Verb whole = [&verb](Document& doc, const Result&) -> std::expected<void, std::string> {
+namespace {
+
+constexpr const char* editIsOver = "Something else was done in the meantime. Begin again.";
+
+// A change that cannot say why it fails, as a verb.
+auto whole(const std::function<void(Document&)>& verb) {
+    return [&verb](Document& doc, const Result&) -> std::expected<void, std::string> {
         verb(doc);
         return {};
     };
-    return commit(document_, shapes_, whole, rules, rules.step == Step::New);
 }
 
-bool Editor::cancelDrag() {
-    if (!drag_) return false;
-    const bool taken = drag_->stepOpen;
-    const std::uint64_t before = drag_->step;
-    endDrag();
-    return taken && rollBackTo(before);
+} // namespace
+
+std::expected<void, std::string> Editor::alone(const Verb& verb, ChangeRules rules) {
+    open_.reset();
+    return make(document_, shapes_, verb, rules, true);
 }
 
-void Editor::addStep() {
-    endDrag();
-    undo_.push_back({document_, step_, content_});
-    step_ = ++lastStep_;
+std::expected<void, std::string> Editor::added(Edit edit, const Verb& verb, ChangeRules rules) {
+    if (!editing(edit)) return std::unexpected(editIsOver);
+    std::expected<void, std::string> made = make(document_, shapes_, verb, rules, !open_->stepTaken);
+    if (!made) return made;
+    open_->stepTaken = true;
+    open_->previewFrom.reset();  // the next preview starts from here
+    return made;
+}
+
+std::expected<void, std::string> Editor::shown(Edit edit, const Verb& verb, ChangeRules rules) {
+    if (!editing(edit)) return std::unexpected(editIsOver);
+    if (!open_->previewFrom) open_->previewFrom = PreviewFrom{document_, shapes_};
+    std::expected<void, std::string> made = make(open_->previewFrom->document, open_->previewFrom->shapes, verb, rules, !open_->stepTaken);
+    if (made) open_->stepTaken = true;
+    return made;
+}
+
+std::expected<void, std::string> Editor::change(const std::function<void(Document&)>& verb, ChangeRules rules) {
+    return alone(whole(verb), rules);
+}
+
+std::expected<void, std::string> Editor::change(Edit edit, const std::function<void(Document&)>& verb, ChangeRules rules) {
+    return added(edit, whole(verb), rules);
+}
+
+Edit Editor::begin() {
+    open_ = Open{Edit{++lastEdit_}};
+    return open_->edit;
+}
+
+void Editor::addStep(Edit edit) {
+    if (!editing(edit) || open_->stepTaken) return;
+    takeStep(Document(document_));
+    open_->stepTaken = true;
     redo_.clear();
     ++version_;
 }
 
+void Editor::commit(Edit edit) {
+    if (editing(edit)) open_.reset();
+}
+
+bool Editor::cancel(Edit edit) {
+    if (!editing(edit)) return false;
+    const bool taken = open_->stepTaken;
+    open_.reset();
+    if (!taken) return false;
+    undo();  // an edit has one step
+    redo_.clear();
+    return true;
+}
+
 bool Editor::undo() {
-    endDrag();
+    open_.reset();
     if (undo_.empty()) return false;
     const Kept& back = undo_.back();
     redo_.push_back({std::exchange(document_, std::move(undo_.back().document)), std::exchange(step_, back.step), std::exchange(content_, back.content)});
@@ -146,17 +193,8 @@ bool Editor::undo() {
     return true;
 }
 
-bool Editor::rollBackTo(std::uint64_t step) {
-    if (step_ == step) return false;
-    const bool known = std::any_of(undo_.begin(), undo_.end(), [&](const Kept& kept) { return kept.step == step; });
-    if (!known) return false;
-    while (step_ != step && undo()) {}
-    redo_.clear();
-    return true;
-}
-
 bool Editor::redo() {
-    endDrag();
+    open_.reset();
     if (redo_.empty()) return false;
     const Kept& next = redo_.back();
     undo_.push_back({std::exchange(document_, std::move(redo_.back().document)), std::exchange(step_, next.step), std::exchange(content_, next.content)});
@@ -167,7 +205,7 @@ bool Editor::redo() {
 }
 
 void Editor::replace(Document document) {
-    endDrag();
+    open_.reset();
     document_ = std::move(document);
     undo_.clear();
     redo_.clear();

@@ -1,6 +1,7 @@
 # 0027. Every change is a command; undo is a copy
 
-**Date:** 27 November 2026 (five trial commands built on 28 November; the rest to come)
+**Date:** 27 November 2026 (on 28 November: five trial commands and edits built,
+and only the Session to run commands; the rest to come)
 **Issues/PRs:** none
 
 ## Context
@@ -12,12 +13,14 @@ a recovery copy up to 30 seconds old is left.
 ## Decision
 
 - Every action that changes the work is a command: a plain struct in
-  `session` that holds all it needs. `session` runs it, and that is the only
-  way to change anything; the window cannot edit the document itself.
+  `session` that holds all it needs. `session::Session` runs it, and that is
+  the only way to change anything: outside `session` the document is only
+  read.
 - A command runs on a copy. If it fails, nothing changes.
 - Undo keeps copies, not hand-written reversals. The history holds the
   document and the drape, so that a pull and Reset can be undone.
-- A drag is begun, updated and then committed or cancelled: one undo step.
+- What takes several commands, or follows the mouse, is an edit: begun, then
+  committed or cancelled, and one undo step. One is open at a time.
 - Selection, tool and camera are not commands. `Drafting` turns a gesture and
   the selection into a command.
 - Commands can be stored: after a crash they are run again on the last copy of

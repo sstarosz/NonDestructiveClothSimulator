@@ -66,47 +66,103 @@ TEST_CASE("a command that cannot be done says why and changes nothing")
     EXPECT((editor.version() == version && !editor.canUndo() && !editor.unsaved()), "nothing changed, and there is nothing to undo");
 }
 
-TEST_CASE("a drag of corners is run from where it began: it says how far in all, and is one undo step")
+TEST_CASE("a preview of a drag takes the place of the one before: it says how far in all, and the edit is one undo step")
 {
     Plain start;
     Editor editor(start.doc);
     MoveCorners move{.panel = start.panel, .corners = {start.rect.topRight()}, .by = {0, 2}};
-    REQUIRE(editor.drag(move));
+    const Edit first = editor.begin();
+    REQUIRE(editor.preview(first, move));
     move.by = {0, 5};
-    REQUIRE(editor.drag(move));
+    REQUIRE(editor.preview(first, move));
     EXPECT((heightOf(editor, start.panel, start.rect.topRight()) == 45.0), "5 cm in all, not 2 and then 5");
     EXPECT((editor.document().operations(start.panel).size() == 2), "with one adjustment");
-    editor.endDrag();
+    editor.commit(first);
 
     // The next drag keeps moving the same adjustment.
     move.by = {0, 2};
-    REQUIRE(editor.drag(move));
-    editor.endDrag();
+    const Edit second = editor.begin();
+    REQUIRE(editor.preview(second, move));
+    editor.commit(second);
     EXPECT((heightOf(editor, start.panel, start.rect.topRight()) == 47.0 && editor.document().operations(start.panel).size() == 2), "and so does the next");
     EXPECT((editor.undo() && heightOf(editor, start.panel, start.rect.topRight()) == 45.0), "one undo for the second drag");
     EXPECT((editor.undo() && editor.document().operations(start.panel).size() == 1 && !editor.canUndo()), "and one for the first");
 }
 
-TEST_CASE("a drag that is cancelled leaves nothing: neither a change nor something to redo")
+TEST_CASE("an edit that is cancelled leaves nothing: neither a change nor something to redo")
 {
     Plain start;
     Editor editor(start.doc);
-    REQUIRE(editor.drag(MoveCorners{.panel = start.panel, .corners = {start.rect.topRight()}, .by = {3, 0}}));
-    REQUIRE(editor.drag(MoveCorners{.panel = start.panel, .corners = {start.rect.topRight()}, .by = {6, 0}}));
-    EXPECT((editor.cancelDrag()), "it is taken back");
+    const Edit drag = editor.begin();
+    REQUIRE(editor.preview(drag, MoveCorners{.panel = start.panel, .corners = {start.rect.topRight()}, .by = {3, 0}}));
+    REQUIRE(editor.preview(drag, MoveCorners{.panel = start.panel, .corners = {start.rect.topRight()}, .by = {6, 0}}));
+    EXPECT((editor.cancel(drag)), "it is taken back");
     EXPECT((editor.document().operations(start.panel).size() == 1 && !editor.canUndo() && !editor.canRedo() && !editor.unsaved()), "as if it never was");
-    EXPECT((!editor.cancelDrag()), "there is no drag any more");
+    EXPECT((!editor.cancel(drag) && !editor.editing(drag)), "the edit is over");
 }
 
-TEST_CASE("a moment of a drag that cannot be done leaves the one before")
+TEST_CASE("a preview that cannot be done leaves the one before")
 {
     Front start;
     Editor editor(start.doc);
-    REQUIRE(editor.drag(SetField{start.width, 30_cm}));
-    const auto refused = editor.drag(SetField{start.width, Expr(-5)});
-    EXPECT((!refused && editor.shapes()[start.panel].length(start.rect.bottom()) == 30.0), "the width stays as the moment before had it");
-    editor.endDrag();
+    const Edit drag = editor.begin();
+    REQUIRE(editor.preview(drag, SetField{start.width, 30_cm}));
+    const auto refused = editor.preview(drag, SetField{start.width, Expr(-5)});
+    EXPECT((!refused && editor.shapes()[start.panel].length(start.rect.bottom()) == 30.0), "the width stays as the preview before had it");
+    editor.commit(drag);
     EXPECT((editor.undo() && editor.shapes()[start.panel].length(start.rect.bottom()) == 20.0 && !editor.canUndo()), "one undo step");
+}
+
+TEST_CASE("several commands run in one edit are one undo step, and one that cannot be done leaves the others")
+{
+    Front start;
+    Editor editor(start.doc);
+    const Edit edit = editor.begin();
+    EXPECT((!editor.canUndo()), "an edit that has changed nothing is not in the history");
+    REQUIRE(editor.run(edit, DuplicatePanels{.panels = {start.panel}}));
+    REQUIRE(editor.run(edit, SetField{start.width, 30_cm}));
+    EXPECT((!editor.run(edit, SetField{start.width, Expr(-5)}) && editor.editing(edit)), "refused, and the edit goes on");
+    editor.commit(edit);
+    EXPECT((editor.document().panels().size() == 2 && editor.shapes()[start.panel].length(start.rect.bottom()) == 30.0), "both are done");
+    EXPECT((editor.undo() && editor.document().panels().size() == 1 && editor.shapes()[start.panel].length(start.rect.bottom()) == 20.0 && !editor.canUndo()),
+           "and one undo takes both back");
+}
+
+TEST_CASE("a preview takes the place of the preview before it and keeps what was run in the edit")
+{
+    Plain start;
+    Editor editor(start.doc);
+    const MoveCorners up{.panel = start.panel, .corners = {start.rect.topRight()}, .by = {0, 2}};
+    const Edit edit = editor.begin();
+    REQUIRE(editor.preview(edit, up));
+    REQUIRE(editor.run(edit, DuplicatePanels{.panels = {start.panel}}));
+    REQUIRE(editor.preview(edit, up));
+    REQUIRE(editor.preview(edit, up));
+    EXPECT((heightOf(editor, start.panel, start.rect.topRight()) == 44.0), "the preview before the command stays; the two after it are one");
+    EXPECT((editor.document().panels().size() == 2), "and so does what was run");
+    EXPECT((editor.cancel(edit) && editor.document().panels().size() == 1 && heightOf(editor, start.panel, start.rect.topRight()) == 40.0), "all of it is taken back");
+}
+
+TEST_CASE("an edit is over once something else is done; what it made stays, and it changes nothing more")
+{
+    Front start;
+    Editor editor(start.doc);
+    const auto width = [&] { return editor.shapes()[start.panel].length(start.rect.bottom()); };
+
+    const Edit first = editor.begin();
+    REQUIRE(editor.run(first, SetField{start.width, 30_cm}));
+    REQUIRE(editor.run(DuplicatePanels{.panels = {start.panel}}));  // a command by itself
+    EXPECT((!editor.editing(first) && !editor.cancel(first) && width() == 30.0), "the edit's work stays");
+    const auto late = editor.run(first, SetField{start.width, 40_cm});
+    EXPECT((!late && !late.error().empty() && width() == 30.0), "and a call with it changes nothing, and says why");
+    EXPECT((!editor.preview(first, SetField{start.width, 40_cm}) && width() == 30.0), "nor does a preview");
+    EXPECT((editor.undo() && editor.document().panels().size() == 1 && width() == 30.0), "the command by itself has its own undo step");
+
+    const Edit second = editor.begin();
+    REQUIRE(editor.run(second, SetField{start.width, 40_cm}));
+    const Edit third = editor.begin();  // another edit
+    EXPECT((!editor.editing(second) && editor.editing(third)), "one edit is open at a time");
+    EXPECT((editor.undo() && !editor.editing(third) && width() == 30.0), "undo ends an edit too");
 }
 
 TEST_CASE("a corner that a formula places is not moved, and the command says why")

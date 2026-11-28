@@ -71,12 +71,14 @@ TEST_CASE("a verb that throws is refused with its words")
     EXPECT(editor.document().panels().size() == 1u, "and the document is as it was");
 }
 
-TEST_CASE("one drag is one undo step")
+TEST_CASE("the changes of one edit are one undo step")
 {
     OnePanel start;
     Editor editor(start.doc);
+    const Edit drag = editor.begin();
     for (int value = 81; value <= 90; ++value)
-        REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(value)); }, {.step = value == 81 ? Step::New : Step::Continue}));
+        REQUIRE(editor.change(drag, [&](Document& doc) { doc.set(start.waist, Expr(value)); }));
+    editor.commit(drag);
     EXPECT_NEAR(width(editor, start.panel, start.rect), 90.0, "the drag ends at 90");
     EXPECT(editor.undo(), "it can be undone");
     EXPECT_NEAR(width(editor, start.panel, start.rect), 80.0, "one undo takes the whole drag back");
@@ -123,9 +125,7 @@ TEST_CASE("a changed document is unsaved until it is saved, and undo back to the
 {
     OnePanel start;
     Editor editor(start.doc);
-    const auto waist = [&](int value, Step step = Step::New) {
-        REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(value)); }, {.step = step}));
-    };
+    const auto waist = [&](int value) { REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(value)); })); };
     EXPECT(!editor.unsaved(), "a document just made or opened is saved");
     waist(90);
     EXPECT(editor.unsaved(), "a change makes it unsaved");
@@ -154,17 +154,16 @@ TEST_CASE("a changed document is unsaved until it is saved, and undo back to the
     EXPECT(!editor.unsaved(), "another document starts saved");
 }
 
-TEST_CASE("a step continued after a save makes the document unsaved, as a save during a drag must")
+TEST_CASE("an edit that goes on after a save makes the document unsaved, as a save during a drag must")
 {
     OnePanel start;
     Editor editor(start.doc);
-    const auto waist = [&](int value, Step step = Step::New) {
-        REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(value)); }, {.step = step}));
-    };
-    waist(90);
+    const auto waist = [&](Edit edit, int value) { REQUIRE(editor.change(edit, [&](Document& doc) { doc.set(start.waist, Expr(value)); })); };
+    const Edit drag = editor.begin();
+    waist(drag, 90);
     const std::uint64_t step = editor.step();
     editor.markSaved();
-    waist(100, Step::Continue);
+    waist(drag, 100);
     EXPECT(editor.unsaved(), "the document is not the one that was saved");
     EXPECT(editor.step() == step, "though it is still the same undo step");
     editor.undo();
@@ -173,9 +172,10 @@ TEST_CASE("a step continued after a save makes the document unsaved, as a save d
     EXPECT(editor.unsaved(), "and redo brings back the end of the drag, not what was saved");
 
     editor.markSaved();
-    REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(110)); }));
-    waist(120, Step::Continue);
-    EXPECT(editor.rollBackTo(step), "a cancelled edit");
+    const Edit cancelled = editor.begin();
+    waist(cancelled, 110);
+    waist(cancelled, 120);
+    EXPECT(editor.cancel(cancelled), "a cancelled edit");
     EXPECT(!editor.unsaved(), "goes back to the saved state");
 }
 
@@ -262,19 +262,18 @@ TEST_CASE("a longer skirt keeps its waist where it is in space and grows at the 
     EXPECT_NEAR(ends().second, hem, "so its own origin, the hem, stays, as it does on the table");
 }
 
-TEST_CASE("rolling back to a state takes every step after it back and leaves none to redo")
+TEST_CASE("cancelling an edit takes back what it made, leaves none to redo and keeps what came before")
 {
     OnePanel start;
     Editor editor(start.doc);
     REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(90)); }));
-    const std::uint64_t then = editor.step();
-    REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(100)); }));
-    REQUIRE(editor.change([&](Document& doc) { doc.set(start.waist, Expr(110)); }, {.step = Step::Continue}));
+    const Edit edit = editor.begin();
+    REQUIRE(editor.change(edit, [&](Document& doc) { doc.set(start.waist, Expr(100)); }));
+    REQUIRE(editor.change(edit, [&](Document& doc) { doc.set(start.waist, Expr(110)); }));
 
-    EXPECT((editor.rollBackTo(then)), "it takes something back");
-    EXPECT_NEAR(width(editor, start.panel, start.rect), 90.0, "the document is as it was then");
+    EXPECT((editor.cancel(edit)), "it takes something back");
+    EXPECT_NEAR(width(editor, start.panel, start.rect), 90.0, "the document is as it was before the edit");
     EXPECT((editor.canUndo() && !editor.canRedo()), "what came before can still be undone, and what was taken back is not kept to redo");
-    EXPECT((!editor.rollBackTo(then)), "at that state there is nothing to take back");
-    EXPECT((!editor.rollBackTo(editor.step() + 100)), "a state that is not in the history takes back nothing");
+    EXPECT((!editor.cancel(edit)), "an edit that is over takes nothing back");
     EXPECT_NEAR(width(editor, start.panel, start.rect), 90.0, "and leaves the document alone");
 }

@@ -104,13 +104,19 @@ only ones other code may include), `src/` (sources and private headers) and
 
 - **An action is a command** (`session/Commands.h`,
   [decision 0027](decisions/0027-every-change-is-a-command.md)): a struct that
-  holds all it needs, run by `run`, or dragged by `drag`, `endDrag` and
-  `cancelDrag`, which apply it each time to the document as it was when the
-  drag began. So far: setting a parameter or a layer's field, moving corners,
-  duplicating panels, deleting panels and corners, and pulling the cloth.
-- **What has no command yet goes through `session::Editor::change`**, one drag
-  being one undo step (`Step::New`, then `Step::Continue`). New actions are
-  commands.
+  holds all it needs. So far: setting a parameter or a layer's field, moving
+  corners, duplicating panels, deleting panels and corners, and pulling the
+  cloth.
+- **`run` is one undo step; several changes are one in an edit.** `begin`
+  opens it, `run` adds to it, `preview` takes the place of the preview before
+  (what follows the mouse), `commit` keeps it and `cancel` takes all of it
+  back. One edit is open at a time, and anything else that changes the history
+  ends it, so a forgotten edit cannot gather later changes.
+- **What has no command yet goes through `session::Editor::change`**, by
+  itself or in an edit. New actions are commands.
+- **Only `session::Session` is to run commands**, with the editor read-only
+  outside `session`. Until every action is a command, `session::Drafting` and
+  the window use the editor.
 - **A change is made on a copy of the document** and taken only if all of it
   can be done. It is refused, with why, if it adds a problem, unless its rules
   say `IfItBreaks::Allow`. Moving panels is `Touches::PlacementOnly`, so

@@ -57,7 +57,9 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   it and an arrow for each end that moved. Enter (or the tick) keeps it,
   Escape (the cross, or a click elsewhere) takes all of it back, even a
   layer that was made for it; a length that cannot be is said under the field
-  and Enter waits. Where the shape has a setting for the edge (a rectangle's
+  and Enter waits. Another change made while the bar is open (undo, a number
+  dragged in a panel at the side) closes it: what was typed before is kept as
+  an undo step of its own. Where the shape has a setting for the edge (a rectangle's
   width or height) a list in the bar says which is typed: "Edge only", a
   length of its own, so the top and bottom of a rectangle can differ, or the
   shape's setting, where the opposite edge follows (the tool starts on "Edge

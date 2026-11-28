@@ -13,18 +13,25 @@ namespace twintailor::session {
 
 namespace {
 
-// One change through the editor; on refusal the outcome says why.
-bool apply(Editor& editor, const std::function<void(Document&)>& verb, ChangeRules rules, Outcome& outcome) {
-    const std::expected<void, std::string> done = editor.change(verb, rules);
+// Whether a change was taken; on refusal the outcome says why.
+bool taken(const std::expected<void, std::string>& done, Outcome& outcome) {
     if (done) return true;
     outcome.notice = "Not changed: " + done.error();
     outcome.refused = true;
     return false;
 }
 
+// One change through the editor, by itself or in an edit.
+bool apply(Editor& editor, const std::function<void(Document&)>& verb, ChangeRules rules, Outcome& outcome) {
+    return taken(editor.change(verb, rules), outcome);
+}
+bool apply(Editor& editor, Edit edit, const std::function<void(Document&)>& verb, ChangeRules rules, Outcome& outcome) {
+    return taken(editor.change(edit, verb, rules), outcome);
+}
+
 // The rules for each kind of change made on the table.
-ChangeRules byHand(bool newStep) { return {.step = newStep ? Step::New : Step::Continue, .grows = Grows::WhereDragged}; }
-ChangeRules placing(bool newStep) { return {.step = newStep ? Step::New : Step::Continue, .touches = Touches::PlacementOnly}; }
+constexpr ChangeRules byHand{.grows = Grows::WhereDragged};
+constexpr ChangeRules placing{.touches = Touches::PlacementOnly};
 // Adding and removing things may leave a problem behind: that is shown where it is, not refused.
 constexpr ChangeRules adding{.ifItBreaks = IfItBreaks::Allow};
 
@@ -53,10 +60,42 @@ std::string Drafting::freeName(const Document& doc, const std::string& base) {
 }
 
 Outcome Drafting::handle(Editor& editor, const Gesture& gesture) {
-    const Outcome outcome = std::visit([&](const auto& g) { return on(editor, g); }, gesture);
+    const Outcome outcome = std::visit(
+        [&](const auto& g) {
+            if constexpr (requires { g.phase; }) {
+                // Each drag is an edit of its own, from its beginning to its end.
+                if (g.phase == DragPhase::Begin) dragged_.reset();
+                const Outcome done = on(editor, g);
+                if (g.phase == DragPhase::End && dragged_) editor.commit(*dragged_);
+                return done;
+            } else {
+                return on(editor, g);
+            }
+        },
+        gesture);
     if (outcome.toolDone) tool = Tool::Select;
     if (selection.panel) selection.seam.reset();  // whatever selected a panel lets go of the seam
     return outcome;
+}
+
+Edit Drafting::dragIn(Editor& editor) {
+    if (!dragged_ || !editor.editing(*dragged_)) dragged_ = editor.begin();
+    return *dragged_;
+}
+
+Edit Drafting::typingIn(Editor& editor) {
+    if (!typed_ || !editor.editing(*typed_)) typed_ = editor.begin();
+    return *typed_;
+}
+
+void Drafting::commitTyping(Editor& editor) {
+    if (typed_) editor.commit(*typed_);
+    typed_.reset();
+}
+
+void Drafting::cancelTyping(Editor& editor) {
+    if (typed_) editor.cancel(*typed_);
+    typed_.reset();
 }
 
 std::optional<Vec2> middleOfPanels(const Document& doc, const Result& shapes, const std::vector<PanelId>& panels) {
@@ -218,24 +257,24 @@ Outcome Drafting::on(Editor& editor, const RotatePanel& g) {
         }
         const double by = g.angle - grabbed->angle;
         const Vec2 pivot = groupPivot_;
-        apply(editor, [&](Document& doc) {
+        apply(editor, dragIn(editor), [&](Document& doc) {
             for (const GroupStart& s : groupStarts_) {
                 if (!doc.contains(s.panel)) continue;
                 const Vec2 offset = turned(Vec2{s.x - pivot.x, s.y - pivot.y}, by);
                 doc.place(s.panel, pivot.x + offset.x, pivot.y + offset.y);
                 doc.turn(s.panel, s.angle + by);
             }
-        }, placing(g.phase == DragPhase::Begin), outcome);
+        }, placing, outcome);
         if (g.phase == DragPhase::End) groupStarts_.clear();
         return outcome;
     }
     if (!turning_) return outcome;
     const Vec2 shifted = turned(turning_->centre, g.angle);
     const Vec2 pivot = turning_->pivot;
-    apply(editor, [&](Document& doc) {
+    apply(editor, dragIn(editor), [&](Document& doc) {
         doc.place(g.panel, pivot.x - shifted.x, pivot.y - shifted.y);
         doc.turn(g.panel, g.angle);
-    }, placing(g.phase == DragPhase::Begin), outcome);
+    }, placing, outcome);
     if (g.phase == DragPhase::End) turning_.reset();
     return outcome;
 }
@@ -336,12 +375,13 @@ Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
     // A thousandth, so that the numbers stay readable. A drag that is back at 1 gives the exact old number.
     const auto times = [](double base, double factor) { return factor == 1.0 ? base : std::max(std::round(base * factor * 1000.0) / 1000.0, 0.001); };
     const bool unchanged = g.x == 1.0 && g.y == 1.0;
-    if (!scaling_->stepOpen && unchanged) {  // a drag that has not moved changes nothing yet
+    if (!scaling_->changed && unchanged) {  // a drag that has not moved changes nothing yet
         if (g.phase == DragPhase::End) scaling_.reset();
         return outcome;
     }
     Scaling next = *scaling_;
-    const bool done = apply(editor, [&](Document& d) {
+    const Edit drag = dragIn(editor);
+    const bool done = apply(editor, drag, [&](Document& d) {
         for (ScalePart& part : next.parts) {
             if (part.shape) {
                 const OpData& data = d.get(*part.shape);
@@ -363,10 +403,10 @@ Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
                 d.set(scale, &Scale::y, Expr(times(part.baseB, g.y)));
             }
         }
-    }, byHand(!scaling_->stepOpen), outcome);
+    }, byHand, outcome);
     if (done) {
         scaling_ = std::move(next);
-        scaling_->stepOpen = true;
+        scaling_->changed = true;
         // A shape grows about its origin and a layer about its box's middle; what the panel's box now is tells where
         // the place has to be so that its middle goes where the scaling says: the group's middle stays, and each
         // panel's middle moves away from it by as much (a single panel's own middle stays). In space each panel's
@@ -389,10 +429,10 @@ Outcome Drafting::on(Editor& editor, const ScalePanel& g) {
             if (!(arranged == placed.arrangement)) anchors.push_back({part.panel, arranged});
         }
         if (!places.empty() || !anchors.empty())
-            apply(editor, [&](Document& d) {
+            apply(editor, drag, [&](Document& d) {
                 for (const auto& [panel, at] : places) d.place(panel, at.x, at.y);
                 for (const auto& [panel, arranged] : anchors) d.arrange(panel, arranged);
-            }, placing(false), outcome);
+            }, placing, outcome);
     }
     if (g.phase == DragPhase::End) scaling_.reset();
     return outcome;
@@ -429,7 +469,7 @@ Outcome Drafting::arrangeByDrag(Editor& editor, PanelId panel, DragPhase phase, 
     if (!arrangedFrom_) return outcome;
     Arrangement arranged = now(*arrangedFrom_);
     arranged.placed = true;
-    apply(editor, [&](Document& d) { d.arrange(panel, arranged); }, placing(phase == DragPhase::Begin), outcome);
+    apply(editor, dragIn(editor), [&](Document& d) { d.arrange(panel, arranged); }, placing, outcome);
     if (phase == DragPhase::End) arrangedFrom_.reset();
     return outcome;
 }
@@ -446,14 +486,14 @@ Outcome Drafting::on(Editor& editor, const MovePanel& g) {
             return outcome;
         }
         const double dx = g.x - grabbed->x, dy = g.y - grabbed->y;
-        apply(editor, [&](Document& doc) {
+        apply(editor, dragIn(editor), [&](Document& doc) {
             for (const GroupStart& s : groupStarts_)
                 if (doc.contains(s.panel)) doc.place(s.panel, s.x + dx, s.y + dy);
-        }, placing(g.phase == DragPhase::Begin), outcome);
+        }, placing, outcome);
         if (g.phase == DragPhase::End) groupStarts_.clear();
         return outcome;
     }
-    apply(editor, [&](Document& doc) { doc.place(g.panel, g.x, g.y); }, placing(g.phase == DragPhase::Begin), outcome);
+    apply(editor, dragIn(editor), [&](Document& doc) { doc.place(g.panel, g.x, g.y); }, placing, outcome);
     return outcome;
 }
 
@@ -470,7 +510,6 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& g) {
     const std::vector<CornerRef> grabbed = chosen.size() > 1 && isSelected(g.corner) ? chosen : std::vector<CornerRef>{g.corner};
 
     if (g.phase == DragPhase::Begin) {
-        editor.endDrag();
         const auto movable = movableCorners(editor.document(), editor.shapes(), g.panel, grabbed, {0.0, 0.0});
         draggingCorners_ = movable.has_value();
         if (!movable) outcome.notice = movable.error();  // a formula places them
@@ -478,14 +517,11 @@ Outcome Drafting::on(Editor& editor, const MoveCorner& g) {
     if (!draggingCorners_) return outcome;
     // Held to one axis, the other coordinate is not moved at all, whatever the pointer does.
     const Vec2 by{g.along == Along::Y ? 0.0 : g.dx, g.along == Along::X ? 0.0 : g.dy};
-    if (const auto moved = editor.drag(MoveCorners{.panel = g.panel, .corners = grabbed, .by = by}); !moved) {
+    if (const auto moved = editor.preview(dragIn(editor), MoveCorners{.panel = g.panel, .corners = grabbed, .by = by}); !moved) {
         outcome.notice = "Not changed: " + moved.error();  // for instance the only point of a whole circle
         outcome.refused = true;
     }
-    if (g.phase == DragPhase::End) {
-        editor.endDrag();
-        draggingCorners_ = false;
-    }
+    if (g.phase == DragPhase::End) draggingCorners_ = false;
     return outcome;
 }
 
@@ -527,7 +563,7 @@ Outcome Drafting::on(Editor& editor, const MoveHandle& image) {
     if (stretchY < 1e-9) stretchY = 1.0;
     const Offset handle{dragging_->baseX + moved.dx / stretchX, dragging_->baseY + moved.dy / stretchY};
     const bool whichEnd = dragging_->endHandle;
-    apply(editor, [&](Document& d) { d.set(curve, whichEnd ? &Bezier::endHandle : &Bezier::startHandle, handle); }, byHand(image.phase == DragPhase::Begin), outcome);
+    apply(editor, dragIn(editor), [&](Document& d) { d.set(curve, whichEnd ? &Bezier::endHandle : &Bezier::startHandle, handle); }, byHand, outcome);
     if (image.phase == DragPhase::End) dragging_.reset();
     return outcome;
 }
@@ -693,7 +729,7 @@ Outcome Drafting::on(Editor& editor, const EditLength& g) {
     const DrawnEdge drawn = drawnSide(doc, g.panel, g.edge);
     const SetLength::Keeping keeping = keepingFor(doc, g.panel, drawn.edge, shape);
     OpRef<SetLength> added;
-    if (!apply(editor, [&](Document& d) { added = d.add(g.panel, SetLength{.edge = drawn.edge, .length = Expr(shape.length(g.edge)), .keeping = keeping}); }, {}, outcome)) {
+    if (!apply(editor, typingIn(editor), [&](Document& d) { added = d.add(g.panel, SetLength{.edge = drawn.edge, .length = Expr(shape.length(g.edge)), .keeping = keeping}); }, {}, outcome)) {
         outcome.toolDone = false;  // refused: the tool stays, to try another edge
         return outcome;
     }
@@ -722,7 +758,7 @@ Outcome Drafting::on(Editor& editor, const UseShapeLength& g) {
             if (const std::optional<LengthSetting> now = lengthSetBy(doc, editor.shapes(), g.panel, g.edge)) outcome.typeLength = lengthFieldFor(doc, g.edge, *now);
             return outcome;
         }
-        if (!apply(editor, [&](Document& d) { for (OpId op : own) d.remove(op); }, {}, outcome)) return outcome;
+        if (!apply(editor, typingIn(editor), [&](Document& d) { for (OpId op : own) d.remove(op); }, {}, outcome)) return outcome;
     }
     // The shape's setting gives the edge its length again, as long as it was when it was given up.
     if (const std::optional<LengthSetting> setting = lengthSetBy(editor.document(), editor.shapes(), g.panel, g.edge))

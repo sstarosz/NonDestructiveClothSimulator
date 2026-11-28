@@ -188,25 +188,22 @@ private:
     // help line and on `field`. With `since`, how long it took, for Frame times.
     bool answer(const std::expected<void, std::string>& done, ValueField* field = nullptr, const QElapsedTimer* since = nullptr);
     bool answer(const std::expected<session::Nothing, std::string>& done, ValueField* field = nullptr, const QElapsedTimer* since = nullptr);
-    // A number being dragged in a field: one undo step.
+    // A number being dragged in a field: one edit (Commands.h), so one undo step.
     void dragField(session::DragPhase phase, const session::SetField& command);
-    // A change from one step of dragging a field: the whole drag is one undo
-    // step, begun by the first of its changes that was taken.
-    bool changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb, session::ChangeRules rules = {});
+    // The same for what has no command yet.
+    void changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb, session::ChangeRules rules = {});
     // What was typed into a field that measures `unit`; empty, with the field marked, if it does not read.
     std::optional<Expr> read(const QString& text, Unit unit, ValueField* field);
     void refresh();
-    // A length typed on the table, as it is typed: shown at once, in one undo step with whatever the
-    // gesture that opened it did, so that Escape takes all of it back and Enter keeps it.
+    // A length typed on the table, as it is typed: shown at once, in the edit the length is typed in
+    // (Drafting::typingIn), so that Escape takes all of it back and Enter keeps it.
     void previewLength(OpId layer, FieldId id, const QString& text);
     void cancelLength();
     // What the bar says is going to happen to the ends of the edge.
     QString lengthStatus(const session::Outcome::LengthField& what) const;
-    std::optional<std::uint64_t> lengthEditFrom_;  // the history state before the gesture that opened the bar
-    bool lengthChanged_ = false;                   // the document has been changed since then
     bool gesturing_ = false;                       // a gesture is being handled: the bar may be reopened on something else
     session::ChangeRules lengthRules(PanelId panel) const;  // how a length typed on the table is changed
-    void closeLengthIfGone();                      // the bar's length was undone or removed: nothing to type into
+    void closeLengthIfOver();                      // its length was undone or removed, or something else was done
     QString lengthText_;                           // the text that is applied now
     // What was typed for a field of a layer, in the Attribute Editor (`field` shows a refusal) or on the table.
     void typed(OpId layer, FieldId id, const QString& text, ValueField* field);
@@ -249,7 +246,7 @@ private:
     QString settingsFile_;            // where they are kept between runs; empty: nowhere
     session::Drafting drafting_;  // the tool, the selection, and the drags in progress
     std::optional<ChoosingAvatar> choosing_;
-    bool fieldDragTaken_ = false;  // the field being dragged has changed the document
+    std::optional<session::Edit> numberDragged_, pulled_;  // while a number or the cloth is dragged
     std::shared_ptr<const Avatar> shownAvatar_;  // the document's, as last shown
     QAction* bodyAction_ = nullptr;
     QAction* exportAction_ = nullptr;
