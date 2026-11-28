@@ -21,6 +21,8 @@ a recovery copy up to 30 seconds old is left.
   document and the drape, so that a pull and Reset can be undone.
 - What takes several commands, or follows the mouse, is an edit: begun, then
   committed or cancelled, and one undo step. One is open at a time.
+- A window may show what a command is going to do and run it once, when the
+  button is released: it need not change the document while the mouse moves.
 - Selection, tool and camera are not commands. `Drafting` turns a gesture and
   the selection into a command.
 - Commands can be stored: after a crash they are run again on the last copy of

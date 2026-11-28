@@ -112,6 +112,12 @@ only ones other code may include), `src/` (sources and private headers) and
   (what follows the mouse), `commit` keeps it and `cancel` takes all of it
   back. One edit is open at a time, and anything else that changes the history
   ends it, so a forgotten edit cannot gather later changes.
+- **A window need not change the document while the mouse moves.** A command
+  says the whole change (`MoveCorners::by` is all of a drag), so the window
+  may show what is coming and run the command once, on release; a preview on
+  the way is a choice. What that picture needs worked out comes from
+  `session`, not from the window. Pulling the cloth is the exception: it acts
+  while the cloth is held.
 - **What has no command yet goes through `session::Editor::change`**, by
   itself or in an edit. New actions are commands.
 - **Only `session::Session` is to run commands**, with the editor read-only
