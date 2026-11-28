@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <stdexcept>
+#include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -54,6 +56,45 @@ TEST_CASE("division by zero is an error")
     Result result = evaluate(doc);
     EXPECT((result.failed(bad)), "reported on the dividing parameter");
     EXPECT((!result.failed(zero)), "not on the divisor");
+}
+
+TEST_CASE("a formula comes to the same in evaluation and when worked out from its result")
+{
+    Document doc;
+    const Param six = doc.add(Parameter{.name = "six", .value = 6});
+    const Param two = doc.add(Parameter{.name = "two", .value = 2});
+    const auto formula = [&](const char* name, Expr value) { return doc.add(Parameter{.name = name, .value = std::move(value)}); };
+    const std::vector<std::pair<Param, double>> expected = {
+        {formula("sum", Expr(six) + two), 8.0},
+        {formula("difference", Expr(six) - two), 4.0},
+        {formula("product", Expr(six) * two), 12.0},
+        {formula("quotient", Expr(six) / two), 3.0},
+        {formula("negative", -Expr(six)), -6.0},
+        {formula("size", abs(Expr(two) - six)), 4.0},
+        {formula("least", min(Expr(six), two)), 2.0},
+        {formula("most", max(Expr(six), two)), 6.0},
+        {formula("held", clamp(Expr(six), 0, two)), 2.0},
+    };
+    const Param byZero = formula("byZero", Expr(six) / (Expr(two) - two));
+    const Param gone = doc.add(Parameter{.name = "gone", .value = 1});
+    const Param orphan = formula("orphan", Expr(six) + gone);
+    doc.remove(gone);
+
+    const Result result = evaluate(doc);
+    for (const auto& [parameter, value] : expected) {
+        EXPECT_NEAR((result[parameter]), (value), "evaluated");
+        EXPECT_NEAR((valueOf(doc.get(parameter).value, result).value()), (value), "worked out from the result");
+    }
+    EXPECT((!valueOf(doc.get(byZero).value, result)), "dividing by zero gives no value");
+    EXPECT((!valueOf(doc.get(orphan).value, result)), "nor does a removed parameter");
+
+    const auto saidOf = [&](Param parameter) {
+        for (const Error& error : result.errors)
+            if (const Param* where = std::get_if<Param>(&error.where); where && *where == parameter) return error.message;
+        return std::string();
+    };
+    EXPECT((saidOf(byZero) == "division by zero"), "and evaluation says why");
+    EXPECT((saidOf(orphan) == "refers to a parameter that no longer exists"), "for each of them");
 }
 
 TEST_CASE("rectangle has named edges and corners")
@@ -760,6 +801,29 @@ TEST_CASE("outline before an operation is what it works on")
     EXPECT((!outlineBefore(doc, curve).edge(rect.left()).arc.has_value()), "and not yet curved");
     EXPECT((evaluate(doc)[panel].edge(rect.left()).arc.has_value()), "the document itself is untouched");
     EXPECT((outlineBefore(doc, OpId{9999}).edges.empty()), "an unknown operation gives nothing");
+}
+
+TEST_CASE("outline before an operation follows the panels it is made from, and skips what is off")
+{
+    Document doc;
+    const PanelId source = doc.add(Panel{.name = "source"});
+    const OpRef<Rect> half = doc.add(source, Rect{.width = 10_cm, .height = 20_cm});
+    const OpRef<Mirror> mirror = doc.add(source, Mirror{.across = half.left()});
+
+    const PanelId follower = doc.add(Panel{.name = "follower"});
+    doc.add(follower, Instance{.source = source});
+    const OpRef<Curve> off = doc.add(follower, Curve{.edge = half.top(), .bulge = 2_cm});
+    const OpRef<Curve> next = doc.add(follower, Curve{.edge = half.bottom(), .bulge = 1_cm});
+    doc.setEnabled(off, false);
+
+    const Pattern before = outlineBefore(doc, next);
+    EXPECT((before.contains(mirror.image(half.top()))), "the source is finished, its mirror included");
+    EXPECT((before.contains(half.top()) && !before.edge(half.top()).arc), "an operation that is off is skipped");
+
+    const PanelId looped = doc.add(Panel{.name = "looped"});
+    doc.add(looped, Instance{.source = looped});
+    const OpRef<Curve> after = doc.add(looped, Curve{.edge = half.top(), .bulge = 1_cm});
+    EXPECT((outlineBefore(doc, after).edges.empty()), "a panel that is an instance of itself has no outline");
 }
 
 TEST_CASE("a set length gives one edge its own length, and the edges beside it slant")

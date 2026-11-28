@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <expected>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -17,14 +18,35 @@ namespace twintailor {
 namespace {
 
 // A number, or the reason there isn't one.
-struct Value {
-    std::optional<double> number;
-    std::string problem;
+using Value = std::expected<double, std::string>;
 
-    static Value of(double v) { return {v, {}}; }
-    static Value fail(std::string why) { return {std::nullopt, std::move(why)}; }
-    explicit operator bool() const { return number.has_value(); }
-};
+Value fail(std::string why) { return std::unexpected(std::move(why)); }
+
+// What a formula comes to. `parameter` says what one of its parameters does;
+// the first thing without a value is what the whole formula reports.
+template <class Parameter>
+Value compute(const ExprNode& n, const Parameter& parameter) {
+    using Kind = ExprNode::Kind;
+    if (n.kind == Kind::Number) return n.number;
+    if (n.kind == Kind::Parameter) return parameter(n.parameter);
+
+    const Value a = compute(*n.a, parameter);
+    if (!a) return a;
+    if (n.kind == Kind::Negate) return -*a;
+    if (n.kind == Kind::Abs) return std::abs(*a);
+
+    const Value b = compute(*n.b, parameter);
+    if (!b) return b;
+    switch (n.kind) {
+    case Kind::Add: return *a + *b;
+    case Kind::Subtract: return *a - *b;
+    case Kind::Multiply: return *a * *b;
+    case Kind::Divide: return *b == 0.0 ? fail("division by zero") : Value(*a / *b);
+    case Kind::Min: return std::min(*a, *b);
+    case Kind::Max: return std::max(*a, *b);
+    default: return fail("unsupported expression");
+    }
+}
 
 class Evaluator {
 public:
@@ -33,8 +55,17 @@ public:
         for (PanelId p : doc.panels()) panels_.push_back({p, State::Pending, {}});
     }
 
+    // A panel's outline as `operation`, one of its own, gets to work on it.
+    Pattern before(OpId operation) {
+        const PanelId panel = doc_.panelOf(operation);
+        // Marked as being built, so that a panel that leads back to itself is found.
+        for (PanelState& s : panels_)
+            if (s.panel == panel) s.state = State::Running;
+        return build(panel, operation);
+    }
+
     Result run() {
-        for (Param p : doc_.parameters()) valueOf(p);
+        for (Param p : doc_.parameters()) (void)valueOf(p);  // each keeps its value, or reports why not
         for (const ParameterState& s : parameters_)
             if (s.state == State::Done) result_.values.push_back({s.parameter, s.value});
         for (PanelId panel : doc_.panels()) patternOf(panel);
@@ -91,52 +122,30 @@ private:
 
     Value valueOf(Param p) {
         ParameterState* s = find(p);
-        if (!s) return Value::fail("refers to a parameter that no longer exists");
+        if (!s) return fail("refers to a parameter that no longer exists");
         const std::string& name = doc_.get(p).name;
         switch (s->state) {
-        case State::Done: return Value::of(s->value);
-        case State::Failed: return Value::fail("depends on '" + name + "', which has an error");
-        case State::Running: return Value::fail("circular reference through '" + name + "'");
+        case State::Done: return s->value;
+        case State::Failed: return fail("depends on '" + name + "', which has an error");
+        case State::Running: return fail("circular reference through '" + name + "'");
         case State::Pending: break;
         }
         s->state = State::Running;
         const Value v = eval(doc_.get(p).value);
         if (v) {
             s->state = State::Done;
-            s->value = *v.number;
+            s->value = *v;
             return v;
         }
         s->state = State::Failed;
-        result_.errors.push_back({p, v.problem});
-        return Value::fail("depends on '" + name + "', which has an error");
+        result_.errors.push_back({p, v.error()});
+        return fail("depends on '" + name + "', which has an error");
     }
 
     // ---- Expressions ----
 
-    Value eval(const Expr& e) { return eval(ExprAccess::node(e)); }
-
-    Value eval(const ExprNode& n) {
-        using Kind = ExprNode::Kind;
-        if (n.kind == Kind::Number) return Value::of(n.number);
-        if (n.kind == Kind::Parameter) return valueOf(n.parameter);
-
-        const Value a = eval(*n.a);
-        if (!a) return a;
-        if (n.kind == Kind::Negate) return Value::of(-*a.number);
-        if (n.kind == Kind::Abs) return Value::of(std::abs(*a.number));
-
-        const Value b = eval(*n.b);
-        if (!b) return b;
-        const double x = *a.number, y = *b.number;
-        switch (n.kind) {
-        case Kind::Add: return Value::of(x + y);
-        case Kind::Subtract: return Value::of(x - y);
-        case Kind::Multiply: return Value::of(x * y);
-        case Kind::Divide: return y == 0.0 ? Value::fail("division by zero") : Value::of(x / y);
-        case Kind::Min: return Value::of(std::min(x, y));
-        case Kind::Max: return Value::of(std::max(x, y));
-        default: return Value::fail("unsupported expression");
-        }
+    Value eval(const Expr& e) {
+        return compute(ExprAccess::node(e), [&](Param p) { return valueOf(p); });
     }
 
     // The values of an operation's formula fields, in fields() order, checked
@@ -148,15 +157,15 @@ private:
         for (const Field& field : fields(data)) {
             const Value v = eval(field.value);
             if (!v) {
-                error(op, std::string(field.label) + " " + v.problem);
+                error(op, std::string(field.label) + " " + v.error());
                 usable = false;
-            } else if (!field.limits.allows(*v.number)) {
+            } else if (!field.limits.allows(*v)) {
                 char got[32];
-                std::snprintf(got, sizeof got, "%g", *v.number);
+                std::snprintf(got, sizeof got, "%g", *v);
                 error(op, std::string(field.label) + " " + field.limits.rule() + "; it is " + got);
                 usable = false;
             } else {
-                values.push_back(*v.number);
+                values.push_back(*v);
             }
         }
         if (!usable) return std::nullopt;
@@ -596,39 +605,13 @@ const Pattern& Result::operator[](PanelId panel) const {
     throw std::out_of_range("twintailor::Result: unknown panel");
 }
 
-namespace {
-
-// The same arithmetic as Evaluator::eval, reading parameters from a finished
-// Result. Keep the two in step when adding a kind of expression.
-std::optional<double> compute(const ExprNode& n, const Result& result) {
-    using Kind = ExprNode::Kind;
-    if (n.kind == Kind::Number) return n.number;
-    if (n.kind == Kind::Parameter) {
-        for (const ParameterValue& v : result.values)
-            if (v.parameter == n.parameter) return v.value;
-        return std::nullopt;
-    }
-    const std::optional<double> a = compute(*n.a, result);
-    if (!a) return std::nullopt;
-    if (n.kind == Kind::Negate) return -*a;
-    if (n.kind == Kind::Abs) return std::abs(*a);
-    const std::optional<double> b = compute(*n.b, result);
-    if (!b) return std::nullopt;
-    switch (n.kind) {
-    case Kind::Add: return *a + *b;
-    case Kind::Subtract: return *a - *b;
-    case Kind::Multiply: return *a * *b;
-    case Kind::Divide: return *b == 0.0 ? std::nullopt : std::optional<double>(*a / *b);
-    case Kind::Min: return std::min(*a, *b);
-    case Kind::Max: return std::max(*a, *b);
-    default: return std::nullopt;
-    }
-}
-
-} // namespace
-
 std::optional<double> valueOf(const Expr& expr, const Result& result) {
-    return compute(ExprAccess::node(expr), result);
+    const Value value = compute(ExprAccess::node(expr), [&](Param parameter) -> Value {
+        for (const ParameterValue& v : result.values)
+            if (v.parameter == parameter) return v.value;
+        return fail("refers to a parameter that has no value");
+    });
+    return value ? std::optional<double>(*value) : std::nullopt;
 }
 
 std::size_t bake(Document& doc, PanelId panel) {
@@ -647,17 +630,7 @@ std::size_t bake(Document& doc, PanelId panel) {
 
 Pattern outlineBefore(const Document& doc, OpId operation) {
     if (!doc.contains(operation)) return {};
-    // Evaluate a copy that stops short of the operation. A mirror that is
-    // applied last has not happened yet from the operation's point of view.
-    Document shortened = doc;
-    const PanelId panel = doc.panelOf(operation);
-    bool reached = false;
-    for (OpId op : doc.operations(panel)) {
-        reached = reached || op == operation;
-        const Mirror* mirror = std::get_if<Mirror>(&doc.get(op));
-        if (reached || (mirror && mirror->appliedLast)) shortened.remove(op);
-    }
-    return evaluate(shortened)[panel];
+    return Evaluator(doc).before(operation);
 }
 
 Result evaluateUpTo(const Document& doc, OpId last) {
