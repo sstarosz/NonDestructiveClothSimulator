@@ -447,11 +447,12 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
 }
 
 MainWindow::~MainWindow() {
-    // Not closed: a copy of unsaved work stays for the next start.
+    // Not closed: a copy of unsaved work stays for the next start. After an error the log stays too, for a report.
     if (!autosave_) return;
     autosave_.reset();  // waits for a copy being written
+    if (!failed_) session_.endLog();
     recoveryLock_.reset();
-    if (!session::hasRecovery(recoveryFolder_.toStdString())) QDir(recoveryFolder_).removeRecursively();
+    if (!failed_ && !session::hasRecovery(recoveryFolder_.toStdString())) QDir(recoveryFolder_).removeRecursively();
 }
 
 namespace {
@@ -586,6 +587,7 @@ bool MainWindow::openFile(const QString& path) {
     rememberFolder(Files::Patterns, path);
     sayAtOnce("Opening " + QFileInfo(path).fileName() + "…");
     const Waiting waiting;  // a pattern with a detailed avatar takes seconds
+    session_.note("Read a pattern file");
     std::variant<SavedScene, FileError> opened = twintailor::open(path.toStdString());
     if (FileError* problem = std::get_if<FileError>(&opened)) {
         say(QString::fromStdString(problem->line ? "Line " + std::to_string(problem->line) + ": " + problem->message : problem->message), true);
@@ -602,6 +604,7 @@ bool MainWindow::saveAs(const QString& path) {
     rememberFolder(Files::Patterns, path);
     sayAtOnce("Saving " + QFileInfo(path).fileName() + "…");
     const Waiting waiting;
+    session_.note("Save");
     const std::string problem = twintailor::save(session_.document(), path.toStdString(), session_.state());
     if (!problem.empty()) {
         say(QString::fromStdString(problem), true);
@@ -703,13 +706,20 @@ void MainWindow::keepRecoveryIn(const QString& folder, double waitSeconds) {
     }
     recoveryFolder_ = own;
     recoveryLock_ = std::move(lock);
+    session_.keepLog(session::actionLogIn(own.toStdString()), versionLine().toStdString());
     autosave_ = std::make_unique<session::Autosave>(own.toStdString(), waitSeconds);
     offerRecovery(folder);
 }
 
 // The copies that stopped runs left, the newest first: each is opened or
-// deleted, or kept to be offered at the next start.
+// deleted, or kept to be offered at the next start. A run that did not end as
+// it should gets a crash report first, in "crash-reports" beside the folder.
 void MainWindow::offerRecovery(const QString& folder) {
+    const QString reports = QDir::cleanPath(folder + "/../crash-reports");
+    QString reported;  // where the newest report is, in words
+    const auto sayOfReport = [&] {
+        if (!reported.isEmpty()) say("Twintailor did not close properly last time. " + reported);
+    };
     const QFileInfoList left = QDir(folder).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
     for (const QFileInfo& run : left) {
         const QString theirs = run.absoluteFilePath();
@@ -721,6 +731,11 @@ void MainWindow::offerRecovery(const QString& folder) {
             lock.unlock();
             QDir(theirs).removeRecursively();
         };
+        const std::string stopped = theirs.toStdString();
+        const QString when = QFileInfo(QString::fromStdString(session::actionLogIn(stopped))).lastModified().toString("yyyy-MM-dd HH-mm-ss");
+        const std::optional<std::string> report = session::keepCrashReport(stopped, reports.toStdString(), when.toStdString());
+        if (report && reported.isEmpty())
+            reported = QString("A crash report is in %1").arg(QDir::toNativeSeparators(QString::fromStdString(*report)));
         if (!session::hasRecovery(theirs.toStdString())) {
             remove();  // it stopped with nothing unsaved
             continue;
@@ -731,8 +746,10 @@ void MainWindow::offerRecovery(const QString& folder) {
             continue;
         }
         const QString title = QString::fromStdString(copy->title);
-        QMessageBox box(QMessageBox::Question, "Twintailor", QString("Twintailor stopped before %1 was saved. Open the recovered copy?").arg(title),
-                        QMessageBox::Open | QMessageBox::Discard | QMessageBox::Cancel, this);
+        QString question = QString("Twintailor stopped before %1 was saved. Open the recovered copy?").arg(title);
+        if (!reported.isEmpty()) question += "\n\n" + reported;
+        QMessageBox box(QMessageBox::Question, "Twintailor", question, QMessageBox::Open | QMessageBox::Discard | QMessageBox::Cancel, this);
+        box.setTextInteractionFlags(Qt::TextSelectableByMouse);  // so that the report's place can be copied
         box.button(QMessageBox::Discard)->setText("Delete");
         box.button(QMessageBox::Cancel)->setText("Not Now");
         box.setDefaultButton(QMessageBox::Open);
@@ -742,7 +759,10 @@ void MainWindow::offerRecovery(const QString& folder) {
             remove();
             continue;
         }
-        if (answer != QMessageBox::Open) return;
+        if (answer != QMessageBox::Open) {
+            sayOfReport();
+            return;
+        }
         open(std::move(copy->scene.document), title, std::move(copy->scene.state));
         path_ = QString::fromStdString(copy->path);  // Save writes it to its own file, if it had one
         session_.markUnsaved();
@@ -752,11 +772,12 @@ void MainWindow::offerRecovery(const QString& folder) {
             say(QString::fromStdString(*problem), true);
         } else {
             remove();
-            say("Recovered. Save to keep it.");
+            say(reported.isEmpty() ? QString("Recovered. Save to keep it.") : "Recovered. Save to keep it. " + reported);
         }
         showUnsaved();
         return;
     }
+    sayOfReport();
 }
 
 void MainWindow::finishRecoveryCopy() {
@@ -768,6 +789,7 @@ void MainWindow::endRecovery() {
     if (!autosave_) return;
     autosave_->forget();
     autosave_.reset();
+    session_.endLog();
     recoveryLock_.reset();
     QDir(recoveryFolder_).removeRecursively();
 }
@@ -775,6 +797,10 @@ void MainWindow::endRecovery() {
 void MainWindow::cannotGoOn(const QString& error) {
     if (std::exchange(failed_, true)) return;
     timer_->stop();
+    try {
+        session_.note("Error: " + error.toStdString());
+    } catch (const std::exception&) {  // out of memory, most likely: the report goes without the words
+    }
     const QString words = QString("Twintailor met an error it cannot go on from, and has to close (%1).\n\n").arg(error) + copyBeforeEnding();
     // The message not at once: the error may have come out of the middle of drawing.
     QTimer::singleShot(0, this, [this, words] {
@@ -812,6 +838,7 @@ void MainWindow::showUnsaved() {
 }
 
 bool MainWindow::loadAvatar(const QString& path, const AvatarImport& readAs) {
+    session_.note("Read an avatar file");
     const std::expected<sim::Surface, QString> file = readSurface(path);
     if (!file) {
         say(file.error(), true);
@@ -862,6 +889,7 @@ void MainWindow::chooseAvatar(const QString& path) {
     rememberFolder(Files::Avatars, path);
     sayAtOnce("Reading " + QFileInfo(path).fileName() + "…");
     const Waiting waiting;
+    session_.note("Read an avatar file");
     std::expected<sim::Surface, QString> read = readSurface(path);
     if (!read) {
         say(read.error(), true);
@@ -941,6 +969,7 @@ bool MainWindow::wear(std::shared_ptr<const Avatar> avatar) {
 
 void MainWindow::openSample(std::size_t index) {
     const session::Sample& sample = session::samples().at(index);
+    session_.note("Open sample " + std::to_string(index + 1));
     Document document = sample.build();
     // The project's avatars are read as they are: in cm, y up, where they should stand.
     const QString path = assetsFolder() + "/" + sample.avatar;

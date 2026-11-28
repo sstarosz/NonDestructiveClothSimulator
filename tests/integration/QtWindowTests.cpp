@@ -4264,6 +4264,66 @@ TEST_CASE("unsaved work is copied, and what a run that stopped left is offered a
     }
 }
 
+TEST_CASE("a run that ends in an error leaves a crash report with what was done, offered at the next start", "[qt]")
+{
+    application();
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-report-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString recovery = folder.filePath("recovery");
+    const QDir reports(folder.filePath("crash-reports"));
+    const auto made = [&] { return reports.entryList(QDir::Dirs | QDir::NoDotAndDotDot); };
+    const auto logOf = [&](const QString& report) {
+        QFile file(reports.filePath(report + "/actions.log"));
+        return file.open(QIODevice::ReadOnly) ? QString::fromUtf8(file.readAll()) : QString();
+    };
+    {
+        Window w;  // closed as it should be
+        w.window.keepRecoveryIn(recovery, 0.0);
+        EXPECT((w.window.close()), "closed");
+    }
+    {
+        Window w;  // stopped with unsaved work, but as it should
+        w.window.keepRecoveryIn(recovery, 0.0);
+        setChest(w, "104 cm");
+        w.window.tick();
+        w.window.finishRecoveryCopy();
+    }
+    {
+        Window w;
+        Answering drop(QMessageBox::Discard);
+        w.window.keepRecoveryIn(recovery, 0.0);
+        EXPECT((made().isEmpty() && drop.questions.size() == 1 && !drop.questions.front().contains("crash report")), "no report for a run that ended as it should");
+        w.window.openSample(5);
+        setChest(w, "104 cm");
+        w.window.shelf()->simulate()->setChecked(true);
+        w.window.tick();
+        w.window.cannotGoOn("something broke");
+    }
+    {
+        Window w;
+        Answering later(QMessageBox::Cancel);
+        w.window.keepRecoveryIn(recovery, 0.0);
+        REQUIRE(made().size() == 1);
+        const QString log = logOf(made().front());
+        INFO(log.toStdString());
+        EXPECT((log.startsWith("Twintailor ") && log.contains("Open sample 6") && log.contains("SetField") && log.contains("Play") &&
+                log.contains("Error: something broke")),
+               "the version, what was done and the error");
+        EXPECT((QFile::exists(reports.filePath(made().front() + "/pattern.twintail"))), "with the pattern");
+        EXPECT((later.questions.size() == 1 && later.questions.front().contains("crash report") && later.questions.front().contains(made().front())),
+               "the question about the copy says where the report is");
+        EXPECT((w.window.helpLine().contains("did not close properly") && w.window.helpLine().contains(made().front())), "and so does the help line");
+        EXPECT((w.window.close()), "closed");
+    }
+    {
+        Window w;
+        Answering drop(QMessageBox::Discard);
+        w.window.keepRecoveryIn(recovery, 0.0);
+        EXPECT((made().size() == 1 && drop.questions.size() == 1 && !drop.questions.front().contains("crash report")), "said and made once");
+        EXPECT((!w.window.helpLine().contains("crash report")), "and the help line leaves it");
+    }
+}
+
 // ---- Errors nothing else handles ----
 
 namespace {

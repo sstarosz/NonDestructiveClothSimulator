@@ -178,8 +178,12 @@ See `ROADMAP.md` for what comes next.
   cut at the very moment of a save or a copy may still lose that file: the
   program does not wait for the disk to have it.
 - A crash that is not an error the program raises (memory used wrongly, a
-  fault in a driver, a power cut) still ends it without a word and with no
-  record of why: the recovery copy of the last change is there then.
+  fault in a driver, a power cut) still ends it without a word: there is the
+  recovery copy of the last change, and a crash report that says what was done
+  last, not why (there is no crash dump yet).
+- A program ended from outside, as by Task Manager or a power cut, gets a crash
+  report too. One that stops while it starts, before its recovery folder is
+  there, gets none.
 - A file cut short between two lines (a copy or a download that broke off)
   opens with what is left in it, without a word, unless the cut is inside the
   avatar or the draped cloth.

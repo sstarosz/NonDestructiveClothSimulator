@@ -12,6 +12,8 @@
 #include <variant>
 #include <vector>
 
+#include "RecoveryFiles.h"
+
 namespace twintailor::session {
 
 namespace {
@@ -79,9 +81,15 @@ std::expected<SavedScene, std::string> read(const std::string& file) {
 
 }  // namespace
 
-bool hasRecovery(const std::string& folder) {
+std::optional<std::filesystem::path> newestPatternIn(const std::string& folder) {
+    if (const std::optional<std::uint64_t> number = newestIn(folder)) return filePath(numbered(folder, patternKind, *number));
     std::error_code ignored;
-    return newestIn(folder) || std::filesystem::exists(filePath(unnumberedIn(folder)), ignored);
+    if (std::filesystem::exists(filePath(unnumberedIn(folder)), ignored)) return filePath(unnumberedIn(folder));
+    return std::nullopt;
+}
+
+bool hasRecovery(const std::string& folder) {
+    return newestPatternIn(folder).has_value();
 }
 
 std::expected<Recovery, std::string> readRecovery(const std::string& folder) {

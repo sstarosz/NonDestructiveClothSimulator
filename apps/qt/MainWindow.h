@@ -79,7 +79,9 @@ public:
     // From now on unsaved work is copied after every change into a folder of its own
     // under `folder`, and a copy that a run which stopped left there is
     // offered at once. Closing the window takes the copy away; the program
-    // stopping otherwise leaves it for the next start.
+    // stopping otherwise leaves it for the next start. What is done is noted
+    // there too, and a run that did not end as it should gets a crash report,
+    // in "crash-reports" beside `folder` (session/CrashReport.h).
     void keepRecoveryIn(const QString& folder, double waitSeconds = 30.0);  // (session::Autosave)
     // What the program remembers between runs (the folders of the last pattern,
     // avatar and export, where the next file dialog of each starts, and View >
