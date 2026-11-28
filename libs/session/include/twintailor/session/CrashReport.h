@@ -1,7 +1,7 @@
 #pragma once
 // What is kept to find out why a run of the program did not end as it should: a
-// log of what it did, and the report made of it at the next start. Both stay on
-// this computer.
+// log of what it did, a dump if it crashed (CrashDump.h), and the report made of
+// them at the next start. All of it stays on this computer.
 //
 //   ActionLog log(actionLogIn(run), "Twintailor 0.1.0");  // `run`: a folder that is there
 //   log.note("Play");                                    // "   12.40 s  Play"
@@ -51,11 +51,12 @@ std::string_view plainName(const std::type_info& type);
 // The log's file in the folder of a run.
 std::string actionLogIn(const std::string& run);
 
-// For the folder of a run that has stopped. If it left a log, it did not end as
-// it should: the log is moved into a new folder under `reports`, called `name`,
-// and the pattern as the run's recovery copy last had it, without its avatar,
-// is put beside it. Of the reports there the last `kept` by name stay. Returns
-// the new folder; empty: there was no log, or no report could be made.
+// For the folder of a run that has stopped. If it left a log or a crash dump, it
+// did not end as it should: they are moved into a new folder under `reports`,
+// called `name`, and the pattern as the run's recovery copy last had it,
+// without its avatar, is put beside them. Of the reports there the last `kept`
+// by name stay. Returns the new folder; empty: the run left neither, or no report
+// could be made.
 std::optional<std::string> keepCrashReport(const std::string& run, const std::string& reports, const std::string& name, std::size_t kept = 5);
 
 } // namespace twintailor::session

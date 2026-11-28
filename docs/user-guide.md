@@ -242,10 +242,13 @@ read from a mesh: it is +Z with Y up, and -Y with Z up, as Blender has it.
   into `%LOCALAPPDATA%\Twintailor\crash-reports`, a folder for each, and says
   where. `actions.log` lists the last things the program did, and the error if
   it raised one; `pattern.twintail` is the pattern as last copied, without its
-  avatar, if there was unsaved work. The last five reports are kept. Nothing is
-  sent anywhere. The log holds no names of panels or of your files, though an
-  error's words may name a file; and the pattern is your work. Look at a report
-  before you share it.
+  avatar, if there was unsaved work; and `crash.dmp`, if it crashed without
+  raising an error, which shows where it was to someone with that release's
+  debug symbols ([building](building.md#reading-a-crash-dump)). The last five
+  reports are kept. Nothing is sent anywhere. The log holds no names of panels
+  or of your files, though an error's words may name a file; the pattern is
+  your work; and the dump holds pieces of the program's memory, such as parts
+  of your work and your user name. Look at a report before you share it.
 - **After an error**: if the program meets an error it cannot go on from (out
   of memory in the middle of a change), it writes the recovery copy at once,
   says what happened and where the work is, and closes. If what fails is

@@ -179,11 +179,13 @@ See `ROADMAP.md` for what comes next.
   program does not wait for the disk to have it.
 - A crash that is not an error the program raises (memory used wrongly, a
   fault in a driver, a power cut) still ends it without a word: there is the
-  recovery copy of the last change, and a crash report that says what was done
-  last, not why (there is no crash dump yet).
-- A program ended from outside, as by Task Manager or a power cut, gets a crash
-  report too. One that stops while it starts, before its recovery folder is
-  there, gets none.
+  recovery copy of the last change, and a crash report.
+- Not every crash leaves a dump in its report: none for a program ended from
+  outside (Task Manager, a power cut), nor where Windows ends it at once, as for
+  some kinds of damaged memory, nor if a driver takes over the catching of
+  crashes.
+- A program ended from outside gets a crash report all the same. One that stops
+  while it starts, before its recovery folder is there, gets none.
 - A file cut short between two lines (a copy or a download that broke off)
   opens with what is left in it, without a word, unless the cut is inside the
   avatar or the draped cloth.

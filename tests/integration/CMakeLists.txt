@@ -24,6 +24,23 @@ target_compile_definitions(twintailor_crash_report_tests PRIVATE TWINTAILOR_TEST
 twintailor_warnings(twintailor_crash_report_tests)
 catch_discover_tests(twintailor_crash_report_tests TEST_PREFIX "crash reports: " PROPERTIES LABELS integration)
 
+# The crash dump: a program of its own crashes on purpose, and what it leaves is
+# read with the symbols made beside it.
+if(WIN32)
+    add_executable(twintailor_crashing_program CrashingProgram.cpp)
+    target_link_libraries(twintailor_crashing_program PRIVATE twintailor::session)
+    twintailor_warnings(twintailor_crashing_program)
+    add_executable(twintailor_crash_dump_tests CrashDumpTests.cpp)
+    target_link_libraries(twintailor_crash_dump_tests PRIVATE twintailor::session Catch2::Catch2WithMain dbghelp)
+    target_include_directories(twintailor_crash_dump_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/support)
+    target_compile_definitions(twintailor_crash_dump_tests PRIVATE TWINTAILOR_TEST_FOLDER="${CMAKE_CURRENT_BINARY_DIR}/crash-dump"
+        TWINTAILOR_CRASHING_PROGRAM="$<TARGET_FILE:twintailor_crashing_program>")
+    add_dependencies(twintailor_crash_dump_tests twintailor_crashing_program)
+    twintailor_warnings(twintailor_crash_dump_tests)
+    # A crash that waits for someone would hang the test: each has a time of its own.
+    catch_discover_tests(twintailor_crash_dump_tests TEST_PREFIX "crash dumps: " PROPERTIES LABELS integration TIMEOUT 120)
+endif()
+
 # Saving over a file that another program holds. Labelled "integration".
 add_executable(twintailor_saving_tests SavingTests.cpp)
 target_link_libraries(twintailor_saving_tests PRIVATE twintailor::core Catch2::Catch2WithMain)
@@ -106,4 +123,11 @@ if(TARGET twintailor)
                 -P ${PROJECT_SOURCE_DIR}/cmake/CheckPackage.cmake
         CONFIGURATIONS Release RelWithDebInfo)
     set_tests_properties("release: the installed folder is complete, and its program starts" PROPERTIES LABELS integration)
+    if(MSVC)
+        # Kept beside a release, apart from the package, so that its crash dumps can be read.
+        add_test(NAME "release: the program has its debug symbols"
+            COMMAND ${CMAKE_COMMAND} -E sha256sum $<TARGET_PDB_FILE:twintailor>
+            CONFIGURATIONS Release RelWithDebInfo)
+        set_tests_properties("release: the program has its debug symbols" PROPERTIES LABELS integration)
+    endif()
 endif()

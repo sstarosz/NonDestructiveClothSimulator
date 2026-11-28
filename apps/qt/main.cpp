@@ -21,6 +21,7 @@
 #include "MainWindow.h"
 #include "Theme.h"
 #include "Version.h"
+#include "twintailor/session/CrashDump.h"
 
 namespace {
 
@@ -53,6 +54,8 @@ int main(int argc, char** argv) {
         return 0;
     }
     twintailor::ui::Application app(argc, argv);
+    // A crash writes a dump, once the window has said where (keepRecoveryIn).
+    twintailor::session::catchCrashes();
     QApplication::setApplicationName("Twintailor");
     try {
         twintailor::ui::theme::apply(app);

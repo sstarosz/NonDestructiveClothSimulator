@@ -13,7 +13,7 @@ is a new choice.
 | --- | --- | --- |
 | `libs/core/` | The document (parameters, panels, operations, seams, the avatar), formulas, evaluation to 2D outlines, files | the standard library only |
 | `libs/sim/` | Meshing, arrangement in space, bodies (an avatar's file read in its unit and axes), the cloth solver, the garment as OBJ text | `core`, CDT |
-| `libs/session/` | One document being edited and everything worked out from it: `Commands` (what can be done to it), `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table or in the 3D view changes, and the tool in use, from `Tools`), `TableGizmo` (the table's gizmo), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples`, `Autosave` (the recovery copy of unsaved work), `CrashReport` (the log of what is done, and the report of a run that crashed), `FrameTimes` (what the window's frames take, for View > Frame times) | `core`, `sim` |
+| `libs/session/` | One document being edited and everything worked out from it: `Commands` (what can be done to it), `Editor` (changes, refusals, undo, redo), `Simulation` (the cloth's thread), `Session` (mesh, arrangement, body, cloth kept in step), `Drafting` (what a gesture on the table or in the 3D view changes, and the tool in use, from `Tools`), `TableGizmo` (the table's gizmo), `Lengths` (an outline's lengths and the formulas that set them), `Offers` (the operations a panel can be given from a list), `Locks`, `Samples`, `Autosave` (the recovery copy of unsaved work), `CrashReport` (the log of what is done, and the report of a run that crashed), `CrashDump` (the dump a crash writes), `FrameTimes` (what the window's frames take, for View > Frame times) | `core`, `sim` |
 | `libs/render/` | The 3D view's drawing with Vulkan through Vulkan-Hpp (`vk::raii`, loaded at run time, no VMA): `Scene` is plain data, `Renderer` draws it into a picture (tests) or a window's `Swapchain`; `sceneOf` turns a session into a scene; `Picking` finds what is under the mouse, `Gizmo` is the move, rotate and scale gizmo. Built when the Vulkan SDK is found; its tests skip where there is no Vulkan | `session`, Vulkan headers |
 | `apps/qt/` | The window (`twintailor`, Qt 6 Widgets), laid out as Maya is: `MainWindow` owns the session and decides; `Shelf`, `Outliner`, `ParametersPanel`, `AttributeEditor`, `TableView`, `SpaceView` only show and report. Built when Qt 6 and the Vulkan SDK are found | `session`, `render`, Qt 6 Widgets |
 | `examples/` | Seven garments as small programs; they also run as tests | `core` |
@@ -129,6 +129,9 @@ only ones other code may include), `src/` (sources and private headers) and
   runs, undo, redo and opening another: it hands its editor out for reading, so
   it sees every change. `Editor::change` (any change at all) is for tests,
   which reach a session's through `tests/support/Change.h`.
+- **Nothing is kept for the whole process but where a crash dump goes**
+  (`session/CrashDump.h`): Windows hands whoever catches a crash nothing of the
+  caller's. Everything else has an owner.
 - **What changes the work is noted before it is done** (`Session::note`,
   `session/CrashReport.h`), for the crash report: the session notes its
   commands and what else it does, a window what it does outside it, as saving.

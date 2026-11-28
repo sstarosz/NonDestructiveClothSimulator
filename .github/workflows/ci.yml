@@ -118,13 +118,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Set-Location package
           cmake -E tar cf "$env:PACKAGE.zip" --format=zip $env:PACKAGE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The debug symbols, apart from the package: a crash dump is read with them.
+          Set-Location "$env:GITHUB_WORKSPACE/out/build/x64-win-msvc2026/apps/qt/Release"
+          cmake -E tar cf "$env:GITHUB_WORKSPACE/package/$env:PACKAGE-symbols.zip" --format=zip twintailor.pdb
 
       - name: Keep the package
         if: inputs.package != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: package
-          path: ${{ github.workspace }}\package\${{ inputs.package }}.zip
+          path: |
+            ${{ github.workspace }}\package\${{ inputs.package }}.zip
+            ${{ github.workspace }}\package\${{ inputs.package }}-symbols.zip
           if-no-files-found: error
 
       - name: Keep the test results

@@ -25,7 +25,9 @@ the same version of the program, and a way past a command that crashes it.
 - To find the cause of a crash, the program records its last actions and the
   error and writes a crash dump, on the user's computer only; nothing is sent.
   The report of a crash also holds the pattern as it was last copied, without
-  its avatar. The crash dump is not built yet.
+  its avatar. The dump is Windows' own minidump of the stacks and what they point
+  at, written by the crashed program itself; a release keeps its debug symbols
+  in a file of their own.
 - Commands are not stored. This replaces that part of 0027.
 
 ## Why

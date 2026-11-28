@@ -80,9 +80,9 @@ In pull requests, in this order:
   be undone ([decision 0027](docs/decisions/0027-every-change-is-a-command.md)).
 - Done: the recovery copy follows every change, so a crash loses little, and a
   run that did not close properly leaves a crash report on the user's computer,
-  with the last actions and the error
+  with the last actions, the error and, for a crash, a dump; each release keeps
+  its debug symbols
   ([decision 0028](docs/decisions/0028-recovery-copy-after-every-change.md)).
-  Left: a crash dump in the report, with the symbols of each release kept.
 - The release workflow is tried with a tag `v0.1.0-rc1`, and its zip on
   another PC (#82).
 - Last, the release's own pull request, when all of the above is done: the
