@@ -10,6 +10,7 @@ twintailor_library(session
         src/DrawingCommands.cpp
         src/Editor.cpp
         src/FrameTimes.cpp
+        src/LayerCommands.cpp
         src/Lengths.cpp
         src/Locks.cpp
         src/Offers.cpp

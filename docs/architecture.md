@@ -107,8 +107,9 @@ only ones other code may include), `src/` (sources and private headers) and
   holds all it needs. So far: setting a parameter or a layer's field, drawing
   panels, curves, corners and lines, cutting, splitting and mirroring, moving
   corners and handles, moving, turning, scaling and placing panels, duplicating
-  panels, deleting panels and corners, giving an edge a length of its own and
-  removing it, which end that length keeps, and pulling the cloth.
+  panels, deleting panels and corners, adding, removing, switching and moving
+  layers, their choices and what they use, baking, giving an edge a length of
+  its own and removing it, and pulling the cloth.
 - **`run` is one undo step; several changes are one in an edit.** `begin`
   opens it, `run` adds to it, `preview` takes the place of the preview before
   (what follows the mouse), `commit` keeps it and `cancel` takes all of it

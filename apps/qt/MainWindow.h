@@ -187,7 +187,10 @@ private:
     // Shows what came of a command or a change: the new state, or why not, in the
     // help line and on `field`. With `since`, how long it took, for Frame times.
     bool answer(const std::expected<void, std::string>& done, ValueField* field = nullptr, const QElapsedTimer* since = nullptr);
-    bool answer(const std::expected<session::Nothing, std::string>& done, ValueField* field = nullptr, const QElapsedTimer* since = nullptr);
+    template <class Done>
+    bool answer(const std::expected<Done, std::string>& done, ValueField* field = nullptr, const QElapsedTimer* since = nullptr) {
+        return answer(done ? std::expected<void, std::string>{} : std::unexpected(done.error()), field, since);
+    }
     // A number being dragged in a field: one edit (Commands.h), so one undo step.
     void dragField(session::DragPhase phase, const session::SetField& command);
     // The same for what has no command yet.
