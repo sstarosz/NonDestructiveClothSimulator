@@ -330,9 +330,9 @@ TEST_CASE("placement is typed in space; the views can be laid out", "[qt]")
     Window w;
     const PanelId front = w.panel("front");
     w.window.select(front);
-    type(w.window.attributes()->spaceField(1), "120");
+    type(w.window.attributes()->spaceField(session::SpaceField::Y), "120");
     EXPECT((w.doc().get(front).arrangement.y == 120.0), "y in space is typed in cm");
-    type(w.window.attributes()->spaceField(6), "160");
+    type(w.window.attributes()->spaceField(session::SpaceField::Wrap), "160");
     EXPECT((w.doc().get(front).arrangement.wrap == 160.0), "wrap in degrees");
 
     w.window.shelf()->layout(ViewLayout::Stacked)->trigger();
@@ -2851,7 +2851,7 @@ TEST_CASE("a panel is placed in space again where the table has it", "[qt]")
     const PanelId plain = w.panel("plain");
     w.window.select(plain);
     const double was = w.doc().get(plain).arrangement.x;
-    emit w.window.attributes()->spaceTyped(plain, 0, "250");
+    emit w.window.attributes()->spaceTyped(plain, session::SpaceField::X, "250");
     REQUIRE(w.doc().get(plain).arrangement.x == 250.0);
     REQUIRE(w.window.shelf()->placeFromTable()->isEnabled());
     w.window.shelf()->placeFromTable()->trigger();

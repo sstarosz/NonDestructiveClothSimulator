@@ -158,14 +158,48 @@ std::optional<OpRef<AdjustPoint>> adjustmentOf(const Document& doc, PanelId pane
     return std::nullopt;
 }
 
+double& numberOf(Arrangement& place, SpaceField field) {
+    switch (field) {
+    case SpaceField::X: return place.x;
+    case SpaceField::Y: return place.y;
+    case SpaceField::Z: return place.z;
+    case SpaceField::Turn: return place.turn;
+    case SpaceField::Tilt: return place.tilt;
+    case SpaceField::Roll: return place.roll;
+    case SpaceField::Wrap: break;
+    }
+    return place.wrap;
+}
+
+void setPlace(Document& doc, const PanelField& of, double number) {
+    const Panel& panel = doc.get(of.panel);
+    if (const SpaceField* space = std::get_if<SpaceField>(&of.field)) {
+        Arrangement next = panel.arrangement;
+        next.placed = true;
+        numberOf(next, *space) = number;
+        doc.arrange(of.panel, next);
+        return;
+    }
+    const TableField table = std::get<TableField>(of.field);
+    if (table == TableField::Angle) {
+        doc.turn(of.panel, number);
+        return;
+    }
+    const double x = table == TableField::X ? number : panel.x, y = table == TableField::Y ? number : panel.y;
+    doc.place(of.panel, x, y);
+}
+
 } // namespace
 
-std::expected<Nothing, std::string> SetField::apply(Document& doc, const Result&) const {
+std::expected<Nothing, std::string> SetField::apply(Document& doc, const Result& before) const {
     if (const Param* parameter = std::get_if<Param>(&field)) {
         doc.set(*parameter, value);
+    } else if (const OperationField* of = std::get_if<OperationField>(&field)) {
+        doc.set(of->operation, of->field, value);
     } else {
-        const OperationField& of = std::get<OperationField>(field);
-        doc.set(of.operation, of.field, value);
+        const std::optional<double> number = valueOf(value, before);
+        if (!number) return std::unexpected("This works out to no number now.");
+        setPlace(doc, std::get<PanelField>(field), *number);
     }
     return Nothing{};
 }

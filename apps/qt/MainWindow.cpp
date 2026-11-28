@@ -292,22 +292,11 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(attributes_, &AttributeEditor::fieldDragged, this, [this](OpId layer, FieldId id, double value, session::DragPhase phase) {
         if (session_.document().contains(layer)) dragField(phase, {session::OperationField{layer, id}, Expr(value)});
     });
-    connect(attributes_, &AttributeEditor::spaceDragged, this, [this](PanelId panel, int which, double value, session::DragPhase phase) {
-        if (!session_.document().contains(panel)) return;
-        Arrangement next = session_.document().get(panel).arrangement;
-        next.placed = true;
-        double* slot[] = {&next.x, &next.y, &next.z, &next.turn, &next.tilt, &next.roll, &next.wrap};
-        *slot[which] = value;
-        changeByDrag(phase, [&](Document& doc) { doc.arrange(panel, next); }, {.touches = session::Touches::PlacementOnly});
+    connect(attributes_, &AttributeEditor::spaceDragged, this, [this](PanelId panel, session::SpaceField field, double value, session::DragPhase phase) {
+        if (session_.document().contains(panel)) dragField(phase, {session::PanelField{panel, field}, Expr(value)});
     });
-    connect(attributes_, &AttributeEditor::tableDragged, this, [this](PanelId panel, int which, double value, session::DragPhase phase) {
-        if (!session_.document().contains(panel)) return;
-        const Panel& p = session_.document().get(panel);
-        const double x = which == 0 ? value : p.x, y = which == 1 ? value : p.y;
-        changeByDrag(phase, [&](Document& doc) {
-            if (which == 2) doc.turn(panel, value);
-            else doc.place(panel, x, y);
-        }, {.touches = session::Touches::PlacementOnly});
+    connect(attributes_, &AttributeEditor::tableDragged, this, [this](PanelId panel, session::TableField field, double value, session::DragPhase phase) {
+        if (session_.document().contains(panel)) dragField(phase, {session::PanelField{panel, field}, Expr(value)});
     });
     connect(parameters_, &ParametersPanel::renamed, this, [this](Param parameter, QString name) {
         const std::string wanted = name.toStdString();
@@ -416,33 +405,11 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         say({});
     });
     connect(table_, &TableView::lengthCancelled, this, [this] { cancelLength(); });
-    connect(attributes_, &AttributeEditor::spaceTyped, this, [this](PanelId panel, int which, QString text) {
-        ValueField* field = attributes_->spaceField(which);
-        const std::optional<Expr> value = read(text, which < 3 ? Unit::Length : Unit::Angle, field);
-        if (!value) return;
-        // Placement keeps plain numbers: a formula is worked out once.
-        const std::optional<double> number = valueOf(*value, session_.editor().shapes());
-        if (!number) {
-            field->refuse("This works out to no number now.");
-            return;
-        }
-        Arrangement next = session_.document().get(panel).arrangement;
-        next.placed = true;
-        double* slot[] = {&next.x, &next.y, &next.z, &next.turn, &next.tilt, &next.roll, &next.wrap};
-        *slot[which] = *number;
-        change([&](Document& doc) { doc.arrange(panel, next); }, {.touches = session::Touches::PlacementOnly}, field);
+    connect(attributes_, &AttributeEditor::spaceTyped, this, [this](PanelId panel, session::SpaceField field, QString text) {
+        typed({panel, field}, text, attributes_->spaceField(field));
     });
-    connect(attributes_, &AttributeEditor::tableTyped, this, [this](PanelId panel, int which, QString text) {
-        ValueField* field = attributes_->tableField(which);
-        const std::optional<Expr> value = read(text, which < 2 ? Unit::Length : Unit::Angle, field);
-        const std::optional<double> number = value ? valueOf(*value, session_.editor().shapes()) : std::nullopt;
-        if (!number) return;
-        const Panel& p = session_.document().get(panel);
-        const double x = which == 0 ? *number : p.x, y = which == 1 ? *number : p.y;
-        change([&](Document& doc) {
-            if (which == 2) doc.turn(panel, *number);
-            else doc.place(panel, x, y);
-        }, {.touches = session::Touches::PlacementOnly}, field);
+    connect(attributes_, &AttributeEditor::tableTyped, this, [this](PanelId panel, session::TableField field, QString text) {
+        typed({panel, field}, text, attributes_->tableField(field));
     });
     connect(outliner_, &Outliner::copyRequested, this, [this](PanelId panel) { on(session::AddBeside{panel, session::Follow::Copy}); });
     // Instances and their seams are made for every selected panel; the rest of the shelf acts on the shown one.
@@ -457,11 +424,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
             say(baked == 0 ? "Nothing to bake: the panel has no formulas." : QString("Baked %1 formula%2 into numbers.").arg(baked).arg(baked == 1 ? "" : "s"));
     });
     connect(shelf_, &Shelf::placeFromTableRequested, this, [this] {
-        const std::optional<PanelId> selected = drafting_.selection.panel;
-        if (!selected) return;
-        const PanelId panel = *selected;
-        // No place of its own: the editor gives it one from the table again, keeping its anchor.
-        change([&](Document& doc) { doc.arrange(panel, Arrangement{.anchor = doc.get(panel).arrangement.anchor}); }, {.touches = session::Touches::PlacementOnly});
+        if (const std::optional<PanelId> selected = drafting_.selection.panel) answer(session_.run(session::PlaceFromTable{*selected}));
     });
     connect(outliner_, &Outliner::baseOnlyChanged, this, [this](PanelId panel, bool baseOnly) {
         if (session_.document().contains(panel)) change([&](Document& doc) { doc.setConstruction(panel, baseOnly); });
@@ -1160,12 +1123,12 @@ void MainWindow::showMeshCounts() {
     attributes_->showMesh(counts);
 }
 
-void MainWindow::changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb, session::ChangeRules rules) {
+void MainWindow::changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb) {
     if (phase == session::DragPhase::Begin) numberDragged_ = session_.begin();
     if (!numberDragged_ || !session_.editing(*numberDragged_)) return;  // something else was done: the drag is over
     QElapsedTimer took;
     took.start();
-    answer(session_.editor().change(*numberDragged_, verb, rules), nullptr, &took);
+    answer(session_.editor().change(*numberDragged_, verb), nullptr, &took);
     if (phase == session::DragPhase::End) session_.commit(*numberDragged_);
 }
 
@@ -1206,6 +1169,11 @@ void MainWindow::typed(OpId layer, FieldId id, const QString& text, ValueField* 
     if (!session_.document().contains(layer)) return;
     const Unit unit = fields(session_.document().get(layer))[id.index].unit;
     if (const std::optional<Expr> value = read(text, unit, field)) answer(session_.run(session::SetField{session::OperationField{layer, id}, *value}), field);
+}
+
+void MainWindow::typed(const session::PanelField& place, const QString& text, ValueField* field) {
+    if (!session_.document().contains(place.panel)) return;
+    if (const std::optional<Expr> value = read(text, field->unit(), field)) answer(session_.run(session::SetField{place, *value}), field);
 }
 
 std::optional<Expr> MainWindow::read(const QString& text, Unit unit, ValueField* field) {

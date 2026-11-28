@@ -91,14 +91,28 @@ struct OperationField {
     FieldId field;
 };
 
-// A parameter's value, or a field of an operation, set to a number or a formula.
+// The numbers of a panel's place on the table, and of its place in space
+// (Arrangement).
+enum class TableField { X, Y, Angle };
+enum class SpaceField { X, Y, Z, Turn, Tilt, Roll, Wrap };
+struct PanelField {
+    PanelId panel;
+    std::variant<TableField, SpaceField> field;
+};
+
+// A parameter's value, a field of an operation, or a number of a panel's place,
+// set to a number or a formula. A place keeps plain numbers: a formula for it is
+// worked out once. Setting a number in space gives the panel a place there.
 struct SetField {
-    std::variant<Param, OperationField> field;
+    std::variant<Param, OperationField, PanelField> field;
     Expr value;
     Grows grows = Grows::AwayFromSeams;  // how the panels it reshapes grow
 
     using Done = Nothing;
-    ChangeRules rules() const { return {.grows = grows}; }
+    ChangeRules rules() const {
+        if (std::holds_alternative<PanelField>(field)) return {.touches = Touches::PlacementOnly};
+        return {.grows = grows};
+    }
     std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
 };
 
@@ -205,8 +219,96 @@ struct SetKeeping {
     std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
 };
 
+// ---- Placing panels --------------------------------------------------------------
+
+// The middle of the box that holds these panels where the table has them: what a
+// group turns and is scaled about, and where its gizmo stands. Empty if none has
+// an outline.
+std::optional<Vec2> middleOfPanels(const Document& doc, const Result& shapes, const std::vector<PanelId>& panels);
+
+// Panels moved on the table, each by as much. Their places in space stay.
+struct MovePanels {
+    std::vector<PanelId> panels;
+    Vec2 by;  // in cm
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Panels turned on the table by as many degrees: one about the middle of its own
+// box, several about the middle of their group (middleOfPanels).
+struct TurnPanels {
+    std::vector<PanelId> panels;
+    double degrees;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// Panels made as many times as big, along each one's own x and y: 1 is as it
+// is. What changes depends on the panel:
+//   - a Scale layer at its end, if one is there and holds plain numbers (a layer
+//     the user added stays the one that is changed);
+//   - else the lengths of its starting shape, if that is a Rect, a Circle or a
+//     RingSector whose lengths are plain numbers (so no layer is added);
+//   - else a new Scale layer at the end (a formula that sets a length is never
+//     overwritten, and an Instance has no lengths of its own).
+// A Scale layer set by a formula refuses the command and says where to change it.
+// Whichever way, the middle of a single panel's box stays where it was on the
+// table (the panel's place moves to keep it there) and in space (its anchor
+// moves by as much as that middle moved in the panel's own coordinates).
+// Several panels are scaled evenly (x and y the same): on the table about the
+// middle of the group, each panel's middle moving away from it by as much; in
+// space each about its own place.
+struct ScalePanels {
+    std::vector<PanelId> panels;
+    double x = 1.0, y = 1.0;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.grows = Grows::WhereDragged}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A panel carried through space, by as much in cm. One without a place of its
+// own starts from where the table has it. Its shape stays.
+struct MovePanelInSpace {
+    PanelId panel;
+    sim::Vec3 by;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A panel turned in space: about which axis, how many degrees
+// (counter-clockwise looking down the axis), about an axis through `about`,
+// else through its anchor. It starts as MovePanelInSpace does.
+struct TurnPanelInSpace {
+    PanelId panel;
+    sim::Vec3 axis;
+    double degrees;
+    std::optional<sim::Vec3> about{};
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
+// A panel's place in space given up, so that it gets one again from where the
+// table has it now (sim::firstPlace). Its anchor is kept.
+struct PlaceFromTable {
+    PanelId panel;
+
+    using Done = Nothing;
+    ChangeRules rules() const { return {.touches = Touches::PlacementOnly}; }
+    std::expected<Done, std::string> apply(Document& doc, const Result& before) const;
+};
+
 // Every command that changes the document.
-using DocumentCommand = std::variant<SetField, MoveCorners, DuplicatePanels, DeletePanels, DeleteCorners, GiveEdgeLength, RemoveEdgeLength, SetKeeping>;
+using DocumentCommand = std::variant<SetField, MoveCorners, DuplicatePanels, DeletePanels, DeleteCorners, GiveEdgeLength, RemoveEdgeLength, SetKeeping,
+                                     MovePanels, TurnPanels, ScalePanels, MovePanelInSpace, TurnPanelInSpace, PlaceFromTable>;
 
 template <class C>
 concept DocumentChange = isAlternative<C, DocumentCommand>;

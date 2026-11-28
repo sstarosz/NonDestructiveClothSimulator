@@ -14,8 +14,6 @@
 // On a symmetric panel (a mirror applied last), what is done on the mirrored
 // side is done on the drawn side, the mirrored way.
 
-#include <expected>
-#include <functional>
 #include <optional>
 #include <string>
 #include <variant>
@@ -57,7 +55,7 @@ struct SelectPanels {
     Pick how;
 };
 // The panel dragged moves to (x, y); if it is one of several selected panels, they
-// all move by as much, as one undo step.
+// all move by as much, as one undo step (MovePanels).
 struct MovePanel {
     PanelId panel;
     double x, y;  // where the panel's origin should now be on the table
@@ -84,28 +82,15 @@ struct MoveHandle {
     DragPhase phase;
 };
 // A panel turned by the rotate gizmo: `angle` is where it now points, in degrees.
-// If it is one of several selected panels, they all turn by as much, about the
-// middle of the group (middleOfPanels).
+// If it is one of several selected panels, they all turn by as much (TurnPanels).
 struct RotatePanel {
     PanelId panel;
     double angle;
     DragPhase phase;
 };
 // A panel scaled by the scale gizmo, along its own x and y: how many times as
-// big as when the drag began (1 is as it was). What changes depends on the panel:
-//   - a Scale layer at its end, if one is there and holds plain numbers (a layer
-//     the user added stays the one that is changed);
-//   - else the lengths of its starting shape, if that is a Rect, a Circle or a
-//     RingSector whose lengths are plain numbers (so no layer is added);
-//   - else a new Scale layer at the end (a formula that sets a length is never
-//     overwritten, and an Instance has no lengths of its own).
-// A Scale layer set by a formula refuses the drag and says where to change it.
-// Whichever way, the middle of the panel's box stays where it was on the table
-// (the panel's place moves to keep it there) and in space (its anchor moves by
-// as much as that middle moved in the panel's own coordinates). If it is one of
-// several selected panels, they are all scaled by as much, evenly (x and y the
-// same): on the table about the middle of the group, each panel's middle moving
-// away from it by as much; in space each about its own place.
+// big as when the drag began (1 is as it was). If it is one of several selected
+// panels, they are all scaled. What changes: see ScalePanels.
 struct ScalePanel {
     PanelId panel;
     double x, y;
@@ -258,10 +243,6 @@ struct Outcome {
     std::optional<LengthField> typeLength{};
 };
 
-// The middle of the box that holds these panels where the table has them: what a
-// group turns about, and where its gizmo stands. Empty if none has an outline.
-std::optional<Vec2> middleOfPanels(const Document& doc, const Result& shapes, const std::vector<PanelId>& panels);
-
 class Drafting {
 public:
     Outcome handle(Editor& editor, const Gesture& gesture);
@@ -336,8 +317,6 @@ private:
     // `panel` joins the selection as the one shown, or goes out of it; the others stay.
     void join(PanelId panel);
     void drop(PanelId panel);
-    // A drag in space: the arrangement `now` works out from the one the panel had when the drag began.
-    Outcome arrangeByDrag(Editor&, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now);
     // The edit the drag in progress is made in; handle() commits it as the drag ends.
     Edit dragIn(Editor& editor);
     std::optional<Edit> dragged_, typed_;
@@ -352,42 +331,18 @@ private:
     };
     std::optional<Dragging> dragging_;
     bool draggingCorners_ = false;  // a drag of corners that began with one that can move
-    // Panels being scaled by the gizmo, each in the way that adds the least to the
-    // document (see ScalePanel). A layer is only added with the first change that is
-    // accepted, so a refused drag leaves nothing behind.
-    struct ScalePart {
-        PanelId panel;
-        std::optional<OpId> layer;  // the Scale layer changed or added; empty until added
-        std::optional<OpId> shape;  // the starting operation whose lengths are scaled instead of a layer
-        double baseA = 1.0, baseB = 1.0;  // the layer's x and y, or the shape's two lengths, when the drag began
-        Vec2 middle;                // the middle of its box on the table when the drag began
-        Vec2 ownMiddle;             // the same in the panel's own coordinates
-        std::optional<Vec2> anchor;  // the anchor it was placed in space by then, if one was said
-    };
-    struct Scaling {
-        std::vector<ScalePart> parts;
-        Vec2 pivot;                 // what a group is scaled about
-        bool several = false;
-        bool changed = false;       // whether a moment of the drag has changed the document
-    };
-    std::optional<Scaling> scaling_;
-    std::expected<ScalePart, std::string> scalePartOf(const Editor& editor, PanelId panel) const;
-    // A panel being turned by the gizmo turns about the table position of its box's centre.
-    struct Turning {
-        Vec2 centre;  // in its own coordinates
-        Vec2 pivot;   // where that is on the table
-    };
-    std::optional<Turning> turning_;
-    // Several selected panels moved or turned together: where each was when the drag began.
-    struct GroupStart {
-        PanelId panel;
+    // A drag of panels, on the table or in space: those it takes along, and where
+    // the one taken hold of was on the table as it began.
+    struct Carried {
+        PanelId grabbed;
+        std::vector<PanelId> panels;
         double x, y, angle;
     };
-    std::vector<GroupStart> groupStarts_;
-    Vec2 groupPivot_;  // what a group turns about
-    // Fills groupStarts_ if `panel` is one of several selected ones; says whether it did.
-    bool beginGroup(const Document& doc, PanelId panel);
-    std::optional<Arrangement> arrangedFrom_;  // a panel's arrangement when a drag in space began
+    std::optional<Carried> carried_;
+    // Starts one: of the selected panels if `panel` is one of them, else of it alone.
+    void carry(const Document& doc, PanelId panel);
+    // Whether a drag of `panel` is in progress.
+    bool carrying(PanelId panel) const { return carried_ && carried_->grabbed == panel; }
     std::vector<PanelId> copied_;              // what CopySelection remembered
 };
 
