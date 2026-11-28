@@ -111,6 +111,24 @@ std::string layerName(const Document& doc, OpId layer) {
     return std::to_string(index + 1) + ". " + std::string(label(doc.get(layer)));
 }
 
+// The adjustment that goes on moving `corner`: its own, of plain numbers, with
+// nothing after it but adjustments of other corners (applied in any order, they
+// come to the same), layers that are off and a mirror applied last.
+std::optional<OpRef<AdjustPoint>> adjustmentOf(const Document& doc, PanelId panel, const CornerRef& corner) {
+    const std::vector<OpId> operations = doc.operations(panel);
+    for (auto op = operations.rbegin(); op != operations.rend(); ++op) {
+        if (!doc.enabled(*op)) continue;
+        const OpData& data = doc.get(*op);
+        if (const Mirror* mirror = std::get_if<Mirror>(&data); mirror && mirror->appliedLast) continue;
+        const AdjustPoint* adjust = std::get_if<AdjustPoint>(&data);
+        if (!adjust) break;
+        if (!(adjust->corner == corner)) continue;
+        if (asNumber(adjust->dx) && asNumber(adjust->dy)) return OpRef<AdjustPoint>(*op);
+        break;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 std::expected<Nothing, std::string> SetField::apply(Document& doc, const Result&) const {
@@ -127,19 +145,16 @@ std::expected<Nothing, std::string> MoveCorners::apply(Document& doc, const Resu
     const Vec2 own = turned(by, -doc.get(panel).angle);  // the movement in the panel's own coordinates
     const std::expected<std::vector<MovingCorner>, std::string> moving = movableCorners(doc, before, panel, corners, {own.x, own.y});
     if (!moving) return std::unexpected(moving.error().empty() ? std::string("there is no such corner") : moving.error());
-    if (moving->size() == 1) {
-        const MovingCorner& one = moving->front();
-        const std::vector<OpId> operations = doc.operations(panel);
-        const AdjustPoint* last = operations.empty() ? nullptr : std::get_if<AdjustPoint>(&doc.get(operations.back()));
-        if (last && last->corner == one.corner && asNumber(last->dx) && asNumber(last->dy)) {
-            const double x = *asNumber(last->dx) + one.by.dx, y = *asNumber(last->dy) + one.by.dy;
-            const OpRef<AdjustPoint> adjust(operations.back());
-            doc.set(adjust, &AdjustPoint::dx, Expr(x));
-            doc.set(adjust, &AdjustPoint::dy, Expr(y));
-            return Nothing{};
+    for (const MovingCorner& m : *moving) {
+        const std::optional<OpRef<AdjustPoint>> kept = adjustmentOf(doc, panel, m.corner);
+        if (!kept) {
+            doc.add(panel, AdjustPoint{.corner = m.corner, .dx = Expr(m.by.dx), .dy = Expr(m.by.dy)});
+            continue;
         }
+        const double x = *asNumber(doc.get(*kept).dx) + m.by.dx, y = *asNumber(doc.get(*kept).dy) + m.by.dy;
+        doc.set(*kept, &AdjustPoint::dx, Expr(x));
+        doc.set(*kept, &AdjustPoint::dy, Expr(y));
     }
-    for (const MovingCorner& m : *moving) doc.add(panel, AdjustPoint{.corner = m.corner, .dx = Expr(m.by.dx), .dy = Expr(m.by.dy)});
     return Nothing{};
 }
 

@@ -99,9 +99,10 @@ struct SetField {
 
 // Corners of a panel moved by as much, on the table. On a symmetric panel a
 // mirrored corner moves its original, the mirrored way. A corner that a
-// formula places stays; if all of them do, the command says why. One corner
-// keeps being moved by the panel's last operation if that moves it by plain
-// numbers; otherwise each corner gets an adjustment of its own.
+// formula places stays; if all of them do, the command says why. Each corner
+// has an adjustment of its own, and keeps being moved by it while nothing comes
+// after it but adjustments of other corners (and layers that are off, and a
+// mirror applied last); then it gets a new one.
 struct MoveCorners {
     PanelId panel;
     std::vector<CornerRef> corners;

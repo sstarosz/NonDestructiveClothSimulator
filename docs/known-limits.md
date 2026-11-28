@@ -57,9 +57,6 @@ What comes next is in the [roadmap](../ROADMAP.md).
 
 ## Editing
 
-- A dragged corner adds an adjustment layer when another layer was added since
-  its last drag, also one for another corner; several selected corners add
-  new layers at every drag.
 - Delete on a corner works only for corners added with the Point tool; any
   other corner is part of a shape, and the help line names the layer to
   change or remove. Deleting a panel that an instance or a seam uses

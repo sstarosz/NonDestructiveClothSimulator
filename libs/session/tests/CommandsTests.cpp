@@ -165,6 +165,44 @@ TEST_CASE("an edit is over once something else is done; what it made stays, and 
     EXPECT((editor.undo() && !editor.editing(third) && width() == 30.0), "undo ends an edit too");
 }
 
+TEST_CASE("each corner keeps one adjustment while only other corners are adjusted after it")
+{
+    Plain start;
+    Editor editor(start.doc);
+    const CornerRef left = start.rect.topLeft(), right = start.rect.topRight();
+    const auto layers = [&] { return editor.document().operations(start.panel).size(); };
+    const auto move = [&](std::vector<CornerRef> corners) { REQUIRE(editor.run(MoveCorners{.panel = start.panel, .corners = std::move(corners), .by = {0, 1}})); };
+
+    move({left, right});
+    move({left, right});
+    EXPECT((layers() == 3), "two corners dragged twice: the rectangle and one adjustment each");
+    move({left});
+    move({right});
+    move({left});
+    EXPECT((layers() == 3), "one corner, then the other, then the first again: the same two");
+    EXPECT((heightOf(editor, start.panel, left) == 44.0 && heightOf(editor, start.panel, right) == 43.0), "and each has moved as far as it was dragged");
+}
+
+TEST_CASE("a corner gets a new adjustment when another kind of layer came after its own, or its own is off")
+{
+    Plain start;
+    Editor editor(start.doc);
+    const CornerRef corner = start.rect.topRight();
+    const auto layers = [&] { return editor.document().operations(start.panel).size(); };
+    const MoveCorners up{.panel = start.panel, .corners = {corner}, .by = {0, 1}};
+
+    REQUIRE(editor.run(up));
+    REQUIRE(editor.change([&](Document& doc) { doc.add(start.panel, Scale{.x = 1.0, .y = 2.0}); }));
+    REQUIRE(editor.run(up));
+    EXPECT((layers() == 4), "after a Scale, the drag is a layer of its own: it is not stretched");
+
+    const OpId own = editor.document().operations(start.panel).back();
+    REQUIRE(editor.change([&](Document& doc) { doc.setEnabled(own, false); }, {.ifItBreaks = IfItBreaks::Allow}));
+    const double before = heightOf(editor, start.panel, corner);
+    REQUIRE(editor.run(up));
+    EXPECT((layers() == 5 && heightOf(editor, start.panel, corner) == before + 1.0), "one that is off is left as it is, and the corner still moves");
+}
+
 TEST_CASE("a corner that a formula places is not moved, and the command says why")
 {
     Front start;
