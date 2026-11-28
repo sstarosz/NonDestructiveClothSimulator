@@ -112,12 +112,13 @@ only ones other code may include), `src/` (sources and private headers) and
   (what follows the mouse), `commit` keeps it and `cancel` takes all of it
   back. One edit is open at a time, and anything else that changes the history
   ends it, so a forgotten edit cannot gather later changes.
-- **A window need not change the document while the mouse moves.** A command
-  says the whole change (`MoveCorners::by` is all of a drag), so the window
-  may show what is coming and run the command once, on release; a preview on
-  the way is a choice. What that picture needs worked out comes from
-  `session`, not from the window. Pulling the cloth is the exception: it acts
-  while the cloth is held.
+- **A drag leaves one change.** A command says the whole change
+  (`MoveCorners::by` is all of a drag) and each preview takes the place of the
+  one before: the table and the 3D view show the result as it goes, while the
+  layers get the difference from where the drag began to where it ended, never
+  one for each mouse move, and the history gets one step. A window may also
+  draw what is coming itself and run the command once, on release; what such a
+  picture needs worked out comes from `session`.
 - **What has no command yet goes through `session::Editor::change`**, by
   itself or in an edit. New actions are commands.
 - **Only `session::Session` is to run commands**, with the editor read-only
