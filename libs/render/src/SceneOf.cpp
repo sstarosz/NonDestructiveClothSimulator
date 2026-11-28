@@ -182,7 +182,7 @@ Scene sceneOf(const session::Session& session, const OrbitCamera& camera, double
             for (OpId op : doc.operations(panel.panel)) instance = instance || std::holds_alternative<Instance>(doc.get(op));
         const bool selected = options.selected && *options.selected == panel.panel;
         Surface surface;
-        surface.colour = selected ? selectedColour : instance ? instanceColour : clothColour;
+        surface.colour = selected ? selectedColour : instance && options.markInstances ? instanceColour : clothColour;
         if (!session.panelActive(panel.panel)) surface.colour.alpha = inactiveAlpha;
         surface.back = behind(surface.colour);
         surface.panel = panel.panel;

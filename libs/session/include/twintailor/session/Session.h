@@ -5,7 +5,7 @@
 // hands it what the user did. The window and the tests both use it.
 //
 //   Session session(std::move(doc));
-//   session.editor().change(...);       // every change of the document
+//   session.run(SetField{.field = waist, .value = 80_cm});  // a command (Commands.h), one undo step
 //   session.simulate(true);
 //   ...each frame:
 //   session.update();
@@ -41,6 +41,38 @@ public:
     Editor& editor() { return editor_; }
     const Editor& editor() const { return editor_; }
     const Document& document() const { return editor_.document(); }
+
+    // ---- Commands and edits (Commands.h) ----
+    // As the editor's (Editor::run, begin, preview, commit, cancel). A pull of
+    // the cloth is run only as a preview; the particle is let go when its edit
+    // is over.
+    template <DocumentChange C>
+    std::expected<typename C::Done, std::string> run(const C& command) {
+        auto done = editor_.run(command);
+        letGoAfterThePull();
+        return done;
+    }
+    Edit begin();
+    template <DocumentChange C>
+    std::expected<typename C::Done, std::string> run(Edit edit, const C& command) {
+        return editor_.run(edit, command);
+    }
+    template <DocumentChange C>
+    std::expected<typename C::Done, std::string> preview(Edit edit, const C& command) {
+        return editor_.preview(edit, command);
+    }
+    // Takes hold of a particle of the cloth shown, or leads the one held, as a
+    // hand would; `command.panel` and `.point` matter only as it takes hold.
+    // While it is held the cloth runs, even when it is not being simulated.
+    // False: there is nothing to take hold of, the hold is over (a new mesh, a
+    // reset), or the edit is.
+    bool preview(Edit edit, const PullCloth& command);
+    void commit(Edit edit);
+    // The document and the drape are as before the edit. Says whether there was
+    // anything to take back.
+    bool cancel(Edit edit);
+    bool editing(Edit edit) const { return editor_.editing(edit); }
+    bool pulling() const { return held_.has_value(); }
     // Another document, with no history: opening a file. The scene is as
     // `state` leaves it: its drape hangs again, paused. It starts saved.
     void open(Document document, SceneState state = {});
@@ -133,16 +165,6 @@ public:
     // How the cloth runs; changing it resets the cloth.
     void setThreading(Threading threading);
     Threading threading() const { return threading_; }
-
-    // ---- Pulling the cloth by hand ----
-    // Takes hold of a particle of the cloth shown and leads it to `to`, as a
-    // hand would. While it is held the cloth runs, even when it is not being
-    // simulated. `point` indexes the panel's particles in cloth().mesh.
-    // A panel carried through space meanwhile keeps the hold; a new mesh ends it.
-    void grab(PanelId panel, std::uint32_t point, sim::Vec3 to);
-    void pullTo(sim::Vec3 to);
-    void letGo();
-    bool pulling() const { return held_.has_value(); }
 
     // What to draw in space: the cloth when there is some, else the panels
     // where they are arranged. The positions belong to that mesh.
@@ -241,6 +263,9 @@ private:
         std::uint32_t panel, point;  // panel indexes cloth_.mesh's panels
     };
     std::optional<Held> held_;
+    std::optional<Edit> pull_;  // the edit the cloth is being pulled in
+    void release();             // lets go of the held particle
+    void letGoAfterThePull();   // the same, once that edit is over
 
     // The drape as it was when each state of the history was left, so that
     // undo and redo bring it back (keyed by Editor::step).

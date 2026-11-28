@@ -92,11 +92,16 @@ Document sharedBase() {
     return doc;
 }
 
+// What another sample needs of the T-shirt body to wear it with something else.
+struct Shirt {
+    Param ease, length;
+    PanelId front, back;
+};
+
 // A T-shirt body, front and back, each a mirrored half shaped by adding
 // points: a neck point on the top, an underarm point on the side. As
 // examples/06_tshirt_body.cpp.
-Document tshirtBody() {
-    Document doc;
+Shirt addTshirtBody(Document& doc) {
     Param chest         = doc.add(Parameter{.name = "chest", .value = 96_cm});
     Param ease          = doc.add(Parameter{.name = "ease", .value = 8_cm});
     Param length        = doc.add(Parameter{.name = "length", .value = 66_cm});
@@ -134,6 +139,12 @@ Document tshirtBody() {
     sew(front.fold.image(front.body.top()), back.body.top());
     doc.arrange(front.panel, Arrangement{.placed = true, .x = 0, .y = 104, .z = 14, .wrap = 165});
     doc.arrange(back.panel, Arrangement{.placed = true, .x = 0, .y = 104, .z = -14, .turn = 180, .wrap = 165});
+    return Shirt{.ease = ease, .length = length, .front = front.panel, .back = back.panel};
+}
+
+Document tshirtBody() {
+    Document doc;
+    addTshirtBody(doc);
     return doc;
 }
 
@@ -145,8 +156,7 @@ Document tshirtBody() {
 // are; the centre seams, each panel to its mirror image, are sewn by hand.
 // Right and left are the wearer's: the right leg stands at -x, since the body
 // faces +z.
-Document trousers() {
-    Document doc;
+void addTrousers(Document& doc) {
     Param waist       = doc.add(Parameter{.name = "waist", .value = 76_cm});
     Param hips        = doc.add(Parameter{.name = "hips", .value = 94_cm});
     Param ease        = doc.add(Parameter{.name = "ease", .value = 6_cm});
@@ -162,6 +172,12 @@ Document trousers() {
         PanelId panel;
         EdgeRef upperSide, lowerSide, inseam, rise;  // the side above and below the hip point
     };
+    // The side is rounded over the hips: two arcs that meet at the hip point in
+    // one line, so the outline has no corner there.
+    const auto round = [&](PanelId panel, EdgeRef upperSide, EdgeRef lowerSide) {
+        doc.add(panel, Curve{.edge = upperSide, .bulge = 1.6_cm});
+        doc.add(panel, Curve{.edge = lowerSide, .bulge = 0.4_cm});
+    };
     // Seen from outside, the front has the side on its left and the inside of
     // the leg on its right, and the back the other way round. A rectangle's
     // right edge runs from the hem up, its left edge from the waist down.
@@ -174,6 +190,7 @@ Document trousers() {
         doc.add(panel, Curve{.edge = crotch.after(body.right()), .bulge = -2_cm});                                   // the crotch curve
         doc.add(panel, SetLength{.edge = body.top(), .length = waist / 4, .keeping = SetLength::Keeping::Start});  // the centre front stays
         doc.add(panel, SetLength{.edge = body.bottom(), .length = ankle / 2});
+        round(panel, body.left(), hip.after(body.left()));
         return Leg{.panel = panel, .upperSide = body.left(), .lowerSide = hip.after(body.left()), .inseam = body.right(), .rise = crotch.after(body.right())};
     }();
     const Leg back = [&] {
@@ -186,6 +203,7 @@ Document trousers() {
         doc.add(panel, Curve{.edge = body.left(), .bulge = -2_cm});
         doc.add(panel, SetLength{.edge = body.top(), .length = waist / 4, .keeping = SetLength::Keeping::End});  // the centre back stays
         doc.add(panel, SetLength{.edge = body.bottom(), .length = ankle / 2});
+        round(panel, hip.after(body.right()), body.right());
         return Leg{.panel = panel, .upperSide = hip.after(body.right()), .lowerSide = body.right(), .inseam = crotch.after(body.left()), .rise = body.left()};
     }();
     const auto sew = [&](PanelId a, EdgeRef edgeA, PanelId b, EdgeRef edgeB) { doc.add(Seam{.a = {a, edgeA}, .b = {b, edgeB}}); };
@@ -212,6 +230,32 @@ Document trousers() {
     stand(back.panel, -11.5, -23, 180);
     stand(leftFront, 11.5, 22, 0);
     stand(leftBack, 11.5, -23, 180);
+}
+
+Document trousers() {
+    Document doc;
+    addTrousers(doc);
+    return doc;
+}
+
+// The T-shirt body worn over the trousers. It is shorter than on its own, and
+// stands further from the body than the trousers do, so they reach the body
+// first and the shirt comes to lie on them.
+Document tshirtAndTrousers() {
+    Document doc;
+    const Shirt shirt = addTshirtBody(doc);
+    // Both garments have an "ease" and a "length": the shirt's say whose they are.
+    doc.rename(shirt.ease, "shirt_ease");
+    doc.rename(shirt.length, "shirt_length");
+    doc.set(shirt.length, 52_cm);
+    for (PanelId panel : {shirt.front, shirt.back}) {
+        Arrangement raised = doc.get(panel).arrangement;
+        raised.y = 111;  // the shoulders stay where they were: half of what was taken off
+        raised.z = raised.z > 0 ? 36 : -37;  // well outside the trousers' fronts and backs
+        raised.wrap = 140;
+        doc.arrange(panel, raised);
+    }
+    addTrousers(doc);
     return doc;
 }
 
@@ -227,6 +271,7 @@ const std::vector<Sample>& samples() {
         {"5. Shared base", sharedBase, avatar},
         {"6. T-shirt body", tshirtBody, avatar},
         {"7. Trousers", trousers, avatar},
+        {"8. T-shirt and trousers", tshirtAndTrousers, avatar},
     };
     return all;
 }

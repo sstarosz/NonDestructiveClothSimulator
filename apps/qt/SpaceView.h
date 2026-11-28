@@ -10,8 +10,8 @@
 // turn it, handles scale it; Ctrl moves in whole centimetres, turns in steps
 // of 15° and scales in steps of 10 %. With Move, dragging the selected panel
 // itself carries it too. Select (Q) shows no gizmo and only selects. While the
-// cloth plays, dragging it pulls it by the particle under the mouse, as in
-// Marvelous Designer, whatever the tool; paused, only the Pull tool (H) does,
+// cloth plays, dragging it pulls it by the particle under the mouse,
+// whatever the tool; paused, only the Pull tool (H) does,
 // and Move carries the selected panel, drape and all (session::clothDrag). The
 // view only reports these; the main window hands them to session::Drafting.
 //

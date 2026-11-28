@@ -1042,6 +1042,29 @@ TEST_CASE("a length is typed on the table with a live preview; Enter keeps it an
     EXPECT((table->lengthEditor() == nullptr && std::abs(shape().length(rect.bottom()) - 25.0) < 1e-9), "a click elsewhere leaves it, as it was");
 }
 
+TEST_CASE("something else done while a length is typed closes the bar, and each stays an undo step of its own", "[qt]")
+{
+    Table w;
+    const PanelId plain = w.panel("plain");
+    w.window.select(plain);
+    const OpRef<Rect> rect(first<Rect>(w.doc(), plain));
+    TableView* table = w.table();
+    const auto bottom = [&] { return w.window.session().editor().shapes()[plain].length(rect.bottom()); };
+    const Vec2 a = w.corner(plain, -1, -1), b = w.corner(plain, 1, -1);
+    send(table, QEvent::MouseButtonDblClick, table->toScreen({(a.x + b.x) / 2, (a.y + b.y) / 2}), Qt::LeftButton, Qt::LeftButton, {});
+    REQUIRE(table->lengthEditor() != nullptr);
+    table->lengthEditor()->setText("22");
+    const std::size_t panels = w.doc().panels().size();
+
+    w.window.shelf()->mirroredInstance()->trigger();  // a button that leaves the focus on the bar
+    EXPECT((table->lengthEditor() == nullptr), "the bar closes");
+    EXPECT((bottom() == 22.0 && w.doc().panels().size() == panels + 1), "what was typed stays, and the instance is made");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((bottom() == 22.0 && w.doc().panels().size() == panels), "one undo for the instance");
+    w.window.shelf()->undo()->trigger();
+    EXPECT((bottom() == 30.0 && !w.window.shelf()->undo()->isEnabled()), "and one for the length");
+}
+
 TEST_CASE("an anchor chosen on an edge that has its own length is part of the edit, and Escape takes it back", "[qt]")
 {
     Table w;
@@ -1517,7 +1540,7 @@ TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is p
     w.window.shelf()->simulate()->setChecked(true);
     for (int i = 0; i < 5; ++i) w.window.tick();
     REQUIRE(w.window.session().clothShown());
-    const std::uint64_t version = w.window.session().editor().version();
+    const std::string pattern = toText(w.doc());
     // Off the middle again, so that the press is on the cloth and not on the gizmo.
     const render::PicturePoint nowMiddle = frontPanel(w).second;
     const double scale = space.inPicture({1, 1}).x;
@@ -1526,7 +1549,7 @@ TEST_CASE("in 3D the selected panel is carried by dragging it; draped cloth is p
     space.release();
     w.window.tick();
     EXPECT((!w.window.session().pulling()), "let go, it is not");
-    EXPECT((w.window.session().editor().version() == version), "pulling the cloth changes nothing in the document");
+    EXPECT((toText(w.doc()) == pattern), "pulling the cloth changes nothing in the document");
 }
 
 TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled while it plays, or with the Pull tool", "[qt]")
@@ -1600,11 +1623,20 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
     // Pull (H): the paused cloth is pulled, and runs while it is held.
     w.window.shelf()->action(Tool::Pull)->trigger();
     w.window.tick();
-    version = session.editor().version();
+    const std::string pattern = toText(w.doc());
+    const sim::Placement unpulled = session.cloth().positions;
     time = session.cloth().time;
     drag();
     EXPECT((held && session.cloth().time > time && moved(positions) > 1.0), "with Pull the cloth is held and runs");
-    EXPECT((!session.pulling() && !session.simulating() && session.editor().version() == version), "let go, it is paused again and the document is as it was");
+    EXPECT((!session.pulling() && !session.simulating() && toText(w.doc()) == pattern), "let go, it is paused again and the document is as it was");
+    const sim::Placement pulled = session.cloth().positions;
+    REQUIRE(w.window.shelf()->undo()->isEnabled());
+    w.window.shelf()->undo()->trigger();
+    w.window.tick();
+    EXPECT((moved(unpulled) < 1e-5 && toText(w.doc()) == pattern), "one undo takes the whole pull back, and only the pull");
+    w.window.shelf()->redo()->trigger();
+    w.window.tick();
+    EXPECT((moved(pulled) < 1e-5), "and redo pulls it again");
 
     // Playing: a drag pulls the cloth, whatever the tool.
     for (const Tool tool : {Tool::Select, Tool::Move}) {
@@ -1612,9 +1644,8 @@ TEST_CASE("with the cloth paused a drag in 3D selects or carries; it is pulled w
         w.window.shelf()->simulate()->setChecked(true);
         w.window.tick();
         EXPECT((w.window.helpLine().contains("pull")), "playing says that a drag pulls");
-        version = session.editor().version();
         drag();
-        EXPECT((held && session.editor().version() == version), "while the cloth plays a drag pulls it");
+        EXPECT((held && toText(w.doc()) == pattern), "while the cloth plays a drag pulls it");
         w.window.shelf()->simulate()->setChecked(false);
         w.window.tick();
     }
@@ -3862,6 +3893,44 @@ TEST_CASE("each file dialog starts in the folder of the last file of its kind, a
     EXPECT(startOf(w, "bodyAvatar").folder == assets, "a folder that has gone since is not offered");
 }
 
+TEST_CASE("View > Instances in violet marks instances in 3D, is off at first and is remembered", "[qt]")
+{
+    application();  // the folder below is beside the program
+    QTemporaryDir folder(QCoreApplication::applicationDirPath() + "/twintailor-violet-XXXXXX");
+    REQUIRE(folder.isValid());
+    const QString settings = folder.filePath("settings.ini");
+    // How many panels the 3D view draws violet; the trousers' left leg is two instances.
+    const auto violet = [](Window& w) {
+        int count = 0;
+        for (const render::Surface& surface : w.window.space()->sceneFor(200, 200).surfaces)
+            if (surface.panel && surface.colour.blue > surface.colour.green + 0.1f) ++count;
+        return count;
+    };
+    {
+        Window w;
+        w.window.keepSettingsIn(settings);
+        w.window.openSample(6);
+        w.window.tick();
+        auto* action = w.window.findChild<QAction*>("markInstances");
+        REQUIRE(action != nullptr);
+        EXPECT((!action->isChecked() && violet(w) == 0), "at first the legs look alike");
+        choose(w, "markInstances");
+        EXPECT((action->isChecked() && violet(w) == 2), "switched on, the instances are violet at once");
+    }
+    {
+        Window w;
+        w.window.keepSettingsIn(settings);
+        w.window.openSample(6);
+        w.window.tick();
+        EXPECT(violet(w) == 2, "the next run has them violet too");
+        choose(w, "markInstances");
+        EXPECT((violet(w) == 0 && !w.window.isWindowModified()), "off again; the pattern is as it was saved");
+    }
+    Window w;
+    w.window.keepSettingsIn(settings);
+    EXPECT(!w.window.findChild<QAction*>("markInstances")->isChecked(), "and off is remembered");
+}
+
 TEST_CASE("an avatar file that cannot be read opens no dialog and says why", "[qt]")
 {
     Window w;
@@ -4959,3 +5028,27 @@ TEST_CASE("the README's first garment: the trousers drape, take a wider waist, a
     EXPECT(w.window.exportObj(folder.filePath("trousers.obj")), "and it is exported");
 }
 
+
+// Numbers start again in every pattern, so its first panel and shape have those of the last one's.
+TEST_CASE("a layer of another pattern that has the same number is shown as what it is", "[qt]")
+{
+    Window w;
+    // Opens a pattern of one panel with this shape, selects the panel and says what its layer's card is called.
+    const auto cardOf = [&](auto shape) {
+        Document doc;
+        const PanelId panel = doc.add(Panel{.name = "panel"});
+        const OpId layer = doc.add(panel, shape);
+        w.window.open(std::move(doc), "pattern");
+        w.window.select(panel);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QWidget* card = w.window.attributes()->findChild<QWidget*>(QString("layer%1").arg(layer.value));
+        REQUIRE(card != nullptr);
+        QPushButton* name = card->findChild<QPushButton*>("layerName");
+        REQUIRE(name != nullptr);
+        return name->text();
+    };
+    EXPECT(cardOf(RingSector{.innerLength = 60_cm, .sweep = 180_deg, .depth = 30_cm}) == "Ring sector", "three numbers");
+    // The same numbers name a shape with two now: its card is made for it, and no third number is read.
+    EXPECT(cardOf(Rect{.width = 40_cm, .height = 20_cm}) == "Rectangle", "two numbers");
+    EXPECT(cardOf(Circle{.radius = 10_cm}) == "Circle", "and another two, called by their own name");
+}

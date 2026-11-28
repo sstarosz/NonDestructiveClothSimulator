@@ -1,7 +1,7 @@
 #pragma once
 // The example garments, as documents a window can open, each with the body
 // it is draped on; the same garments as examples/, built through the same
-// verbs.
+// verbs, and one that wears two of them together.
 //
 //   for (const Sample& sample : samples()) menu.add(sample.name, sample.build);
 

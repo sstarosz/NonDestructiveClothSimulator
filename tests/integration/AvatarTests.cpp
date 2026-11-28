@@ -133,7 +133,7 @@ TEST_CASE("a band sewn shut, with a skirt sewn to it, closes every seam on a bod
         EXPECT((!cloth.sewing()), "the sewing is over");
         // Where the band's own seam meets the skirt, four particles are sewn
         // into one point and pull against each other: that corner stays up to
-        // about 0.8 cm open (README, Known limits). Every other stitch closes.
+        // about 0.8 cm open (docs/known-limits.md). Every other stitch closes.
         EXPECT((widest < 1.0), "no stitch is left open, but for a little at the corner where three seams meet");
     }
 }
@@ -184,7 +184,7 @@ TEST_CASE("a T-shirt body shaped with added points sews shut on a body")
     EXPECT((deepest > 0.1), "no particle is inside the body");
     EXPECT((lowest > 70.0), "it hangs from the shoulders, not lower");
     // The avatar's armpits pinch the cloth at the underarm points: a few
-    // edges there stretch up to about 30% (README, Known limits).
+    // edges there stretch up to about 30% (docs/known-limits.md).
     std::size_t stretched = 0;
     for (std::size_t p = 0; p < mesh.panels.size(); ++p)
         for (const auto& t : mesh.panels[p].triangles)
@@ -241,6 +241,43 @@ TEST_CASE("the trousers sample sews shut on the avatar and hangs from the waist"
     // The sample as the window opens it (examples/07_trousers.cpp): a front and
     // a back for each leg, the left leg a mirrored instance of the right one.
     expectTrousersToHang(session::samples()[6].build());
+}
+
+TEST_CASE("the T-shirt and trousers sample sews shut on the avatar, the shirt over the trousers")
+{
+    const Document doc = session::samples()[7].build();
+    const Result shapes = evaluate(doc);
+    REQUIRE(shapes.ok());
+    const ClothMesh mesh = meshOf(doc, shapes, {.particleDistance = 2_cm});
+    REQUIRE(mesh.panels.size() == 6);  // the shirt's two, then the trousers' four
+    Cloth cloth(mesh, arranged(doc, mesh));
+    const Body& body = project::avatar();
+    run(cloth, body, 6.0);
+    double widest = 0.0, hem = 1e9, waistband = 0.0;
+    for (const Stitch& stitch : mesh.stitches)
+        widest = std::max(widest, length(cloth.positions()[stitch.panelA][stitch.pointA] - cloth.positions()[stitch.panelB][stitch.pointB]));
+    for (std::size_t p = 0; p < 2; ++p)
+        for (const Vec3& at : cloth.positions()[p]) hem = std::min(hem, at.y);
+    for (std::size_t p = 2; p < 6; ++p)
+        for (const Vec3& at : cloth.positions()[p]) waistband = std::max(waistband, at.y);
+    // Where the two lie on each other: is the shirt's particle further from the body than the trousers' nearest one?
+    std::size_t over = 0, under = 0;
+    for (std::size_t p = 0; p < 2; ++p)
+        for (const Vec3& at : cloth.positions()[p]) {
+            const Vec3* nearest = nullptr;
+            for (std::size_t q = 2; q < 6; ++q)
+                for (const Vec3& other : cloth.positions()[q])
+                    if (!nearest || length(other - at) < length(*nearest - at)) nearest = &other;
+            if (length(*nearest - at) < 3.0) ++(distanceTo(body, at) > distanceTo(body, *nearest) ? over : under);
+        }
+    std::printf("      outfit: widest stitch %.2f cm, shirt hem at %.1f cm, trousers' top at %.1f cm, over %zu, under %zu, stretch %.1f%%, fastest %.1f cm/s\n", widest, hem,
+                waistband, over, under, 100 * worstStretch(mesh, cloth.positions()), cloth.fastest());
+    EXPECT((cloth.sound() && !cloth.sewing()), "it is sewn, and every position is a number");
+    EXPECT((widest < 0.5), "every stitch is closed");
+    EXPECT((hem < waistband), "the shirt reaches down over the trousers: no skin shows between them");
+    EXPECT((over > 9 * under && over > 50), "the shirt lies over the trousers");
+    EXPECT((cloth.fastest() < 5.0), "it has settled");
+    EXPECT((waistband > project::avatarHips + 10.0), "the trousers hang from the waist");
 }
 
 TEST_CASE("trousers with only the right leg arranged, the left made as mirrored instances, hang as well")

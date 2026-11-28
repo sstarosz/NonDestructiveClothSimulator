@@ -63,6 +63,7 @@ QString assetsFolder() { return QCoreApplication::applicationDirPath() + "/asset
 
 // The names the folders are kept under in the settings file, in MainWindow::Files' order.
 constexpr std::array<const char*, 3> folderKeys = {"patternFolder", "avatarFolder", "exportFolder"};
+constexpr const char* markInstancesKey = "instancesInViolet";
 
 // A file named in a folder; the name alone where there is no folder to name.
 QString inFolder(const QString& folder, const QString& name) { return folder.isEmpty() ? name : QDir(folder).filePath(name); }
@@ -228,11 +229,12 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
         if (!choosing_) say(next);
     });
     connect(space_, &SpaceView::clothPulled, this, [this](PanelId panel, std::uint32_t point, sim::Vec3 to, session::DragPhase phase) {
-        // Pulling the cloth by hand changes nothing in the document: only the drape.
+        // Pulling the cloth by hand changes nothing in the document, only the drape: one undo step.
         if (choosing_ || !session_.document().contains(panel)) return;
-        if (phase == session::DragPhase::Begin) session_.grab(panel, point, to);
-        else if (phase == session::DragPhase::Continue) session_.pullTo(to);
-        else session_.letGo();
+        if (phase == session::DragPhase::Begin) pulled_ = session_.begin();
+        if (!pulled_) return;
+        if (phase == session::DragPhase::End) session_.commit(*pulled_);
+        else if (session_.preview(*pulled_, session::PullCloth{panel, point, to}) && phase == session::DragPhase::Begin) refresh();  // there is something to undo
     });
     connect(table_, &TableView::told, this, [this](const QString& why) { say(why, true); });
     connect(table_, &TableView::hinted, this, [this](const QString& next) { say(next); });
@@ -270,7 +272,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(parameters_, &ParametersPanel::valueTyped, this, [this](Param parameter, QString text) {
         ValueField* field = parameters_->field(parameter);
         if (const std::optional<Expr> value = read(text, session_.document().get(parameter).unit, field))
-            change([&](Document& doc) { doc.set(parameter, *value); }, {}, field);
+            answer(session_.run(session::SetField{parameter, *value}), field);
     });
     connect(parameters_, &ParametersPanel::addRequested, this, [this] {
         int n = 1;
@@ -285,10 +287,10 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
 
     // Dragging a number: the same changes as typing it, one undo step per drag.
     connect(parameters_, &ParametersPanel::valueDragged, this, [this](Param parameter, double value, session::DragPhase phase) {
-        if (session_.document().contains(parameter)) changeByDrag(phase, [&](Document& doc) { doc.set(parameter, Expr(value)); });
+        if (session_.document().contains(parameter)) dragField(phase, {parameter, Expr(value)});
     });
     connect(attributes_, &AttributeEditor::fieldDragged, this, [this](OpId layer, FieldId id, double value, session::DragPhase phase) {
-        if (session_.document().contains(layer)) changeByDrag(phase, [&](Document& doc) { doc.set(layer, id, Expr(value)); });
+        if (session_.document().contains(layer)) dragField(phase, {session::OperationField{layer, id}, Expr(value)});
     });
     connect(attributes_, &AttributeEditor::spaceDragged, this, [this](PanelId panel, int which, double value, session::DragPhase phase) {
         if (!session_.document().contains(panel)) return;
@@ -395,11 +397,11 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(attributes_, &AttributeEditor::fieldTyped, this, [this](OpId layer, FieldId id, QString text) { typed(layer, id, text, attributes_->field(layer, id)); });
     connect(table_, &TableView::keepingChosen, this, [this](OpId layer, SetLength::Keeping keeping) {
         if (!session_.document().contains(layer)) return;
-        session::ChangeRules rules = lengthRules(session_.document().panelOf(layer));
-        if (lengthChanged_) rules.step = session::Step::Continue;  // part of the edit that is open, if it has changed anything yet
-        const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(OpRef<SetLength>(layer), &SetLength::keeping, keeping); }, rules);
+        session::Editor& editor = session_.editor();
+        const std::expected<void, std::string> done =
+            editor.change(drafting_.typingIn(editor), [&](Document& doc) { doc.set(OpRef<SetLength>(layer), &SetLength::keeping, keeping); },
+                          lengthRules(session_.document().panelOf(layer)));
         if (!done) table_->showLengthProblem(QString::fromStdString(done.error()));
-        else lengthChanged_ = true;
         // The anchor shown is the one the document has, whether or not the change was taken.
         const SetLength::Keeping now = std::get<SetLength>(session_.document().get(layer)).keeping;
         table_->showKeeping(now);
@@ -412,8 +414,7 @@ MainWindow::MainWindow(session::Threading threading, QWidget* parent) : QMainWin
     connect(table_, &TableView::lengthEdited, this, [this](OpId layer, FieldId id, QString text) { previewLength(layer, id, text); });
     connect(table_, &TableView::lengthCommitted, this, [this](OpId layer, FieldId id, QString text) {
         previewLength(layer, id, text);  // what is in the field, if it was not shown yet
-        lengthEditFrom_.reset();
-        lengthChanged_ = false;
+        drafting_.commitTyping(session_.editor());
         say({});
     });
     connect(table_, &TableView::lengthCancelled, this, [this] { cancelLength(); });
@@ -590,6 +591,11 @@ void MainWindow::buildMenus() {
     seeThroughAction_->setCheckable(true);
     seeThroughAction_->setChecked(session_.bodySeeThrough());
     connect(seeThroughAction_, &QAction::triggered, this, &MainWindow::showBodySeeThrough);
+    markInstancesAction_ = view->addAction("Instances in violet");
+    markInstancesAction_->setObjectName("markInstances");
+    markInstancesAction_->setCheckable(true);
+    markInstancesAction_->setToolTip("In 3D, draws instances violet, as the table does.");
+    connect(markInstancesAction_, &QAction::triggered, this, &MainWindow::markInstances);
     QAction* grid = view->addAction("Grid on the table");
     grid->setCheckable(true);
     grid->setChecked(table_->gridShown());
@@ -627,8 +633,6 @@ void MainWindow::open(Document document, const QString& title, SceneState state)
     // A bar for a length of the document that is going has nothing to type into, and the next document may
     // have a layer with the same number.
     table_->closeLength();
-    lengthEditFrom_.reset();
-    lengthChanged_ = false;
     if (autosave_) autosave_->forget();  // what was there is saved, or thrown away
     session_.open(std::move(document), std::move(state));
     shelf_->simulate()->setChecked(false);
@@ -885,6 +889,15 @@ void MainWindow::keepSettingsIn(const QString& file) {
     const QSettings settings(file, QSettings::IniFormat);
     for (std::size_t i = 0; i < folders_.size(); ++i)
         if (const QString kept = settings.value(folderKeys[i]).toString(); !kept.isEmpty()) folders_[i] = kept;
+    markInstancesAction_->setChecked(settings.value(markInstancesKey, false).toBool());
+    showSpace();
+}
+
+// How the person likes to look at any pattern, so it is the program's to remember, not the file's.
+void MainWindow::markInstances(bool on) {
+    markInstancesAction_->setChecked(on);
+    if (!settingsFile_.isEmpty()) QSettings(settingsFile_, QSettings::IniFormat).setValue(markInstancesKey, on);
+    showSpace();
 }
 
 QString MainWindow::folderFor(Files files) const {
@@ -1024,7 +1037,8 @@ void MainWindow::showSpace() {
                   .body = session_.bodyPresent(),
                   .mesh = shelf_->mesh()->isChecked(),
                   .seam = choosing ? std::nullopt : drafting_.selection.seam,
-                  .seeThroughBody = !choosing && session_.bodySeeThrough()});
+                  .seeThroughBody = !choosing && session_.bodySeeThrough(),
+                  .markInstances = markInstancesAction_->isChecked()});
 }
 
 void MainWindow::setThreading(session::Threading threading) {
@@ -1148,18 +1162,35 @@ void MainWindow::showMeshCounts() {
     attributes_->showMesh(counts);
 }
 
-bool MainWindow::changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb, session::ChangeRules rules) {
-    if (phase == session::DragPhase::Begin) fieldDragTaken_ = false;
-    rules.step = fieldDragTaken_ ? session::Step::Continue : session::Step::New;
-    const bool done = change(verb, rules);
-    if (done) fieldDragTaken_ = true;
-    return done;
+void MainWindow::changeByDrag(session::DragPhase phase, const std::function<void(Document&)>& verb, session::ChangeRules rules) {
+    if (phase == session::DragPhase::Begin) numberDragged_ = session_.begin();
+    if (!numberDragged_ || !session_.editing(*numberDragged_)) return;  // something else was done: the drag is over
+    QElapsedTimer took;
+    took.start();
+    answer(session_.editor().change(*numberDragged_, verb, rules), nullptr, &took);
+    if (phase == session::DragPhase::End) session_.commit(*numberDragged_);
+}
+
+void MainWindow::dragField(session::DragPhase phase, const session::SetField& command) {
+    if (phase == session::DragPhase::Begin) numberDragged_ = session_.begin();
+    if (!numberDragged_ || !session_.editing(*numberDragged_)) return;  // something else was done: the drag is over
+    QElapsedTimer took;
+    took.start();
+    answer(session_.preview(*numberDragged_, command), nullptr, &took);
+    if (phase == session::DragPhase::End) session_.commit(*numberDragged_);
 }
 
 bool MainWindow::change(const std::function<void(Document&)>& verb, session::ChangeRules rules, ValueField* field) {
     QElapsedTimer took;
     took.start();
-    const std::expected<void, std::string> done = session_.editor().change(verb, rules);
+    return answer(session_.editor().change(verb, rules), field, &took);
+}
+
+bool MainWindow::answer(const std::expected<session::Nothing, std::string>& done, ValueField* field, const QElapsedTimer* since) {
+    return answer(done ? std::expected<void, std::string>{} : std::unexpected(done.error()), field, since);
+}
+
+bool MainWindow::answer(const std::expected<void, std::string>& done, ValueField* field, const QElapsedTimer* since) {
     if (!done) {
         const QString why = QString::fromStdString(done.error());
         say("Not changed: " + why, true);
@@ -1169,14 +1200,14 @@ bool MainWindow::change(const std::function<void(Document&)>& verb, session::Cha
     }
     say({});
     refresh();
-    frameTimes_.took(session::FrameTimes::Work::Change, static_cast<double>(took.nsecsElapsed()) / 1e6);
+    if (since) frameTimes_.took(session::FrameTimes::Work::Change, static_cast<double>(since->nsecsElapsed()) / 1e6);
     return true;
 }
 
 void MainWindow::typed(OpId layer, FieldId id, const QString& text, ValueField* field) {
     if (!session_.document().contains(layer)) return;
     const Unit unit = fields(session_.document().get(layer))[id.index].unit;
-    if (const std::optional<Expr> value = read(text, unit, field)) change([&](Document& doc) { doc.set(layer, id, *value); }, {}, field);
+    if (const std::optional<Expr> value = read(text, unit, field)) answer(session_.run(session::SetField{session::OperationField{layer, id}, *value}), field);
 }
 
 std::optional<Expr> MainWindow::read(const QString& text, Unit unit, ValueField* field) {
@@ -1192,7 +1223,7 @@ std::optional<Expr> MainWindow::read(const QString& text, Unit unit, ValueField*
 
 void MainWindow::refresh() {
     const Document& doc = session_.document();
-    if (!gesturing_) closeLengthIfGone();  // (a gesture that took the length away opens the bar again on another)
+    if (!gesturing_) closeLengthIfOver();  // (a gesture that took the length away opens the bar again on another)
     const Result& shapes = session_.editor().shapes();
     // Undo or redo of another avatar ends the cloth, or brings back the one that hung on it: it stands still then.
     if (doc.avatar() != shownAvatar_) {
@@ -1263,17 +1294,16 @@ void MainWindow::previewLength(OpId layer, FieldId id, const QString& text) {
         table_->showLengthProblem(QString::fromStdString(problem->message));
         return;
     }
-    session::ChangeRules rules = lengthRules(session_.document().panelOf(layer));
-    if (lengthChanged_) rules.step = session::Step::Continue;
     const Expr value = std::get<Expr>(parsed);
-    const std::expected<void, std::string> done = session_.editor().change([&](Document& doc) { doc.set(layer, id, value); }, rules);
+    session::Editor& editor = session_.editor();
+    const std::expected<void, std::string> done =
+        editor.change(drafting_.typingIn(editor), [&](Document& doc) { doc.set(layer, id, value); }, lengthRules(session_.document().panelOf(layer)));
     if (!done) {
         table_->showLengthProblem(QString::fromStdString(done.error()));  // the document is as it was
         return;
     }
     table_->showLengthProblem({});
     lengthText_ = text;
-    lengthChanged_ = true;
     refresh();
 }
 
@@ -1291,19 +1321,16 @@ session::ChangeRules MainWindow::lengthRules(PanelId panel) const {
     return {.grows = session::Grows::WhereDragged};
 }
 
-void MainWindow::closeLengthIfGone() {
+void MainWindow::closeLengthIfOver() {
     const auto& typing = table_->lengthBeingTyped();
-    if (!typing || session_.document().contains(typing->operation)) return;
+    if (!typing || (session_.document().contains(typing->operation) && !drafting_.typingEnded(session_.editor()))) return;
     table_->closeLength();
-    lengthEditFrom_.reset();
-    lengthChanged_ = false;
+    drafting_.commitTyping(session_.editor());
 }
 
 void MainWindow::cancelLength() {
     // All of the edit goes, and is forgotten: it must not be left to redo.
-    if (lengthEditFrom_) session_.editor().rollBackTo(*lengthEditFrom_);
-    lengthEditFrom_.reset();
-    lengthChanged_ = false;
+    drafting_.cancelTyping(session_.editor());
     // A length moves corners and makes none, so the corners that are chosen stay chosen: the click that
     // left the bar may be the one that adds to them.
     const std::vector<CornerRef> corners = drafting_.selection.corners;
@@ -1335,12 +1362,7 @@ void MainWindow::on(const session::Gesture& gesture) {
         explicit Running(bool& f) : flag(f) { flag = true; }
         ~Running() { flag = false; }
     } running(gesturing_);
-    // A length is typed in one go: Escape goes back to how it was before the gesture that opened the bar.
     const bool lengthGesture = std::holds_alternative<session::EditLength>(gesture) || std::holds_alternative<session::UseShapeLength>(gesture);
-    if (lengthGesture && !lengthEditFrom_) {
-        lengthEditFrom_ = session_.editor().step();
-        lengthChanged_ = false;
-    }
     QElapsedTimer took;  // a drag's every step is a change, shown again in every dock
     took.start();
     const session::Outcome done = drafting_.handle(session_.editor(), gesture);
@@ -1356,16 +1378,14 @@ void MainWindow::on(const session::Gesture& gesture) {
         const Field field = fields(session_.document().get(wanted.operation))[wanted.field.index];
         const std::optional<double> number = asNumber(field.value);
         const std::string now = number ? formatValue(*number, field.unit) : "= " + formatExpr(field.value, session_.document());
-        lengthChanged_ = lengthChanged_ || (lengthEditFrom_ && session_.editor().step() != *lengthEditFrom_);
         lengthText_ = QString::fromStdString(now);
         table_->typeLength(wanted, lengthText_);
         if (done.notice.empty()) say(lengthStatus(wanted));  // a refusal's words stay
     } else if (lengthGesture && !table_->lengthEditor()) {
-        lengthEditFrom_.reset();  // nothing to type: the gesture was refused, or has nothing to say
-        lengthChanged_ = false;
+        drafting_.commitTyping(session_.editor());  // nothing to type: the gesture was refused, or has nothing to say
     }
     gesturing_ = false;
-    closeLengthIfGone();  // a bar left for a length that this gesture took away
+    closeLengthIfOver();  // a bar left for a length that this gesture took away, or for one before it
 }
 
 // Delete, Ctrl+C, Ctrl+V and Ctrl+D typed in the 3D view do what they do on the

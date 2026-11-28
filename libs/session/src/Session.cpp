@@ -182,7 +182,7 @@ bool Session::panelShown(PanelId panel) const { return !listed(hidden_, panel); 
 
 void Session::setPanelActive(PanelId panel, bool active) {
     if (!document().contains(panel) || !keep(inactive_, panel, !active)) return;
-    if (!active && held_ && cloth_.mesh->panels[held_->panel].panel == panel) letGo();
+    if (!active && held_ && cloth_.mesh->panels[held_->panel].panel == panel) release();
     simulation_->leaveOut(inactive_);
     ++sceneVersion_;
 }
@@ -263,6 +263,7 @@ void Session::followAvatar() {
 
 void Session::resetCloth() {
     held_.reset();
+    pull_.reset();
     simulation_->stop();
     cloth_.mesh.reset();  // a cloth started next must not be taken for this one
     cloth_.positions.clear();
@@ -273,24 +274,56 @@ void Session::resetCloth() {
     ++sceneVersion_;
 }
 
-void Session::grab(PanelId panel, std::uint32_t point, sim::Vec3 to) {
+bool Session::preview(Edit edit, const PullCloth& pull) {
+    letGoAfterThePull();
+    if (!editor_.editing(edit)) return false;
+    if (pull_ == edit) {
+        if (held_) simulation_->hold(held_->panel, held_->point, pull.to);
+        return held_.has_value();
+    }
     // While a body is being worked out there is nothing under the cloth yet: pulled, it would fall through.
-    if (!clothShown() || !panelActive(panel) || !bodyReady()) return;
+    if (!clothShown() || !panelActive(pull.panel) || !bodyReady()) return false;
+    if (editor_.step() != shownStep_) followShapes(false);  // a change not followed yet comes first
     const std::vector<sim::PanelMesh>& panels = cloth_.mesh->panels;
-    const auto found = std::find_if(panels.begin(), panels.end(), [&](const sim::PanelMesh& p) { return p.panel == panel; });
-    if (found == panels.end() || point >= found->points.size()) return;
-    held_ = Held{static_cast<std::uint32_t>(found - panels.begin()), point};
-    simulation_->hold(held_->panel, point, to);
+    const auto found = std::find_if(panels.begin(), panels.end(), [&](const sim::PanelMesh& p) { return p.panel == pull.panel; });
+    if (found == panels.end() || pull.point >= found->points.size()) return false;
+    // The pull is an undo step: the drape as it is now is kept for the state before it.
+    keepDrape();
+    editor_.addStep(edit);
+    shownStep_ = editor_.step();
+    pull_ = edit;
+    held_ = Held{static_cast<std::uint32_t>(found - panels.begin()), pull.point};
+    simulation_->hold(held_->panel, held_->point, pull.to);
+    return true;
 }
 
-void Session::pullTo(sim::Vec3 to) {
-    if (held_) simulation_->hold(held_->panel, held_->point, to);
-}
-
-void Session::letGo() {
+void Session::release() {
     if (!held_) return;
     held_.reset();
     simulation_->letGo();
+}
+
+void Session::letGoAfterThePull() {
+    if (!pull_ || editor_.editing(*pull_)) return;
+    pull_.reset();
+    release();
+}
+
+Edit Session::begin() {
+    const Edit edit = editor_.begin();
+    letGoAfterThePull();
+    return edit;
+}
+
+void Session::commit(Edit edit) {
+    editor_.commit(edit);
+    letGoAfterThePull();
+}
+
+bool Session::cancel(Edit edit) {
+    const bool taken = editor_.cancel(edit);  // the drape of the state before comes back at the next update
+    letGoAfterThePull();
+    return taken;
 }
 
 void Session::setThreading(Threading threading) {
@@ -384,6 +417,7 @@ void Session::keepDrape() {
 }
 
 std::optional<std::string> Session::update(bool meshWanted) {
+    letGoAfterThePull();  // an undo, or a change made through the editor, ends it too
     followBody();
     if (!meshWanted) {
         simulation_->run(false);

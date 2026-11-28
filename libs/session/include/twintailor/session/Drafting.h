@@ -3,8 +3,9 @@
 // the document: the rules every window shares. A view only reports a gesture
 // (a corner dragged, an edge clicked with the Point tool, a panel turned by
 // the gizmo in 3D); Drafting decides, through the editor, so that every
-// change can be undone and one that would break the pattern is refused. It
-// also keeps the tool in use, what is selected and the drags in progress.
+// change can be undone and one that would break the pattern is refused. A drag
+// is one edit (Editor::begin), committed as it ends. It also keeps the tool in
+// use, what is selected and the drags in progress.
 //
 //   Drafting drafting;
 //   const Outcome done = drafting.handle(editor, MoveCorner{panel, corner, 2.0, 0.0, DragPhase::Begin});
@@ -196,16 +197,7 @@ struct UseShapeLength {
     EdgeRef edge;
 };
 
-// How a panel added next to another relates to it: a copy of its own, or
-// something that follows the source (an instance, or its mirror image). A
-// mirrored instance of a panel at one side of the body also stands in space as
-// its mirror image across x = 0, if the source has a place there and its anchor
-// is at least a quarter of its width from the middle. Everything else stands
-// where the table has it. This is the new panel's first place: it does not follow
-// the source's later moves.
-enum class Follow { Copy, Instance, MirroredInstance };
-// A new panel just right of `source`, selected. An instance is sewn as its
-// source is, as far as there is something to sew it to (Document::sewAsSource).
+// A new panel just right of `source`, selected (see DuplicatePanels).
 struct AddBeside {
     PanelId source;
     Follow how;
@@ -277,6 +269,16 @@ public:
     // selection that no longer exists goes.
     void forget(const Document& doc);
 
+    // A length is typed in one edit, so that whoever shows the field can keep
+    // all of it or take all of it back. EditLength and UseShapeLength change the
+    // pattern in it, and so does what is typed: typingIn is that edit, a new one
+    // if none is open. Something else done meanwhile ends it: typingEnded says
+    // so, and a field shown for it should close.
+    Edit typingIn(Editor& editor);
+    bool typingEnded(const Editor& editor) const { return typed_ && !editor.editing(*typed_); }
+    void commitTyping(Editor& editor);
+    void cancelTyping(Editor& editor);
+
     // What is selected. Windows read and set it as they please. `panel` is the
     // one the docks show, the gizmo stands at and the corners belong to; `others`
     // are the panels selected with it (Ctrl-click, a box with Ctrl).
@@ -336,7 +338,12 @@ private:
     void drop(PanelId panel);
     // A drag in space: the arrangement `now` works out from the one the panel had when the drag began.
     Outcome arrangeByDrag(Editor&, PanelId panel, DragPhase phase, const std::function<Arrangement(const Arrangement&)>& now);
+    // The edit the drag in progress is made in; handle() commits it as the drag ends.
+    Edit dragIn(Editor& editor);
+    std::optional<Edit> dragged_, typed_;
 
+    // The new panels become the selection; the help line says how they were sewn.
+    std::vector<PanelId> add(Editor&, const DuplicatePanels&, Outcome&);
     // The operation a drag writes to, and its values when the drag began.
     struct Dragging {
         OpId operation;
@@ -344,11 +351,7 @@ private:
         double baseX, baseY;
     };
     std::optional<Dragging> dragging_;
-    struct CornerDrag {
-        CornerRef corner;  // the drawn original that moves
-        OpId operation;    // the adjustment it is written to
-    };
-    std::vector<CornerDrag> cornerDrags_;  // while a group of corners is dragged
+    bool draggingCorners_ = false;  // a drag of corners that began with one that can move
     // Panels being scaled by the gizmo, each in the way that adds the least to the
     // document (see ScalePanel). A layer is only added with the first change that is
     // accepted, so a refused drag leaves nothing behind.
@@ -365,7 +368,7 @@ private:
         std::vector<ScalePart> parts;
         Vec2 pivot;                 // what a group is scaled about
         bool several = false;
-        bool stepOpen = false;      // whether an accepted change has opened the undo step
+        bool changed = false;       // whether a moment of the drag has changed the document
     };
     std::optional<Scaling> scaling_;
     std::expected<ScalePart, std::string> scalePartOf(const Editor& editor, PanelId panel) const;

@@ -1,7 +1,10 @@
 #include "twintailor/session/Locks.h"
 
+#include <cmath>
+
 #include "twintailor/core/Fields.h"
 #include "twintailor/session/Lengths.h"
+#include "Corners.h"
 
 namespace twintailor::session {
 
@@ -83,6 +86,24 @@ std::string handleLock(const Document& doc, PanelId panel, const EdgeRef& image,
     if (!asNumber(handle.x) || !asNumber(handle.y))
         return "Locked: this handle comes from a formula. Change the formula in its layer.";
     return {};
+}
+
+Movement acrossTheMirror(const Document& doc, const Result& shapes, PanelId panel, Movement moved, bool wasImage, const Vec2* position) {
+    const std::optional<OpRef<Mirror>> mirror = symmetryOf(doc, panel);
+    if (!mirror) return moved;
+    for (const SymmetryAxis& axis : shapes[panel].axes) {
+        if (!(axis.mirror == OpId(*mirror))) continue;
+        const double length = std::hypot(axis.end.x - axis.start.x, axis.end.y - axis.start.y);
+        if (length < 1e-9) continue;
+        const double ux = (axis.end.x - axis.start.x) / length, uy = (axis.end.y - axis.start.y) / length;
+        const double along = moved.dx * ux + moved.dy * uy;
+        if (wasImage) moved = {2.0 * along * ux - moved.dx, 2.0 * along * uy - moved.dy};
+        if (position) {
+            const double off = (position->x - axis.start.x) * uy - (position->y - axis.start.y) * ux;
+            if (std::abs(off) < 1e-6) moved = {along * ux, along * uy};  // on the axis: slide along it
+        }
+    }
+    return moved;
 }
 
 } // namespace twintailor::session

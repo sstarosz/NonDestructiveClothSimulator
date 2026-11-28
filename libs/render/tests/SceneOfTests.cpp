@@ -51,13 +51,18 @@ TEST_CASE("the scene has the body, every panel and the floor")
     putOn(session, figure());
     session.update();
     OrbitCamera camera;
-    const Scene scene = sceneOf(session, camera, 1.5, {.selected = start.front});
+    const Scene scene = sceneOf(session, camera, 1.5, {.selected = start.front, .markInstances = true});
     REQUIRE(scene.surfaces.size() == 3);
     EXPECT((!scene.surfaces[0].shownTriangles().empty() && scene.surfaces[0].shownTriangles().size() == session.bodySurface().triangles.size() * 3),
            "the body first, whole");
     const Surface& front = scene.surfaces[1];
     EXPECT((front.colour.red == 1.0f && front.colour.blue < 0.5f), "the selected panel is amber");
-    EXPECT((scene.surfaces[2].colour.blue > scene.surfaces[2].colour.green), "an instance is violet");
+    EXPECT((scene.surfaces[2].colour.blue > scene.surfaces[2].colour.green + 0.1f), "an instance is violet when instances are marked");
+    const Scene unmarked = sceneOf(session, camera, 1.5, {});
+    const Scene one = sceneOf(session, camera, 1.5, {.selected = start.copy});
+    EXPECT((unmarked.surfaces[2].colour.red == unmarked.surfaces[1].colour.red && unmarked.surfaces[2].colour.blue == unmarked.surfaces[1].colour.blue),
+           "and otherwise has the colour of other cloth");
+    EXPECT((one.surfaces[2].colour.red == 1.0f && one.surfaces[2].colour.blue < 0.5f), "selected, it is amber all the same");
     bool level = true;
     for (const Point& p : front.points) level = level && std::abs(p.z - 30.0f) < 1e-3f;
     EXPECT(level, "a panel stands where it is arranged");
@@ -252,7 +257,7 @@ TEST_CASE("a seam the cloth could not close is lined in red; selected it stays a
     session.update();
     // One stitched point held under the floor, where the one sewn to it cannot follow.
     const sim::Stitch stitch = session.cloth().mesh->stitches.front();
-    session.grab(session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0});
+    session.preview(session.begin(), session::PullCloth{session.cloth().mesh->panels[stitch.panelA].panel, stitch.pointA, {0, -40, 0}});
     for (int i = 0; i < 600; ++i) session.update();
     REQUIRE(!session.cloth().open.empty());
     OrbitCamera camera;

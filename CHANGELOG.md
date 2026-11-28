@@ -16,7 +16,7 @@ The program is not signed, so Windows warns about an unknown publisher:
 "Windows protected your PC". Choose "More info", then "Run anyway".
 
 A first garment, step by step:
-<https://github.com/sstarosz/Twintailor#using-twintailor>
+<https://github.com/sstarosz/Twintailor#a-first-garment-trousers>
 
 ### What it does
 
@@ -39,7 +39,8 @@ A first garment, step by step:
   version.
 - **Export OBJ**: the garment as it hangs, in the units and axes of the
   avatar's file, one group per panel, with the pattern as UVs.
-- Seven sample garments (File > Samples), from a skirt to trousers.
+- Eight sample garments (File > Samples), from a skirt to a T-shirt with
+  trousers.
 
 ### Known limits
 
@@ -57,4 +58,4 @@ A first garment, step by step:
 - Without a Vulkan driver the table works, and the 3D view says what is
   missing.
 
-All of them: <https://github.com/sstarosz/Twintailor#known-limits-of-01>
+All of them: <https://github.com/sstarosz/Twintailor/blob/main/docs/known-limits.md>
