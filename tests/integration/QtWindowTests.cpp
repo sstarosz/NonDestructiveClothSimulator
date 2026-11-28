@@ -2295,6 +2295,17 @@ TEST_CASE("a panel's particle distance is set in the Attribute Editor, for that 
     EXPECT((!w.doc().get(front).particleDistance), "undo gives the default back");
 }
 
+TEST_CASE("a number of a panel's place that is refused leaves its field marked", "[qt]")
+{
+    Window w;
+    const PanelId front = w.panel("front");
+    w.window.select(front);
+    const double before = w.doc().get(front).arrangement.y;
+    ValueField* field = w.window.attributes()->spaceField(session::SpaceField::Y);
+    type(field, "1 / 0");
+    EXPECT((w.doc().get(front).arrangement.y == before && field->property("refused").toBool()), "a formula that comes to no number changes nothing, and the field says so");
+}
+
 TEST_CASE("the shelf gives a mirrored instance and bakes the selected panel", "[qt]")
 {
     Window w;

@@ -21,14 +21,6 @@ bool taken(const std::expected<Done, std::string>& done, Outcome& outcome) {
     return false;
 }
 
-// A change that has no command yet.
-bool apply(Editor& editor, const std::function<void(Document&)>& verb, ChangeRules rules, Outcome& outcome) {
-    return taken(editor.change(verb, rules), outcome);
-}
-
-// Adding things may leave a problem behind: that is shown where it is, not refused.
-constexpr ChangeRules adding{.ifItBreaks = IfItBreaks::Allow};
-
 // "1 seam", "2 seams".
 std::string seamCount(std::size_t count) { return std::to_string(count) + (count == 1 ? " seam" : " seams"); }
 
@@ -188,14 +180,8 @@ Outcome Drafting::on(Editor& editor, const SewEdges& g) {
     Outcome outcome;
     const Document& doc = editor.document();
     if (!doc.contains(g.a.panel) || !doc.contains(g.b.panel)) return outcome;
-    for (SeamId id : doc.seams()) {
-        const Seam& seam = doc.get(id);
-        if ((seam.a == g.a && seam.b == g.b) || (seam.a == g.b && seam.b == g.a)) {
-            outcome.notice = "These two edges are already sewn together.";
-            return outcome;
-        }
-    }
-    apply(editor, [&](Document& d) { d.add(Seam{.a = g.a, .b = g.b, .reversed = sewsReversed(g.aAlong, g.bAlong)}); }, adding, outcome);
+    const Seam seam{.a = g.a, .b = g.b, .reversed = sewsReversed(g.aAlong, g.bAlong)};
+    if (const auto sewn = editor.run(AddSeam{seam}); !sewn) outcome.notice = sewn.error();
     return outcome;
 }
 
@@ -566,34 +552,16 @@ Outcome Drafting::on(Editor& editor, const SewAsSource&) {
         return outcome;
     }
 
-    const auto sew = [&](Document& d) {
-        std::size_t added = 0;
-        for (PanelId panel : instances) added += d.sewAsSource(panel).size();
-        return added;
-    };
-    // Tried on a copy first: with nothing to add there must be no undo step.
-    Document trial = doc;
-    const std::size_t sewn = sew(trial);
-    if (sewn > 0) {
-        if (apply(editor, [&](Document& d) { sew(d); }, adding, outcome))
-            outcome.notice = seamCount(sewn) + " sewn as on " +
-                             (instances.size() == 1 ? editor.document().get(editor.document().instanceOf(instances.front())->source).name
-                                                    : std::string("the panels they follow")) +
-                             ".";
+    const auto sewn = editor.run(SewInstances{instances});
+    if (!sewn) {
+        outcome.notice = sewn.error();
+        outcome.refused = true;
         return outcome;
     }
-
-    outcome.refused = true;
-    const std::vector<SeamId> seams = doc.seams();
-    const bool sourcesSewn = std::any_of(instances.begin(), instances.end(), [&](PanelId panel) {
-        const PanelId source = doc.instanceOf(panel)->source;
-        return std::any_of(seams.begin(), seams.end(), [&](SeamId id) { return doc.get(id).a.panel == source || doc.get(id).b.panel == source; });
-    });
-    if (!sourcesSewn)
-        outcome.notice = "Nothing to sew: the selected instances follow panels without seams. Sew those panels first, then try again.";
-    else
-        outcome.notice = "Nothing to add: each seam is there already, or the panel on its other side has no free instance of the same kind "
-                         "(plain or mirrored). Make that instance, or use the Sew tool.";
+    outcome.notice = seamCount(sewn->seams) + " sewn as on " +
+                     (instances.size() == 1 ? editor.document().get(editor.document().instanceOf(instances.front())->source).name
+                                            : std::string("the panels they follow")) +
+                     ".";
     return outcome;
 }
 

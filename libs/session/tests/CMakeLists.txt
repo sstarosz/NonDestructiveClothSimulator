@@ -10,7 +10,9 @@ twintailor_unit_tests(session SOURCES
     LocksTests.cpp
     OffersTests.cpp
     PanelCommandsTests.cpp
+    SeamCommandsTests.cpp
     SessionTests.cpp
+    SettingCommandsTests.cpp
     SimulationTests.cpp
     TableGizmoTests.cpp
 )
